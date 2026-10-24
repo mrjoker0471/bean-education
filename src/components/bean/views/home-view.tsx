@@ -84,7 +84,7 @@ function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
             <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
               <CountPill label="examinations" value={totals.exams} />
               <CountPill label="syllabus topics" value={totals.topics} />
-              <CountPill label="original study notes" value={totals.uniqueNotes} />
+              <CountPill label="original study notes" value={totals.uniqueNotes ?? totals.notes} />
               <CountPill label="practice questions" value={totals.questions} />
               <CountPill label="ready tests" value={totals.tests} />
             </div>

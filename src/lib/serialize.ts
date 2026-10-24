@@ -52,14 +52,14 @@ export function serializeExam(e: ExamWithCounts, topicCounts: Map<string, number
 }
 
 export async function loadContentMaps(): Promise<{ topicCounts: Map<string, number>; noteCounts: Map<string, number> }> {
-  const topicRows = await db.$queryRawUnsafe<{ examId: string; c: number }>(`
+  const topicRows = await db.$queryRawUnsafe<Array<{ examId: string; c: number }>>(`
     SELECT s.examId AS examId, COUNT(t.id) AS c
     FROM Topic t
     JOIN Unit u ON t.unitId = u.id
     JOIN Subject su ON u.subjectId = su.id
     JOIN Stage s ON su.stageId = s.id
     GROUP BY s.examId`)
-  const noteRows = await db.$queryRawUnsafe<{ examId: string; c: number }>(`
+  const noteRows = await db.$queryRawUnsafe<Array<{ examId: string; c: number }>>(`
     SELECT s.examId AS examId, COUNT(n.id) AS c
     FROM Note n
     JOIN Topic t ON n.topicId = t.id

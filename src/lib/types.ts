@@ -203,6 +203,12 @@ export interface BeanChatMessage {
   content: string
 }
 
+export interface CatalogResponse {
+  categories: { slug: string; name: string; description: string | null; examCount: number }[]
+  featured: ExamListItem[]
+  totals: { exams: number; topics: number; notes: number; questions: number; resources: number; tests: number; uniqueNotes?: number }
+}
+
 export interface BeanContext {
   examSlug?: string
   examName?: string

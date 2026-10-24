@@ -58,7 +58,8 @@ export async function GET(req: NextRequest) {
 
     const questionsAnswered = submitted.reduce((sum, a) => sum + (a.correctCount ?? 0) + (a.wrongCount ?? 0), 0)
     const correctTotal = submitted.reduce((sum, a) => sum + (a.correctCount ?? 0), 0)
-    const timeSpentMin = Math.round(submitted.reduce((sum, a) => sum + (a.timeSpentSec ?? 0), 0) / 60)
+    const timeSpentSec = submitted.reduce((sum, a) => sum + (a.timeSpentSec ?? 0), 0)
+    const timeSpentMin = timeSpentSec > 0 ? Math.max(1, Math.round(timeSpentSec / 60)) : 0
 
     const dto: ProgressDTO = {
       totals: {

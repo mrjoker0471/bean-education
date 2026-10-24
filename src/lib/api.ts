@@ -30,12 +30,6 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 // ─── Catalogue ───
-export interface CatalogResponse {
-  categories: { slug: string; name: string; description: string | null; examCount: number }[]
-  featured: ExamListItem[]
-  totals: { exams: number; topics: number; notes: number; questions: number; resources: number; tests: number }
-}
-
 export const api = {
   catalog: () => jsonFetch<CatalogResponse>('/api/catalog'),
 
