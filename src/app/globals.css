@@ -8,6 +8,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-playfair);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -37,86 +38,185 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-gold: var(--gold);
+  --color-gold-hover: var(--gold-hover);
+  --color-gold-dim: var(--gold-dim);
+  --color-success: var(--success);
+  --color-elevated: var(--elevated);
+  --color-page: var(--page);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ─── BEAN EXAMS design tokens — near-black & warm gold (the brand identity) ── */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.75rem;
+  --page: #070707;
+  --background: #070707;
+  --foreground: #F5F5F5;
+  --card: #111111;
+  --card-foreground: #F5F5F5;
+  --popover: #151515;
+  --popover-foreground: #F5F5F5;
+  --elevated: #151515;
+  --primary: #D6A514;
+  --primary-foreground: #141003;
+  --secondary: #1A1A1A;
+  --secondary-foreground: #F5F5F5;
+  --muted: #1A1A1A;
+  --muted-foreground: #A6A6A6;
+  --accent: #1D1B12;
+  --accent-foreground: #E5B92A;
+  --destructive: #C24E4E;
+  --border: #262626;
+  --input: #262626;
+  --ring: #D6A514;
+  --gold: #D6A514;
+  --gold-hover: #E5B92A;
+  --gold-dim: #8A6E13;
+  --success: #5B9A6E;
+  --chart-1: #D6A514;
+  --chart-2: #E5B92A;
+  --chart-3: #8A6E13;
+  --chart-4: #5B9A6E;
+  --chart-5: #A6A6A6;
+  --sidebar: #111111;
+  --sidebar-foreground: #F5F5F5;
+  --sidebar-primary: #D6A514;
+  --sidebar-primary-foreground: #141003;
+  --sidebar-accent: #1A1A1A;
+  --sidebar-accent-foreground: #F5F5F5;
+  --sidebar-border: #262626;
+  --sidebar-ring: #D6A514;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --page: #070707;
+  --background: #070707;
+  --foreground: #F5F5F5;
+  --card: #111111;
+  --card-foreground: #F5F5F5;
+  --popover: #151515;
+  --popover-foreground: #F5F5F5;
+  --elevated: #151515;
+  --primary: #D6A514;
+  --primary-foreground: #141003;
+  --secondary: #1A1A1A;
+  --secondary-foreground: #F5F5F5;
+  --muted: #1A1A1A;
+  --muted-foreground: #A6A6A6;
+  --accent: #1D1B12;
+  --accent-foreground: #E5B92A;
+  --destructive: #C24E4E;
+  --border: #262626;
+  --input: #262626;
+  --ring: #D6A514;
+  --gold: #D6A514;
+  --gold-hover: #E5B92A;
+  --gold-dim: #8A6E13;
+  --success: #5B9A6E;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-background text-foreground;
+    background-color: var(--page);
   }
+  ::selection {
+    background: rgba(214, 165, 20, 0.28);
+    color: #F5F5F5;
+  }
+}
+
+/* Custom scrollbars — thin gold-tinted, for scrollable study content */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #3a3a3a;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #D6A51466;
+}
+
+/* Serif display headings — premium editorial feel */
+.font-display {
+  font-family: var(--font-playfair), Georgia, 'Times New Roman', serif;
+}
+
+/* Focus visibility for accessibility */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Study-note markdown styling */
+.note-markdown h2 {
+  @apply font-display text-xl font-semibold text-gold mt-6 mb-2;
+}
+.note-markdown h3 {
+  @apply text-base font-semibold text-foreground mt-4 mb-2;
+}
+.note-markdown p {
+  @apply text-sm leading-relaxed text-muted-foreground mb-3;
+}
+.note-markdown ul, .note-markdown ol {
+  @apply list-disc pl-5 mb-3 space-y-1 text-sm text-muted-foreground;
+}
+.note-markdown ol {
+  @apply list-decimal;
+}
+.note-markdown strong {
+  @apply text-foreground font-semibold;
+}
+.note-markdown table {
+  @apply w-full text-xs border-collapse mb-4;
+}
+.note-markdown th {
+  @apply border border-border bg-elevated px-2 py-1.5 text-left text-foreground font-medium;
+}
+.note-markdown td {
+  @apply border border-border px-2 py-1.5 text-muted-foreground;
+}
+.note-markdown code {
+  @apply text-xs bg-elevated border border-border rounded px-1 py-0.5 text-gold;
+}
+.note-markdown blockquote {
+  @apply border-l-2 border-gold/50 pl-3 text-sm italic text-muted-foreground my-3;
+}
+
+/* Subtle card hover used across catalogue */
+.exam-card-hover {
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.exam-card-hover:hover {
+  border-color: rgba(214, 165, 20, 0.45);
+  box-shadow: 0 8px 30px rgba(214, 165, 20, 0.07);
+  transform: translateY(-2px);
+}
+
+/* Timed pulse for the test timer in its final minutes */
+@keyframes timer-warn {
+  0%, 100% { color: var(--gold); }
+  50% { color: var(--destructive); }
+}
+.timer-warning {
+  animation: timer-warn 1s ease-in-out infinite;
 }

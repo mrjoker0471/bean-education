@@ -1,31 +1,66 @@
 'use client'
 
-export default function Home() {
+import { useEffect } from 'react'
+import { useAppStore } from '@/lib/store'
+import { Header } from '@/components/bean/header'
+import { Footer } from '@/components/bean/footer'
+import { HomeView } from '@/components/bean/views/home-view'
+import { CatalogView } from '@/components/bean/views/catalog-view'
+import { ExamView } from '@/components/bean/views/exam-view'
+import { TopicView } from '@/components/bean/views/topic-view'
+import { TestRunnerView } from '@/components/bean/views/test-runner-view'
+import { ResultView } from '@/components/bean/views/result-view'
+import { BeanView } from '@/components/bean/views/bean-view'
+import { ProgressView } from '@/components/bean/views/progress-view'
+import { Compass, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
+export default function Page() {
+  const route = useAppStore(s => s.route)
+  const init = useAppStore(s => s.init)
+  const hydrated = useAppStore(s => s._hydrated)
+
+  useEffect(() => { init() }, [init])
+
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      gap: '2rem',
-      padding: '1rem'
-    }}>
-      <div style={{
-        position: 'relative',
-        width: '6rem',
-        height: '6rem'
-      }}>
-        <img
-          src="/logo.svg"
-          alt="Z.ai Logo"
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain'
-          }}
-        />
-      </div>
+    <div className="flex min-h-screen flex-col bg-page">
+      <Header />
+      <main className="flex-1" id="main">
+        {!hydrated ? (
+          <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading BEAN EXAMS">
+            <Loader2 className="h-6 w-6 animate-spin text-gold" />
+          </div>
+        ) : (
+          <>
+            {route.view === 'home' && <HomeView />}
+            {route.view === 'catalog' && <CatalogView />}
+            {route.view === 'exam' && route.slug && <ExamView slug={route.slug} initialTab={route.tab} />}
+            {route.view === 'topic' && route.topicId && <TopicView topicId={route.topicId} />}
+            {route.view === 'test' && route.attemptId && <TestRunnerView attemptId={route.attemptId} />}
+            {route.view === 'result' && route.attemptId && <ResultView attemptId={route.attemptId} />}
+            {route.view === 'bean' && <BeanView seeded={route.seeded} />}
+            {route.view === 'progress' && <ProgressView />}
+            {route.view === 'not-found' && <NotFound />}
+          </>
+        )}
+      </main>
+      <Footer />
+    </div>
+  )
+}
+
+function NotFound() {
+  const navigate = useAppStore(s => s.navigate)
+  return (
+    <div className="mx-auto flex max-w-md flex-col items-center px-4 py-24 text-center">
+      <Compass className="mb-4 h-10 w-10 text-gold" />
+      <h1 className="font-display text-2xl font-semibold text-foreground">Page not found</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        That link doesn&apos;t match anything in the BEAN EXAMS catalogue.
+      </p>
+      <Button className="mt-6 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'home' })}>
+        Back to home
+      </Button>
     </div>
   )
 }

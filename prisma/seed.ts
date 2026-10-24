@@ -138,14 +138,15 @@ async function main() {
               stats.notes++
             }
 
-            // Layer 2 — questions (attached per exam; deterministic ids)
+            // Layer 2 — questions (attached per exam topic; deterministic ids per topic)
             if (to.canonical && questionsByCanonical.has(to.canonical)) {
               const qs = questionsByCanonical.get(to.canonical)!
+              const qKey = hash8(topic.id)
               for (const [qi, q] of qs.entries()) {
                 await db.question.upsert({
-                  where: { id: `q_${ex.slug}_${to.canonical}_${qi}` },
+                  where: { id: `q_${qKey}_${qi}` },
                   create: {
-                    id: `q_${ex.slug}_${to.canonical}_${qi}`,
+                    id: `q_${qKey}_${qi}`,
                     examId: exam.id, stageId: stage.id, subjectId: subject.id, topicId: topic.id,
                     canonicalSlug: q.canonical, text: q.text,
                     optionsJson: JSON.stringify(q.options), correctIndex: q.correctIndex,
