@@ -127,3 +127,32 @@ Work Log:
 
 Stage Summary:
 - Task 4-b complete: topic workspace, test engine and result views fully implemented per VIEW CONTRACT (guest-scoped, api.* only, navigate-only routing, black-gold tokens, mobile-first, honest states). Server-authoritative test loop works end-to-end with real data. One documented emergency fix in globals.css (@utility font-display) restored the previously-500ing app shell.
+
+---
+Task ID: 6-a (integration + browser verification)
+Agent: main (Z.ai Code)
+Task: Integrate subagent views, fix defects, run lint/typecheck, agent-browser E2E verification.
+
+Work Log:
+- Fixed CatalogResponse export (moved to types.ts, api.ts now imports it); fixed $queryRawUnsafe generics in serialize.ts.
+- Installed remark-gfm — study-note GFM tables now render as real tables (was plain text).
+- Fixed sub-minute study time displaying as "no study time" (progress route now rounds up to 1 min).
+- bun run lint: 0 errors. tsc --noEmit: 0 errors in src/ (only pre-existing scaffold examples/skills/ paths report, not part of the app build).
+- agent-browser E2E (all performed on the running app at localhost:3000):
+  1. Homepage renders fully with live totals (77 exams, 1828 topics, 53 unique notes, 9374 questions, 253 tests) — screenshot verified (black/gold identity, Playfair serif).
+  2. Search "tnpsc" → live results (G1, G2/2A, G4) → click-through to exam detail.
+  3. Exam detail: honest "Preparation coverage" box, official-source links, count pills, 4 tabs, deep link ?tab=tests works.
+  4. Syllabus tab: subjects → units accordion → topics with note-badges/question counts/Practice buttons.
+  5. Topic workspace: breadcrumbs, full study note, curated resources with honest statuses, siblings chips, practice + ask-BEAN layers.
+  6. Topic test started (server-authoritative timer ticking, e.g. 07:51), answered questions, palette navigation, mark-for-review, AlertDialog submit.
+  7. Result: server-scored 1/8 (13%) — correct per actual clicks; per-topic progress bars; answer-review accordion with explanation boxes; retake/BEAN/progress actions.
+  8. BEAN Intelligence: attempt context carried ("Scored 1/8 … Weak topics: Ancient India (13%)"), AI reply grounded with memory hooks/traps, context-used line, style toggles.
+  9. My Progress: real totals (1 attempt / 2 answered / 50% accuracy), weak topic flagged with Revise button, attempt history with statuses.
+  10. Catalog: category chips with real counts, ExamCard grid, mobile layout clean.
+  11. Footer: sticks at viewport bottom on short page (900==900), pushed below on long syllabus page. NO horizontal overflow (desktop + 390px mobile).
+  12. Honest empty states verified: topic without note ("Original notes are being prepared"), no resources, not-found handling, NEET PG bare exam renders safely.
+  13. UPSC CSE pattern shows "−0.66 per wrong answer"; TNPSC shows "No negative marking".
+  14. Browser page errors: none. Recent dev.log: clean.
+
+Stage Summary:
+- All acceptance criteria from the build spec that are testable in-browser have been executed and pass. Platform is live on port 3000.
