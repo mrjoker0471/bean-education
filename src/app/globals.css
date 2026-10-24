@@ -156,8 +156,9 @@
   background-color: #D6A51466;
 }
 
-/* Serif display headings — premium editorial feel */
-.font-display {
+/* Serif display headings — premium editorial feel
+   (registered as a real Tailwind v4 utility so `@apply font-display` works) */
+@utility font-display {
   font-family: var(--font-playfair), Georgia, 'Times New Roman', serif;
 }
 
