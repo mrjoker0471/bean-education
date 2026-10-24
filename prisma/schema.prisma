@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,20 +7,228 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ─── Catalogue ────────────────────────────────────────────────────────────────
+
+model Category {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String?
+  exams       Exam[]
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Exam {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  name           String
+  shortName      String?
+  authority      String
+  categorySlug   String
+  state          String?
+  description    String
+  featured       Boolean  @default(false)
+  status         String   @default("CURRENT") // CURRENT | ANNOUNCED | RECURRING
+  syllabusStatus String   @default("UNVERIFIED") // VERIFIED | PARTIAL | UNVERIFIED
+  contentNote    String? // honest note about preparation coverage
+  sourceRefs     String? // JSON [{label, url}]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  category  Category       @relation(fields: [categorySlug], references: [slug])
+  stages    Stage[]
+  questions Question[]
+  resources Resource[]
+  attempts  Attempt[]
+  templates TestTemplate[]
+
+  @@index([categorySlug])
+}
+
+model Stage {
+  id          String  @id @default(cuid())
+  examId      String
+  slug        String
+  name        String
+  order       Int     @default(0)
+  paperNote   String? // short note about this stage/paper
+  patternJson String? // JSON: {durationMin, marks, questions, negativeMark, qualifying?, sections:[{name,questions,marks,durationMin?}]}
+  exam        Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  subjects  Subject[]
+  questions Question[]
+  templates TestTemplate[]
+
+  @@unique([examId, slug])
+}
+
+model Subject {
+  id          String  @id @default(cuid())
+  stageId     String
+  slug        String
+  name        String
+  description String?
+  icon        String? // lucide icon name
+  order       Int     @default(0)
+  stage       Stage   @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  units     Unit[]
+  questions Question[]
+  templates TestTemplate[]
+
+  @@unique([stageId, slug])
+}
+
+model Unit {
+  id          String  @id @default(cuid())
+  subjectId   String
+  slug        String
+  name        String
+  description String?
+  order       Int     @default(0)
+  subject     Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  topics Topic[]
+
+  @@unique([subjectId, slug])
+}
+
+model Topic {
+  id            String  @id @default(cuid())
+  unitId        String
+  slug          String
+  name          String
+  order         Int     @default(0)
+  description   String?
+  canonicalSlug String? // links to shared note/question/resource library
+  unit          Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  notes     Note[]
+  questions Question[]
+  resources Resource[]
+  templates TestTemplate[]
+
+  @@unique([unitId, slug])
+  @@index([canonicalSlug])
+}
+
+// ─── Layer 1: Study material ──────────────────────────────────────────────────
+
+model Note {
+  id            String   @id @default(cuid())
+  topicId       String
+  canonicalSlug String
+  title         String
+  markdown      String
+  version       String   @default("1.0")
+  sourceRefs    String? // JSON [{label, url}]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId])
+}
+
+model Resource {
+  id                 String    @id @default(cuid())
+  examId             String?
+  topicId            String?
+  canonicalSlug      String?
+  title              String
+  provider           String
+  type               String // TEXTBOOK_PDF | STUDY_NOTES | ARTICLE | VIDEO | REVISION | ORIGINAL_GUIDE
+  url                String
+  language           String    @default("English")
+  accessType         String    @default("FREE") // FREE | REGISTRATION | PAID
+  verificationStatus String    @default("PENDING_REVIEW") // VERIFIED | UNREACHABLE | PENDING_REVIEW | PAID
+  lastChecked        DateTime?
+  attribution        String?
+  note               String?
+  createdAt          DateTime  @default(now())
+  exam               Exam?     @relation(fields: [examId], references: [id])
+  topic              Topic?    @relation(fields: [topicId], references: [id])
+
+  @@index([canonicalSlug])
+  @@index([topicId])
+}
+
+// ─── Layer 2: Questions & tests ───────────────────────────────────────────────
+
+model Question {
+  id                 String   @id @default(cuid())
+  examId             String
+  stageId            String?
+  subjectId          String?
+  topicId            String?
+  canonicalSlug      String
+  text               String
+  optionsJson        String // JSON string[]
+  correctIndex       Int
+  explanation        String
+  difficulty         String   @default("MEDIUM") // EASY | MEDIUM | HARD
+  language           String   @default("English")
+  sourceType         String   @default("ORIGINAL") // ORIGINAL | PYQ_VERIFIED | PYQ_UNVERIFIED
+  sourcePaper        String?
+  year               Int?
+  verificationStatus String   @default("VERIFIED") // for ORIGINAL: author-verified answer
+  exam               Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  stage              Stage?   @relation(fields: [stageId], references: [id])
+  subject            Subject? @relation(fields: [subjectId], references: [id])
+  topic              Topic?   @relation(fields: [topicId], references: [id])
+
+  @@index([examId])
+  @@index([topicId])
+  @@index([canonicalSlug])
+}
+
+model TestTemplate {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  examId      String?
+  stageId     String?
+  subjectId   String?
+  topicId     String?
+  title       String
+  description String
+  type        String // TOPIC | SUBJECT | MIXED | MOCK | REVISION
+  configJson  String // JSON {count, durationMin, marksPerQuestion, negativeMark, sections?, filter}
+  order       Int       @default(0)
+  exam        Exam?     @relation(fields: [examId], references: [id])
+  stage       Stage?    @relation(fields: [stageId], references: [id])
+  subject     Subject?  @relation(fields: [subjectId], references: [id])
+  topic       Topic?    @relation(fields: [topicId], references: [id])
+  attempts    Attempt[]
+}
+
+// Topic back-relation for TestTemplate is intentionally omitted (topicId kept as plain FK)
+
+// ─── Student activity ─────────────────────────────────────────────────────────
+
+model Attempt {
+  id              String        @id @default(cuid())
+  guestId         String?
+  userId          String?
+  templateId      String?
+  examId          String?
+  examLabel       String
+  title           String
+  topicId         String?
+  subjectId       String?
+  configJson      String // JSON snapshot of config
+  questionIdsJson String // JSON string[] ordered
+  answersJson     String? // JSON {[questionId]: selectedIndex}
+  status          String        @default("IN_PROGRESS") // IN_PROGRESS | SUBMITTED | TIMED_OUT | ABANDONED
+  score           Float?
+  maxScore        Float?
+  correctCount    Int?
+  wrongCount      Int?
+  skippedCount    Int?
+  timeSpentSec    Int?
+  perTopicJson    String? // JSON {topicId: {name, correct, total}}
+  startedAt       DateTime      @default(now())
+  submittedAt     DateTime?
+  template        TestTemplate? @relation(fields: [templateId], references: [id])
+  exam            Exam?         @relation(fields: [examId], references: [id])
+
+  @@index([guestId])
+  @@index([status])
 }
