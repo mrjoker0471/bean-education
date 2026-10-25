@@ -17,6 +17,8 @@ import { CheckCircle2, Flag, Loader2, RotateCcw, TimerOff } from 'lucide-react'
 
 type StateResponse = AttemptStateDTO & { redirect?: string }
 
+const MAX_TIME_SPENT_SEC = 6 * 60 * 60 // honest clamp for untimed sessions
+
 export function TestRunnerView({ attemptId }: { attemptId: string }) {
   const navigate = useAppStore(s => s.navigate)
   const guestId = useAppStore(s => s.guestId)
@@ -26,13 +28,20 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
   const [fetchedFor, setFetchedFor] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
-  // Local runner state — answers are only sent on submit (server-authoritative)
+  // Local runner state — answers are autosaved and only scored on submit (server-authoritative)
   const [answers, setAnswers] = useState<Record<string, number>>({})
   const [marked, setMarked] = useState<Map<string, boolean>>(new Map())
   const [current, setCurrent] = useState(0)
+  const answersRef = useRef<Record<string, number>>({})
 
   const [clockBase, setClockBase] = useState<{ endsAt: number; offset: number } | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  // Untimed sessions measure elapsed time from this mount (clamped on submit)
+  const mountedAtRef = useRef<number>(Date.now())
+
+  // Autosave — debounced, silent, never disrupts the exam
+  const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle')
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -45,6 +54,7 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
 
   // Loading is derived: this attemptId has not been fetched (yet)
   const loading = fetchedFor !== attemptId
+  const untimed = state ? state.config.durationMin <= 0 : false
 
   // ─── Load attempt state (state changes only in async callbacks) ───
   useEffect(() => {
@@ -63,6 +73,13 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
         if (!alive) return
         setState(res)
         setClockBase({ endsAt: res.endsAt, offset: res.serverNow - Date.now() })
+        mountedAtRef.current = Date.now()
+        // Resume: restore saved answers only into an empty local set (fresh mount)
+        const saved = res.savedAnswers ?? {}
+        if (Object.keys(saved).length > 0 && Object.keys(answersRef.current).length === 0) {
+          answersRef.current = { ...saved }
+          setAnswers({ ...saved })
+        }
         setFetchedFor(attemptId)
       })
       .catch(e => {
@@ -73,24 +90,46 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
     return () => { alive = false }
   }, [attemptId, guestId, navigate, reloadKey])
 
+  // ─── Debounced autosave after each answer change (fire-and-forget, silent) ───
+  const queueAutosave = (next: Record<string, number>) => {
+    if (!guestId) return
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => {
+      api.autosaveAttempt(attemptId, guestId, next)
+        .then(r => { if (r?.ok) setSaveState('saved') })
+        .catch(() => { /* autosave failures must not disturb the exam */ })
+    }, 800)
+  }
+
+  // Clear any pending autosave timer when leaving the runner
+  useEffect(() => () => {
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+  }, [])
+
   const remainingSec = clockBase
     ? Math.max(0, Math.round((clockBase.endsAt - (nowMs + clockBase.offset)) / 1000))
     : null
 
   const answeredCount = Object.keys(answers).length
-  const timeSpentSec = state
-    ? Math.max(0, Math.min(state.config.durationMin * 60, state.config.durationMin * 60 - (remainingSec ?? 0)))
-    : 0
 
   // ─── Submit (also used by the timer; safe from callbacks and handlers) ───
-  const doSubmit = (timedOut: boolean) => {
-    void timedOut
+  const doSubmit = () => {
     if (!state || !guestId || submittingRef.current) return
     submittingRef.current = true
     setConfirmOpen(false)
     setSubmitting(true)
     setSubmitError(null)
-    api.submitAttempt(attemptId, guestId, answers, timeSpentSec)
+    // Flush any pending debounced autosave immediately (fire-and-forget)
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
+    }
+    api.autosaveAttempt(attemptId, guestId, answersRef.current).catch(() => {})
+    const durSec = state.config.durationMin * 60
+    const timeSpentSec = state.config.durationMin <= 0
+      ? Math.max(0, Math.min(MAX_TIME_SPENT_SEC, Math.round((Date.now() - mountedAtRef.current) / 1000)))
+      : Math.max(0, Math.min(durSec, durSec - (remainingSec ?? 0)))
+    api.submitAttempt(attemptId, guestId, answersRef.current, timeSpentSec)
       .then(() => navigate({ view: 'result', attemptId }))
       .catch(e => {
         submittingRef.current = false
@@ -103,8 +142,9 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
   useEffect(() => { submitFnRef.current = doSubmit })
 
   // ─── Clock tick + auto-submit exactly once when the timer hits zero ───
+  // Untimed tests never tick and never auto-submit.
   useEffect(() => {
-    if (!clockBase) return
+    if (!clockBase || untimed) return
     const iv = setInterval(() => {
       const now = Date.now()
       setNowMs(now)
@@ -115,7 +155,7 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
       }
     }, 1000)
     return () => clearInterval(iv)
-  }, [clockBase])
+  }, [clockBase, untimed])
 
   if (loading) {
     return (
@@ -158,17 +198,21 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
   const total = state.questions.length
   const unanswered = total - answeredCount
   const currentMarked = marked.get(q.id) ?? false
+  const backDocId = state.source === 'RIISHE' ? state.documentId : null
 
   const selectAnswer = (qid: string, idx: number) => {
-    setAnswers(prev => ({ ...prev, [qid]: idx }))
+    const next = { ...answersRef.current, [qid]: idx }
+    answersRef.current = next
+    setAnswers(next)
+    queueAutosave(next)
   }
 
   const clearResponse = () => {
-    setAnswers(prev => {
-      const next = { ...prev }
-      delete next[q.id]
-      return next
-    })
+    const next = { ...answersRef.current }
+    delete next[q.id]
+    answersRef.current = next
+    setAnswers(next)
+    queueAutosave(next)
   }
 
   const toggleMark = () => {
@@ -194,16 +238,36 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h1 className="font-display text-xl font-bold leading-tight text-foreground sm:text-2xl">{state.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{state.examLabel}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {state.examLabel}
+              {state.source === 'RIISHE' && (
+                <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold">Riishe test</Badge>
+              )}
+            </p>
+            {backDocId && (
+              <button
+                type="button"
+                className="mt-1.5 text-xs font-medium text-gold hover:underline"
+                onClick={() => navigate({ view: 'riishe', docId: backDocId })}
+              >
+                Back to workspace
+              </button>
+            )}
           </div>
-          <div className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-elevated px-4 py-2" role="timer" aria-label={`Time remaining: ${formatClock(remainingSec ?? 0)}`}>
-            <div className="text-right">
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Time left</p>
-              <p className={cn('font-display text-2xl font-bold tabular-nums text-foreground', remainingSec !== null && remainingSec < 60 && 'timer-warning')}>
-                {formatClock(remainingSec ?? 0)}
-              </p>
+          {untimed ? (
+            <Badge variant="outline" className="shrink-0 self-start border-border bg-elevated px-4 py-2 text-sm font-medium text-muted-foreground sm:self-auto">
+              <TimerOff className="mr-1.5 h-3.5 w-3.5" aria-hidden /> No time limit
+            </Badge>
+          ) : (
+            <div className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-elevated px-4 py-2" role="timer" aria-label={`Time remaining: ${formatClock(remainingSec ?? 0)}`}>
+              <div className="text-right">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Time left</p>
+                <p className={cn('font-display text-2xl font-bold tabular-nums text-foreground', remainingSec !== null && remainingSec < 60 && 'timer-warning')}>
+                  {formatClock(remainingSec ?? 0)}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-1.5">
           <Badge variant="outline" className="border-border bg-elevated text-muted-foreground">{state.config.count} questions</Badge>
@@ -216,6 +280,9 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
           <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold" aria-live="polite">
             <CheckCircle2 className="h-3 w-3" /> Answered {answeredCount}/{total}
           </Badge>
+          {saveState === 'saved' && (
+            <span className="text-[11px] text-muted-foreground" aria-hidden>Answers saved</span>
+          )}
         </div>
       </header>
 
@@ -372,7 +439,7 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
             <AlertDialogAction
               className="bg-gold text-primary-foreground hover:bg-gold-hover"
               disabled={submitting}
-              onClick={e => { e.preventDefault(); doSubmit(false) }}
+              onClick={e => { e.preventDefault(); doSubmit() }}
             >
               {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Scoring…</> : 'Submit final answers'}
             </AlertDialogAction>
@@ -380,16 +447,20 @@ export function TestRunnerView({ attemptId }: { attemptId: string }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Screen-reader + visual hint for the timed status */}
-      <p className="sr-only" aria-live="assertive">
-        {remainingSec !== null && remainingSec <= 0
-          ? 'Time is over. The test is being submitted automatically.'
-          : `Test in progress. Time remaining ${formatClock(remainingSec ?? 0)}.`}
-      </p>
-      {remainingSec === 0 && (
-        <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive shadow-lg" role="alert">
-          <TimerOff className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> Time over — submitting automatically…
-        </div>
+      {/* Screen-reader + visual hint for the timed status (untimed tests have none) */}
+      {!untimed && (
+        <>
+          <p className="sr-only" aria-live="assertive">
+            {remainingSec !== null && remainingSec <= 0
+              ? 'Time is over. The test is being submitted automatically.'
+              : `Test in progress. Time remaining ${formatClock(remainingSec ?? 0)}.`}
+          </p>
+          {remainingSec === 0 && (
+            <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive shadow-lg" role="alert">
+              <TimerOff className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> Time over — submitting automatically…
+            </div>
+          )}
+        </>
       )}
     </div>
   )

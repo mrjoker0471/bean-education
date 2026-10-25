@@ -9,9 +9,14 @@ import type {
   CatalogResponse,
   ExamDetailDTO,
   ExamListItem,
+  MaterialDetailDTO,
+  MaterialsResponseDTO,
   ProgressDTO,
   ResourceMetaDTO,
   RevisionCheckDTO,
+  RiisheExplanationsDTO,
+  RiisheTestDetailDTO,
+  RiisheWeakTopicDTO,
   TopicDetailDTO,
 } from './types'
 
@@ -98,4 +103,115 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(body),
   }),
+
+  // ─── Riishe — My Materials ───
+  materials: (guestId: string) =>
+    jsonFetch<MaterialsResponseDTO>(`/api/materials?guestId=${encodeURIComponent(guestId)}`),
+
+  material: (id: string, guestId: string) =>
+    jsonFetch<MaterialDetailDTO>(`/api/materials/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`),
+
+  uploadMaterial: (
+    guestId: string,
+    file: File,
+    meta: { title?: string; examLabel?: string; subjectLabel?: string; topicLabel?: string },
+    onProgress?: (pct: number) => void,
+  ) =>
+    new Promise<{ documentId: string; duplicate?: boolean }>((resolve, reject) => {
+      const form = new FormData()
+      form.set('guestId', guestId)
+      form.set('file', file)
+      if (meta.title) form.set('title', meta.title)
+      if (meta.examLabel) form.set('examLabel', meta.examLabel)
+      if (meta.subjectLabel) form.set('subjectLabel', meta.subjectLabel)
+      if (meta.topicLabel) form.set('topicLabel', meta.topicLabel)
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/materials')
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+      xhr.onload = () => {
+        try {
+          const body = JSON.parse(xhr.responseText) as { documentId?: string; duplicate?: boolean; error?: string }
+          if (xhr.status >= 200 && xhr.status < 300 && body.documentId) {
+            resolve({ documentId: body.documentId, duplicate: body.duplicate })
+          } else {
+            reject(new Error(body.error ?? `Upload failed (${xhr.status})`))
+          }
+        } catch {
+          reject(new Error(`Upload failed (${xhr.status})`))
+        }
+      }
+      xhr.onerror = () => reject(new Error('Network error during upload'))
+      xhr.onabort = () => reject(new Error('Upload cancelled'))
+      xhr.send(form)
+    }),
+
+  renameMaterial: (id: string, guestId: string, patch: { title?: string; examLabel?: string | null; subjectLabel?: string | null; topicLabel?: string | null }) =>
+    jsonFetch<{ ok: boolean }>(`/api/materials/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ guestId, ...patch }),
+    }),
+
+  deleteMaterial: (id: string, guestId: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/materials/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`, {
+      method: 'DELETE',
+    }),
+
+  retryMaterial: (id: string, guestId: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/materials/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+      body: JSON.stringify({ guestId }),
+    }),
+
+  /** Same-origin streamed upload file (owner-only; Range-capable for pdf.js). */
+  materialFileUrl: (id: string, download?: boolean, guestId?: string) => {
+    const p = new URLSearchParams()
+    if (guestId) p.set('guestId', guestId)
+    if (download) p.set('download', '1')
+    return `/api/materials/${encodeURIComponent(id)}/file?${p.toString()}`
+  },
+
+  // ─── Riishe — tests ───
+  generateRiisheTest: (body: {
+    guestId: string
+    documentId: string
+    focusTopics?: string[]
+    weakFocus?: boolean
+    timed?: boolean
+    count?: number
+  }) =>
+    jsonFetch<{ testId: string; existing?: boolean }>('/api/riishe/generate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  riisheTest: (id: string, guestId: string) =>
+    jsonFetch<RiisheTestDetailDTO>(`/api/riishe/tests/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`),
+
+  startRiisheTest: (id: string, guestId: string) =>
+    jsonFetch<{ attemptId: string; resumed?: boolean }>(`/api/riishe/tests/${encodeURIComponent(id)}/start`, {
+      method: 'POST',
+      body: JSON.stringify({ guestId }),
+    }),
+
+  riisheWeakTopics: (guestId: string) =>
+    jsonFetch<{ weakTopics: RiisheWeakTopicDTO[] }>(`/api/riishe/weak-topics?guestId=${encodeURIComponent(guestId)}`),
+
+  // ─── Riishe — post-exam explanations ───
+  requestExplanations: (attemptId: string, guestId: string) =>
+    jsonFetch<{ started: boolean; alreadyReady: number }>(`/api/riishe/attempts/${encodeURIComponent(attemptId)}/explain`, {
+      method: 'POST',
+      body: JSON.stringify({ guestId }),
+    }),
+
+  riisheExplanations: (attemptId: string, guestId: string) =>
+    jsonFetch<RiisheExplanationsDTO>(`/api/riishe/attempts/${encodeURIComponent(attemptId)}/explanations?guestId=${encodeURIComponent(guestId)}`),
+
+  // ─── Attempt autosave (refresh-safe) ───
+  autosaveAttempt: (attemptId: string, guestId: string, answers: Record<string, number>) =>
+    jsonFetch<{ ok: boolean; savedCount?: number }>(`/api/attempts/${encodeURIComponent(attemptId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ guestId, answers }),
+    }),
 }

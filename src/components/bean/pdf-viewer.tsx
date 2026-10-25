@@ -147,7 +147,18 @@ export function PdfViewerPage({ resourceId }: { resourceId: string }) {
 // ═════════════════════════════════════════════════════════════════════════════
 type ZoomMode = 'fit-width' | 'fit-page' | 'custom'
 
-function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => void }) {
+function PdfReader({ meta, onRetry, srcOverride, backOverride }: {
+  meta: ResourceMetaDTO
+  onRetry: () => void
+  /** Overrides for Riishe uploads (owner-streamed files) — keeps the tested reader intact. */
+  srcOverride?: {
+    streamUrl: string
+    downloadUrl: string
+    progressKey: string
+    openOriginalUrl: string | null
+  }
+  backOverride?: { label: string; go: () => void }
+}) {
   const { resource, context } = meta
   const navigate = useAppStore(s => s.navigate)
   const guestId = useAppStore(s => s.guestId)
@@ -199,9 +210,13 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
 
   const docReady = !!doc && !loadError
 
-  // ─── Back / close target (context-aware) ───
-  const backLabel = context.origin === 'topic' ? 'Back to topic' : context.origin === 'exam' ? 'Back to Study Material' : 'Back'
+  // ─── Back / close target (context-aware, overridable for Riishe workspace) ───
+  const backLabel = backOverride?.label ?? (context.origin === 'topic' ? 'Back to topic' : context.origin === 'exam' ? 'Back to Study Material' : 'Back')
   const goBack = useCallback(() => {
+    if (backOverride) {
+      backOverride.go()
+      return
+    }
     if (context.origin === 'topic' && context.topicId) {
       navigate({ view: 'topic', topicId: context.topicId })
     } else if (context.origin === 'exam' && context.examSlug) {
@@ -209,7 +224,7 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
     } else {
       navigate({ view: 'home' })
     }
-  }, [context, navigate])
+  }, [backOverride, context, navigate])
 
   // ─── Load the document ───
   useEffect(() => {
@@ -222,7 +237,7 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
         setPdfjsLib(lib)
 
         const task = lib.getDocument({
-          url: api.pdfStreamUrl(resource.url),
+          url: srcOverride?.streamUrl ?? api.pdfStreamUrl(resource.url),
           rangeChunkSize: 262144,
         })
         loadingTaskRef.current = task
@@ -237,7 +252,8 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
         const vp1 = p1.getViewport({ scale: 1 })
 
         // Restore this guest's reading progress for THIS document.
-        const saved = guestId ? loadReadingProgress(guestId, resource.id) : null
+        const progressKey = srcOverride?.progressKey ?? resource.id
+        const saved = guestId ? loadReadingProgress(guestId, progressKey) : null
         let resumePage = 1
         if (saved && saved.lastPage > 1 && saved.lastPage <= pdfDoc.numPages) {
           resumePage = saved.lastPage
@@ -298,7 +314,7 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
       try { loadingTaskRef.current?.destroy() } catch { /* already destroyed */ }
       loadingTaskRef.current = null
     }
-  }, [resource.id, resource.url, resource.title, guestId])
+  }, [resource.id, resource.url, resource.title, guestId, srcOverride?.streamUrl, srcOverride?.progressKey])
 
   // Lock body scroll while the reader overlay is open.
   useEffect(() => {
@@ -406,9 +422,10 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
   }, [docReady, numPages])
 
   // ─── Persist reading progress (localStorage write only) ───
+  const progressKey = srcOverride?.progressKey ?? resource.id
   useEffect(() => {
     if (!docReady || !currentPage) return
-    saveReadingProgress(guestId, resource.id, {
+    saveReadingProgress(guestId, progressKey, {
       lastPage: currentPage,
       maxPage: currentPage,
       totalPages: numPages,
@@ -416,7 +433,7 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
       zoomScale: zoomMode === 'custom' ? effectiveScale : null,
       rotation,
     })
-  }, [docReady, currentPage, numPages, zoomMode, rotation, scaleKey, effectiveScale, guestId, resource.id])
+  }, [docReady, currentPage, numPages, zoomMode, rotation, scaleKey, effectiveScale, guestId, progressKey])
 
   // ─── Fullscreen ───
   useEffect(() => {
@@ -637,7 +654,8 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
   }, [doc, extractingForBean, getPageRawText, context, resource.title, resource.url, numPages, setBeanContext, navigate])
 
   // ─── Download / original URLs ───
-  const downloadUrl = api.pdfStreamUrl(resource.url, '1')
+  const downloadUrl = srcOverride?.downloadUrl ?? api.pdfStreamUrl(resource.url, '1')
+  const openOriginalUrl = srcOverride ? srcOverride.openOriginalUrl : resource.url
 
   // ─── Matches grouped per page ───
   const matchesByPage = useMemo(() => {
@@ -699,8 +717,8 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
               <span className="truncate">{context.authority ?? resource.provider}</span>
               {resource.docDate && <span aria-hidden>·</span>}
               {resource.docDate && <span className="shrink-0">{resource.docDate}</span>}
-              <span aria-hidden>·</span>
-              <ResourceStatusBadge status={resource.verificationStatus} />
+              {!srcOverride && <span aria-hidden>·</span>}
+              {!srcOverride && <ResourceStatusBadge status={resource.verificationStatus} />}
             </p>
           </div>
 
@@ -724,12 +742,14 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
                 <span className="hidden lg:inline">Download PDF</span>
               </a>
             </Button>
-            <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated hover:text-foreground" asChild>
-              <a href={resource.url} target="_blank" rel="noopener noreferrer" aria-label={`Open the original source in a new tab: ${resource.title}`}>
-                <ExternalLink className="h-4 w-4 lg:mr-1.5" aria-hidden />
-                <span className="hidden lg:inline">Open original</span>
-              </a>
-            </Button>
+            {openOriginalUrl && (
+              <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated hover:text-foreground" asChild>
+                <a href={openOriginalUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open the original source in a new tab: ${resource.title}`}>
+                  <ExternalLink className="h-4 w-4 lg:mr-1.5" aria-hidden />
+                  <span className="hidden lg:inline">Open original</span>
+                </a>
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -904,9 +924,11 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
               <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated hover:text-foreground" asChild>
                 <a href={downloadUrl} download><Download className="mr-1.5 h-4 w-4" aria-hidden /> Download PDF</a>
               </Button>
-              <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated hover:text-foreground" asChild>
-                <a href={resource.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-1.5 h-4 w-4" aria-hidden /> Open original source</a>
-              </Button>
+              {openOriginalUrl && (
+                <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated hover:text-foreground" asChild>
+                  <a href={openOriginalUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-1.5 h-4 w-4" aria-hidden /> Open original source</a>
+                </Button>
+              )}
               <Button variant="ghost" className="text-muted-foreground hover:text-foreground" onClick={goBack}>
                 <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden /> {backLabel}
               </Button>
@@ -919,7 +941,7 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
               <p className="text-sm font-medium text-foreground">Loading document…</p>
               {loadKb && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {formatBytes(loadKb.loaded)}{loadKb.total ? ` of ${formatBytes(loadKb.total)}` : ''} streamed from the official source
+                  {formatBytes(loadKb.loaded)}{loadKb.total ? ` of ${formatBytes(loadKb.total)}` : ''} streamed
                 </p>
               )}
             </div>
@@ -934,7 +956,7 @@ function PdfReader({ meta, onRetry }: { meta: ResourceMetaDTO; onRetry: () => vo
             {resource.verificationStatus === 'UNREACHABLE' && (
               <p className="mx-auto max-w-xl rounded-lg border border-border bg-card px-4 py-2.5 text-xs leading-relaxed text-muted-foreground">
                 Our last automated check could not reach this official site — we are trying to load it anyway. If nothing appears, use
-                <a href={resource.url} target="_blank" rel="noopener noreferrer" className="mx-1 text-gold hover:underline">Open original</a>
+                {openOriginalUrl && <a href={openOriginalUrl} target="_blank" rel="noopener noreferrer" className="mx-1 text-gold hover:underline">Open original</a>}
                 from your own network.
               </p>
             )}
@@ -1220,5 +1242,59 @@ function PageView({
         />
       )}
     </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Riishe upload reader — the same tested reader component, pointed at the
+// owner-only material file stream instead of the official-registry proxy.
+// Opens as the familiar full-viewport overlay; Back returns to the workspace.
+// ═════════════════════════════════════════════════════════════════════════════
+export function MaterialPdfReader({ documentId, title, guestId, onBack }: {
+  documentId: string
+  title: string
+  guestId: string
+  onBack: () => void
+}) {
+  const meta: ResourceMetaDTO = {
+    resource: {
+      id: `mat_${documentId}`,
+      title,
+      provider: 'My materials',
+      type: 'TEXTBOOK_PDF',
+      url: '', // unused — the reader streams from srcOverride below
+      language: 'English',
+      accessType: 'FREE',
+      verificationStatus: 'VERIFIED',
+      lastChecked: null,
+      attribution: null,
+      note: null,
+      fileKind: 'PDF',
+      docDate: null,
+    },
+    context: {
+      origin: 'none',
+      examSlug: null,
+      examName: null,
+      examShortName: null,
+      authority: null,
+      stageName: null,
+      subjectName: null,
+      topicId: null,
+      topicName: null,
+    },
+  }
+  return (
+    <PdfReader
+      meta={meta}
+      onRetry={() => window.location.reload()}
+      srcOverride={{
+        streamUrl: api.materialFileUrl(documentId, false, guestId),
+        downloadUrl: api.materialFileUrl(documentId, true, guestId),
+        progressKey: `mat_${documentId}`,
+        openOriginalUrl: null,
+      }}
+      backOverride={{ label: 'Back to workspace', go: onBack }}
+    />
   )
 }

@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // pdf.js (legacy build) must be loaded from node_modules at runtime —
+  // bundling it breaks its internal fake-worker resolution on the server
+  // (used by the Riishe document-extraction pipeline).
+  serverExternalPackages: ["pdfjs-dist"],
 };
 
 export default nextConfig;

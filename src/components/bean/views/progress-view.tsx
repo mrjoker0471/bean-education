@@ -119,7 +119,12 @@ export function ProgressView() {
             />
           )}
 
-          <WeakTopicsCard topics={data.weakTopics} onRevise={topicId => navigate({ view: 'topic', topicId })} onAskBean={askBean} />
+          <WeakTopicsCard
+            topics={data.weakTopics}
+            onRevise={topicId => navigate({ view: 'topic', topicId })}
+            onOpenRiishe={() => navigate({ view: 'riishe' })}
+            onAskBean={askBean}
+          />
 
           <AttemptsCard
             attempts={data.attempts}
@@ -179,10 +184,12 @@ function TotalsGrid({ totals }: { totals: TotalsDTO }) {
 function WeakTopicsCard({
   topics,
   onRevise,
+  onOpenRiishe,
   onAskBean,
 }: {
   topics: WeakTopic[]
   onRevise: (topicId: string) => void
+  onOpenRiishe: () => void
   onAskBean: () => void
 }) {
   return (
@@ -229,14 +236,27 @@ function WeakTopicsCard({
                   />
                   <span className="w-10 shrink-0 text-right text-xs font-semibold text-gold">{topic.accuracy}%</span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
-                  onClick={() => onRevise(topic.topicId)}
-                >
-                  Revise topic
-                </Button>
+                {topic.topicId.startsWith('t:') ? (
+                  // Riishe-generated topic label ("t:Label") — not a catalogue topic;
+                  // the Riishe hub shows the material's weak areas instead.
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
+                    onClick={onOpenRiishe}
+                  >
+                    <Sparkles className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Open Riishe
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
+                    onClick={() => onRevise(topic.topicId)}
+                  >
+                    Revise topic
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

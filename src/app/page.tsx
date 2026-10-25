@@ -12,6 +12,8 @@ import { TestRunnerView } from '@/components/bean/views/test-runner-view'
 import { ResultView } from '@/components/bean/views/result-view'
 import { BeanView } from '@/components/bean/views/bean-view'
 import { ProgressView } from '@/components/bean/views/progress-view'
+import { MaterialsView } from '@/components/bean/views/materials-view'
+import { RiisheView } from '@/components/bean/views/riishe-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -42,6 +44,8 @@ export default function Page() {
             {route.view === 'bean' && <BeanView seeded={route.seeded} />}
             {route.view === 'progress' && <ProgressView />}
             {route.view === 'pdf' && route.resourceId && <PdfViewerPage resourceId={route.resourceId} />}
+            {route.view === 'materials' && <MaterialsView />}
+            {route.view === 'riishe' && <RiisheView docId={route.docId} />}
             {route.view === 'not-found' && <NotFound />}
           </>
         )}

@@ -14,6 +14,8 @@ export type Route =
   | { view: 'bean'; seeded?: boolean }
   | { view: 'progress' }
   | { view: 'pdf'; resourceId: string }
+  | { view: 'materials' }
+  | { view: 'riishe'; docId?: string }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -40,6 +42,10 @@ export function parseHash(hash: string): Route {
       return { view: 'progress' }
     case 'pdf':
       return parts[1] ? { view: 'pdf', resourceId: decodeURIComponent(parts[1]) } : { view: 'not-found' }
+    case 'materials':
+      return { view: 'materials' }
+    case 'riishe':
+      return { view: 'riishe', docId: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     default:
       return { view: 'not-found' }
   }
@@ -62,6 +68,8 @@ export function routeToHash(route: Route): string {
     case 'bean': return `#/bean${route.seeded ? '?seeded=1' : ''}`
     case 'progress': return '#/progress'
     case 'pdf': return `#/pdf/${encodeURIComponent(route.resourceId)}`
+    case 'materials': return '#/materials'
+    case 'riishe': return route.docId ? `#/riishe/${encodeURIComponent(route.docId)}` : '#/riishe'
     default: return '#/'
   }
 }

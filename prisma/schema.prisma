@@ -230,7 +230,96 @@ model Attempt {
   submittedAt     DateTime?
   template        TestTemplate? @relation(fields: [templateId], references: [id])
   exam            Exam?         @relation(fields: [examId], references: [id])
+  source          String        @default("BANK") // BANK (catalogue questions) | RIISHE (AI-generated set)
+  documentId      String?
+  riisheTestId    String?
+  riisheTest      RiisheTest?   @relation(fields: [riisheTestId], references: [id])
 
   @@index([guestId])
   @@index([status])
+}
+
+// ─── Riishe: uploaded study material → AI analysis → generated tests ─────────
+
+model StudyDocument {
+  id             String   @id @default(cuid())
+  guestId        String
+  title          String // user-editable display title
+  originalName   String
+  storedPath     String // path under db/uploads (never web-served directly)
+  mimeType       String
+  fileSize       Int
+  pageCount      Int?
+  status         String   @default("QUEUED") // QUEUED | EXTRACTING | ANALYSING | READY | NEEDS_OCR | FAILED
+  statusDetail   String? // honest human-readable status/limitation message
+  contentHash    String // sha256 of file bytes — dedupe + analysis cache key
+  extractionJson String? // JSON [{page, chars, text, scanned}]
+  analysisJson   String? // JSON DocumentAnalysisDTO
+  examLabel      String? // optional exam association (label only — no FK to catalogue)
+  subjectLabel   String?
+  topicLabel     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tests          RiisheTest[]
+
+  @@index([guestId])
+  @@index([contentHash])
+}
+
+model RiisheTest {
+  id               String        @id @default(cuid())
+  guestId          String
+  documentId       String
+  title            String
+  status           String        @default("QUEUED") // QUEUED | GENERATING | READY | FAILED
+  statusDetail     String?
+  focusTopicsJson  String? // JSON string[] — empty/null = balanced mix across the document
+  weakFocus        Boolean       @default(false) // generated from the student's weak areas
+  requestedCount   Int           @default(50)
+  configJson       String // JSON {timed, durationMin, marksPerQuestion, negativeMark}
+  distributionJson String? // JSON {category: requested count}
+  statsJson        String? // JSON {generated, validated, rejected, byCategory, byDifficulty, llmCalls, batches}
+  questionIdsJson  String? // ordered ids of PUBLISHED validated questions
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  document         StudyDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  questions        RiisheQuestion[]
+  attempts         Attempt[]
+
+  @@index([guestId])
+  @@index([documentId])
+}
+
+model RiisheQuestion {
+  id             String     @id @default(cuid())
+  testId         String
+  documentId     String
+  order          Int        @default(0)
+  text           String
+  optionsJson    String // JSON string[4]
+  correctIndex   Int
+  explanation    String
+  difficulty     String     @default("MEDIUM") // EASY | MEDIUM | HARD
+  category       String     @default("APPLICATION") // FOUNDATION | APPLICATION | STATEMENT | MULTISTEP | MISCONCEPTION
+  topic          String?
+  pageRefsJson   String? // JSON number[] — pages in the source document
+  evidence       String? // supporting excerpt from the document
+  status         String     @default("VALIDATED") // VALIDATED | FLAGGED
+  validationNote String?
+  test           RiisheTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@index([testId])
+  @@index([documentId])
+}
+
+model RiisheExplanation {
+  id          String   @id @default(cuid())
+  attemptId   String
+  questionId  String
+  status      String   @default("READY") // READY | FAILED
+  payloadJson String? // JSON RiisheExplanationDTO
+  createdAt   DateTime @default(now())
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
 }

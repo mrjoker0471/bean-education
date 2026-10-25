@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import type { CatalogResponse, ExamListItem } from '@/lib/types'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, parseHash } from '@/lib/store'
 import { SectionHeading } from '@/components/bean/section-heading'
 import { ExamCard } from '@/components/bean/exam-card'
 import { CountPill } from '@/components/bean/count-pill'
@@ -14,8 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/bean/empty-state'
 import { cn } from '@/lib/utils'
 import {
-  BookOpen, Brain, ChevronRight, ClipboardCheck, GraduationCap, LineChart,
-  Lock, Search, Sparkles, X, RotateCcw,
+  BookOpen, Brain, ChevronRight, GraduationCap, LineChart,
+  Lock, Search, Sparkles, Upload, X, RotateCcw,
 } from 'lucide-react'
 
 export function HomeView() {
@@ -47,6 +47,49 @@ export function HomeView() {
 // ─── Hero ───
 function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
   const navigate = useAppStore(s => s.navigate)
+  const guestId = useAppStore(s => s.guestId)
+  // Smart "Continue Learning" target — resolved lazily, label stays constant.
+  const [continueHash, setContinueHash] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!guestId) return
+    let alive = true
+    const resolve = async () => {
+      // 1) A READY material → resume in the Riishe workspace (latest first)
+      try {
+        const mats = await api.materials(guestId)
+        const ready = (mats.materials ?? [])
+          .filter(m => m.status === 'READY')
+          .sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))
+        if (ready.length > 0) {
+          if (alive) setContinueHash(`#/riishe/${encodeURIComponent(ready[0].id)}`)
+          return
+        }
+      } catch { /* fall through to attempt-based continuation */ }
+      // 2) Latest in-progress attempt → resume it; latest finished attempt → its result
+      try {
+        const prog = await api.progress(guestId)
+        if (!alive) return
+        const recent = [...prog.attempts].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
+        const inProgress = recent.find(a => a.status === 'IN_PROGRESS')
+        if (inProgress) {
+          if (alive) setContinueHash(`#/test/${inProgress.id}`)
+          return
+        }
+        const finished = recent.find(a => a.status === 'SUBMITTED' || a.status === 'TIMED_OUT')
+        if (finished) {
+          if (alive) setContinueHash(`#/result/${finished.id}`)
+          return
+        }
+      } catch { /* ignore — default target applies */ }
+      if (alive) setContinueHash('#/progress')
+    }
+    void resolve()
+    return () => { alive = false }
+  }, [guestId])
+
+  const goContinue = () => navigate(parseHash(continueHash ?? '#/progress'))
+
   return (
     <section className="relative overflow-hidden border-b border-border/60">
       <div
@@ -60,24 +103,29 @@ function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
       <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-medium text-gold">
-            <Sparkles className="h-3.5 w-3.5" /> Premium preparation for Indian competitive examinations
+            <Sparkles className="h-3.5 w-3.5" /> Riishe AI — practise from your own material
           </p>
           <h1 className="font-display text-4xl font-bold leading-tight text-foreground sm:text-5xl lg:text-6xl">
-            One syllabus. <span className="text-gold">Every topic.</span>
-            <br />
-            Honest availability on each exam.
+            Upload your study material. <span className="text-gold">Let Riishe prepare you.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Verified syllabus coverage, relevant learning materials, real practice tests, and topic-aware
-            learning support — for TNPSC, UPSC, SSC, Banking, Railways, Defence, teaching, medical &amp;
-            university entrances and State PSC examinations.
+            Turn your textbooks, notes, and syllabus documents into challenging practice exams,
+            personalised explanations, and targeted revision.
           </p>
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button size="lg" className="w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
-              <ClipboardCheck className="mr-2 h-4 w-4" /> Start practising
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
+            <Button size="lg" className="w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto" onClick={() => navigate({ view: 'materials' })}>
+              <Upload className="mr-2 h-4 w-4" /> Upload Study Material
             </Button>
             <Button size="lg" variant="outline" className="w-full border-gold/40 text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
-              <BookOpen className="mr-2 h-4 w-4" /> Explore syllabus
+              <BookOpen className="mr-2 h-4 w-4" /> Explore Exams
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-border text-foreground hover:bg-elevated sm:w-auto"
+              onClick={goContinue}
+            >
+              <GraduationCap className="mr-2 h-4 w-4" /> Continue Learning
             </Button>
           </div>
           {totals && (

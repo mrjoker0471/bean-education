@@ -11,6 +11,35 @@ function notFound() {
   return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
 }
 
+/** Load the questions behind an attempt — catalogue bank OR Riishe-generated. */
+async function loadAttemptQuestions(attempt: { id: string; source: string; questionIdsJson: string }) {
+  const ids = safeParse<string[]>(attempt.questionIdsJson, [])
+  if (attempt.source === 'RIISHE') {
+    const rows = await db.riisheQuestion.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, text: true, optionsJson: true, topic: true, order: true },
+    })
+    const byId = new Map(rows.map(q => [q.id, q]))
+    return ids.map(i => byId.get(i)).filter((q): q is NonNullable<typeof q> => !!q).map(q => ({
+      id: q.id,
+      text: q.text,
+      options: safeParse<string[]>(q.optionsJson, []),
+      topicName: q.topic ?? undefined,
+    }))
+  }
+  const rows = await db.question.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, text: true, optionsJson: true, topic: { select: { name: true } } },
+  })
+  const byId = new Map(rows.map(q => [q.id, q]))
+  return ids.map(i => byId.get(i)).filter((q): q is NonNullable<typeof q> => !!q).map(q => ({
+    id: q.id,
+    text: q.text,
+    options: safeParse<string[]>(q.optionsJson, []),
+    topicName: q.topic?.name,
+  }))
+}
+
 // GET — current attempt state for the runner (questions without answers)
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -22,11 +51,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!attempt || attempt.guestId !== guestId) return notFound()
 
     const config = safeParse(attempt.configJson, { count: 0, durationMin: 0, marksPerQuestion: 1, negativeMark: 0 })
-    const endsAt = attempt.startedAt.getTime() + config.durationMin * 60_000
+    const untimed = config.durationMin <= 0
+    const endsAt = untimed ? attempt.startedAt.getTime() + 365 * 24 * 3600_000 : attempt.startedAt.getTime() + config.durationMin * 60_000
     const answers = safeParse<Record<string, number>>(attempt.answersJson, {})
 
-    // Auto-submit on timeout (server authoritative)
-    if (attempt.status === 'IN_PROGRESS' && Date.now() > endsAt + GRACE_MS) {
+    // Auto-submit on timeout (server authoritative; untimed tests never time out)
+    if (attempt.status === 'IN_PROGRESS' && !untimed && Date.now() > endsAt + GRACE_MS) {
       await scoreAttempt(attempt.id, answers, config.durationMin * 60, 'TIMED_OUT')
       return NextResponse.json({ redirect: 'result' })
     }
@@ -35,29 +65,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ redirect: 'result' })
     }
 
-    const ids = safeParse<string[]>(attempt.questionIdsJson, [])
-    const questions = await db.question.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, text: true, optionsJson: true, topic: { select: { name: true } } },
-    })
-    const byId = new Map(questions.map(q => [q.id, q]))
-    const ordered = ids.map(i => byId.get(i)).filter(Boolean)
+    const ordered = await loadAttemptQuestions(attempt)
 
     return NextResponse.json({
       id: attempt.id,
       title: attempt.title,
       examLabel: attempt.examLabel,
       status: attempt.status,
+      source: attempt.source,
+      documentId: attempt.documentId,
+      riisheTestId: attempt.riisheTestId,
       config,
       serverNow: Date.now(),
       endsAt,
       answeredCount: Object.keys(answers).length,
-      questions: ordered.map(q => ({
-        id: q!.id,
-        text: q!.text,
-        options: safeParse<string[]>(q!.optionsJson, []),
-        topicName: q!.topic?.name,
-      })),
+      savedAnswers: answers, // resume support — refresh-safe
+      questions: ordered,
     })
   } catch (err) {
     console.error('[api/attempts GET]', err)
@@ -77,11 +100,23 @@ async function scoreAttempt(attemptId: string, answers: Record<string, number>, 
   const config = safeParse(attempt.configJson, { count: 0, durationMin: 0, marksPerQuestion: 1, negativeMark: 0 })
   const ids = safeParse<string[]>(attempt.questionIdsJson, [])
 
-  const questions = await db.question.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, correctIndex: true, topicId: true, topic: { select: { name: true } } },
-  })
-  const byId = new Map(questions.map(q => [q.id, q]))
+  // Questions come from the bank or from Riishe's validated set — same scoring
+  interface ScoreRow { id: string; correctIndex: number; topicId: string | null; topicName: string | null }
+  let rows: ScoreRow[] = []
+  if (attempt.source === 'RIISHE') {
+    const rq = await db.riisheQuestion.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, correctIndex: true, topic: true },
+    })
+    rows = rq.map(q => ({ id: q.id, correctIndex: q.correctIndex, topicId: q.topic ? `t:${q.topic}` : null, topicName: q.topic ?? null }))
+  } else {
+    const bq = await db.question.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, correctIndex: true, topicId: true, topic: { select: { name: true } } },
+    })
+    rows = bq.map(q => ({ id: q.id, correctIndex: q.correctIndex, topicId: q.topicId, topicName: q.topic?.name ?? null }))
+  }
+  const byId = new Map(rows.map(q => [q.id, q]))
 
   let correct = 0, wrong = 0, skipped = 0
   const perTopic = new Map<string, { name: string; correct: number; total: number }>()
@@ -97,11 +132,12 @@ async function scoreAttempt(attemptId: string, answers: Record<string, number>, 
       if (isCorrect) correct++
       else wrong++
     }
-    if (q.topicId) {
-      const entry = perTopic.get(q.topicId) ?? { name: q.topic?.name ?? 'Unknown topic', correct: 0, total: 0 }
+    if (q.topicId || q.topicName) {
+      const key = q.topicId ?? `t:${q.topicName}`
+      const entry = perTopic.get(key) ?? { name: q.topicName ?? 'Unknown topic', correct: 0, total: 0 }
       entry.total++
       if (isCorrect) entry.correct++
-      perTopic.set(q.topicId, entry)
+      perTopic.set(key, entry)
     }
   }
 
@@ -118,11 +154,47 @@ async function scoreAttempt(attemptId: string, answers: Record<string, number>, 
       correctCount: correct,
       wrongCount: wrong,
       skippedCount: skipped,
-      timeSpentSec: Math.max(0, Math.min(timeSpentSec, config.durationMin * 60 + 120)),
+      timeSpentSec: Math.max(0, Math.min(timeSpentSec, config.durationMin > 0 ? config.durationMin * 60 + 120 : 6 * 3600)),
       perTopicJson: JSON.stringify(Object.fromEntries([...perTopic.entries()].map(([topicId, v]) => [topicId, v]))),
       submittedAt: new Date(),
     },
   })
+}
+
+const autosaveSchema = z.object({
+  guestId: z.string().min(8).max(64),
+  answers: z.record(z.string(), z.number().int().min(0).max(5)),
+})
+
+// PATCH — autosave answers while the test is running (refresh-safe).
+// Only merges answers that belong to this attempt; never touches scoring state.
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+    const parsed = autosaveSchema.safeParse(await req.json())
+    if (!parsed.success) return NextResponse.json({ error: 'Invalid autosave' }, { status: 400 })
+
+    const attempt = await db.attempt.findUnique({ where: { id } })
+    if (!attempt || attempt.guestId !== parsed.data.guestId) return notFound()
+    if (attempt.status !== 'IN_PROGRESS') {
+      return NextResponse.json({ ok: false, reason: 'submitted' })
+    }
+
+    const allowedIds = new Set(safeParse<string[]>(attempt.questionIdsJson, []))
+    const current = safeParse<Record<string, number>>(attempt.answersJson, {})
+    const merged: Record<string, number> = { ...current }
+    for (const [qid, idx] of Object.entries(parsed.data.answers)) {
+      if (allowedIds.has(qid)) merged[qid] = idx
+    }
+    await db.attempt.update({
+      where: { id },
+      data: { answersJson: JSON.stringify(merged) },
+    })
+    return NextResponse.json({ ok: true, savedCount: Object.keys(merged).length })
+  } catch (err) {
+    console.error('[api/attempts PATCH]', err)
+    return NextResponse.json({ error: 'Autosave failed' }, { status: 500 })
+  }
 }
 
 // POST — submit answers; server-side scoring only
@@ -141,8 +213,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const config = safeParse(attempt.configJson, { count: 0, durationMin: 0, marksPerQuestion: 1, negativeMark: 0 })
-    const endsAt = attempt.startedAt.getTime() + config.durationMin * 60_000
-    const timedOut = Date.now() > endsAt + GRACE_MS
+    const untimed = config.durationMin <= 0
+    // Untimed tests never time out — a manual submit is always SUBMITTED and
+    // elapsed time is honestly capped at 6 h.
+    const endsAt = untimed ? Number.POSITIVE_INFINITY : attempt.startedAt.getTime() + config.durationMin * 60_000
+    const timedOut = !untimed && Date.now() > endsAt + GRACE_MS
     const allowedIds = new Set(safeParse<string[]>(attempt.questionIdsJson, []))
     // Ignore any answer targeting a question outside this attempt (client cannot inject)
     const answers: Record<string, number> = {}

@@ -174,10 +174,14 @@ export interface AttemptStateDTO {
   title: string
   examLabel: string
   status: 'IN_PROGRESS' | 'SUBMITTED' | 'TIMED_OUT' | 'ABANDONED'
+  source: 'BANK' | 'RIISHE'
+  documentId: string | null
+  riisheTestId: string | null
   config: { count: number; durationMin: number; marksPerQuestion: number; negativeMark: number }
   serverNow: number
   endsAt: number
   answeredCount: number
+  savedAnswers: Record<string, number> // refresh-safe resume
   questions: AttemptQuestionDTO[] // no correctIndex while in progress
 }
 
@@ -190,6 +194,10 @@ export interface AttemptReviewQuestionDTO extends AttemptQuestionDTO {
   sourceType?: 'ORIGINAL' | 'PYQ_VERIFIED' | 'PYQ_UNVERIFIED'
   sourcePaper?: string | null
   year?: number | null
+  // Riishe question provenance (source === 'RIISHE')
+  category?: 'FOUNDATION' | 'APPLICATION' | 'STATEMENT' | 'MULTISTEP' | 'MISCONCEPTION'
+  pageRefs?: number[]
+  evidence?: string | null
 }
 
 export interface AttemptResultDTO {
@@ -197,6 +205,9 @@ export interface AttemptResultDTO {
   title: string
   examLabel: string
   examSlug: string | null
+  source: 'BANK' | 'RIISHE'
+  documentId: string | null
+  riisheTestId: string | null
   status: 'SUBMITTED' | 'TIMED_OUT'
   config: { count: number; durationMin: number; marksPerQuestion: number; negativeMark: number }
   score: number
@@ -265,4 +276,128 @@ export interface BeanContext {
 export interface BeanSettings {
   style: 'exam-focused' | 'simple' | 'detailed'
   showSourceContext: boolean
+}
+
+// ─── Riishe — uploaded material → AI analysis → validated tests ───
+
+export type MaterialStatus = 'QUEUED' | 'EXTRACTING' | 'ANALYSING' | 'READY' | 'NEEDS_OCR' | 'FAILED'
+
+export interface DocumentAnalysisDTO {
+  title: string
+  summary: string
+  topics: { name: string; subtopics: string[]; pages: number[] }[]
+  definitions: { term: string; meaning: string; page: number }[]
+  keyFacts: string[]
+  formulas: string[]
+  misconceptions: { misconception: string; correction: string; page?: number }[]
+  keyPages: number[]
+  unreadableSections: string[]
+  studyGaps: string[]
+  coverageNote: string
+}
+
+export interface RiisheTestSummaryDTO {
+  id: string
+  title: string
+  status: 'QUEUED' | 'GENERATING' | 'READY' | 'FAILED'
+  questionCount: number
+  requestedCount: number
+  createdAt: string
+}
+
+export interface MaterialListItemDTO {
+  id: string
+  title: string
+  originalName: string
+  mimeType: string
+  fileSize: number
+  pageCount: number | null
+  status: MaterialStatus
+  statusDetail: string | null
+  examLabel: string | null
+  subjectLabel: string | null
+  topicLabel: string | null
+  createdAt: string
+  updatedAt: string
+  topics: string[]
+  tests: RiisheTestSummaryDTO[]
+}
+
+export interface MaterialsResponseDTO {
+  materials: MaterialListItemDTO[]
+  limits: { maxUploadMB: number; supportedTypes: string[] }
+}
+
+export interface RiisheTestDetailDTO {
+  id: string
+  documentId: string
+  documentTitle: string
+  title: string
+  status: 'QUEUED' | 'GENERATING' | 'READY' | 'FAILED'
+  statusDetail: string | null
+  focusTopics: string[]
+  weakFocus: boolean
+  requestedCount: number
+  config: { timed: boolean; durationMin: number; marksPerQuestion: number; negativeMark: number }
+  stats: {
+    generated: number
+    validated: number
+    rejected: number
+    byCategory: Record<string, number>
+    byDifficulty: { EASY: number; MEDIUM: number; HARD: number }
+    llmCalls: number
+    batches: number
+  } | null
+  questionCount: number
+  questions: {
+    id: string
+    order: number
+    text: string
+    difficulty: string
+    category: string
+    topic: string | null
+    status: string
+  }[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MaterialDetailDTO extends MaterialListItemDTO {
+  analysis: DocumentAnalysisDTO | null
+  tests: (RiisheTestSummaryDTO & {
+    statusDetail: string | null
+    focusTopics: string[]
+    weakFocus: boolean
+    config: { timed: boolean; durationMin: number; marksPerQuestion: number; negativeMark: number }
+    stats: RiisheTestDetailDTO['stats']
+  })[]
+}
+
+export interface RiisheWeakTopicDTO {
+  topic: string
+  attempted: number
+  correct: number
+  accuracy: number
+  documentId: string | null
+  documentTitle: string | null
+}
+
+export interface RiisheExplanationPayloadDTO {
+  whyWrong: string
+  correctReasoning: string
+  excerpt: string
+  pageRefs: number[]
+  concept: string
+  misconception: string | null
+  revisionTopic: string
+  grounding: 'document' | 'external'
+}
+
+export interface RiisheExplanationsDTO {
+  attemptId: string
+  wrongCount: number
+  readyCount: number
+  failedCount: number
+  pending: number
+  explanations: Record<string, { status: 'READY' | 'FAILED'; payload: RiisheExplanationPayloadDTO | null }>
 }
