@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ResourceType =
-  | 'OFFICIAL_SYLLABUS' | 'OFFICIAL_BULLETIN' | 'OFFICIAL_PORTAL' | 'OFFICIAL_NOTICE'
+  | 'OFFICIAL_SYLLABUS' | 'OFFICIAL_SUBJECT_SYLLABUS' | 'OFFICIAL_BULLETIN' | 'OFFICIAL_PORTAL' | 'OFFICIAL_NOTICE'
   | 'TEXTBOOK_PDF' | 'STUDY_NOTES' | 'ARTICLE' | 'VIDEO' | 'REVISION' | 'ORIGINAL_GUIDE'
 
 export type ResourceFileKind = 'PORTAL' | 'WEBPAGE' | 'PDF'

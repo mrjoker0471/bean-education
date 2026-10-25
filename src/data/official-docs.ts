@@ -22,6 +22,54 @@
 
 import type { ResourceSeed } from './resources'
 
+// ─── CUET (UG) 2026 subject-wise official syllabus PDFs ──────────────────────
+// Every URL below was fetched from the official NTA page
+// https://cuet.nta.nic.in/cuetug-2026-syllabus/ and verified to return
+// HTTP 200 with content-type application/pdf (October 2026). These are real,
+// direct NTA PDF downloads — fileKind: 'PDF' is justified for all of them.
+const CD = 'https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads'
+const CUET_SUBJECT_SYLLABUS_DOCS: ResourceSeed[] = [
+  // Languages (codes 101–113) — one official syllabus PDF per language
+  { examSlug: 'cuet-ug', title: 'English (101) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'English', url: `${CD}/2025/12/20251227980877010.pdf`, note: 'Reading comprehension (factual, narrative, literary) and verbal ability tasks.' },
+  { examSlug: 'cuet-ug', title: 'Hindi (102) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Hindi', url: `${CD}/2025/12/202512271367681884.pdf`, note: 'आधिकारिक पाठ्यक्रम — reading comprehension and verbal ability outline.' },
+  { examSlug: 'cuet-ug', title: 'Assamese (103) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Assamese', url: `${CD}/2025/12/20251227237505054.pdf` },
+  { examSlug: 'cuet-ug', title: 'Bengali (104) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Bengali', url: `${CD}/2025/12/202512271803368333.pdf` },
+  { examSlug: 'cuet-ug', title: 'Gujarati (105) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Gujarati', url: `${CD}/2025/12/202512271413553522.pdf` },
+  { examSlug: 'cuet-ug', title: 'Kannada (106) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Kannada', url: `${CD}/2025/12/20251227946030806.pdf` },
+  { examSlug: 'cuet-ug', title: 'Malayalam (107) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Malayalam', url: `${CD}/2025/12/202512271352620716.pdf` },
+  { examSlug: 'cuet-ug', title: 'Marathi (108) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Marathi', url: `${CD}/2025/12/20251227262140491.pdf` },
+  { examSlug: 'cuet-ug', title: 'Odia (109) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Odia', url: `${CD}/2025/12/20251227991376595.pdf` },
+  { examSlug: 'cuet-ug', title: 'Punjabi (110) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Punjabi', url: `${CD}/2025/12/20251227900793676.pdf` },
+  { examSlug: 'cuet-ug', title: 'Tamil (111) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Tamil', url: `${CD}/2025/12/202512271178809232.pdf` },
+  { examSlug: 'cuet-ug', title: 'Telugu (112) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Telugu', url: `${CD}/2025/12/2025122713492501.pdf` },
+  { examSlug: 'cuet-ug', title: 'Urdu (113) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', language: 'Urdu', url: `${CD}/2025/12/20251227870466763.pdf` },
+  // Domain subjects (23) — Class-12 NCERT scope per the official bulletin
+  { examSlug: 'cuet-ug', title: 'Accountancy / Book Keeping (301) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227522720880.pdf` },
+  { examSlug: 'cuet-ug', title: 'Agriculture (302) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227220683220.pdf` },
+  { examSlug: 'cuet-ug', title: 'Anthropology (303) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512272060536755.pdf` },
+  { examSlug: 'cuet-ug', title: 'Biology / Biotechnology / Biochemistry (304) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227553390532.pdf` },
+  { examSlug: 'cuet-ug', title: 'Business Studies (305) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227259182286.pdf` },
+  { examSlug: 'cuet-ug', title: 'Chemistry (306) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227437950608.pdf` },
+  { examSlug: 'cuet-ug', title: 'Environmental Science (307) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271868030697.pdf` },
+  { examSlug: 'cuet-ug', title: 'Computer Science / Information Practices (308) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271589155179.pdf` },
+  { examSlug: 'cuet-ug', title: 'Economics / Business Economics (309) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271366341541.pdf` },
+  { examSlug: 'cuet-ug', title: 'Fine Arts / Visual Arts / Commercial Arts (312) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227993225795.pdf` },
+  { examSlug: 'cuet-ug', title: 'Geography / Geology (313) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227925964065.pdf` },
+  { examSlug: 'cuet-ug', title: 'History (314) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227167662981.pdf` },
+  { examSlug: 'cuet-ug', title: 'Home Science (315) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'January 2026', url: `${CD}/2026/01/20260120190240355.pdf` },
+  { examSlug: 'cuet-ug', title: 'Knowledge Tradition & Practices of India (316) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271210828150.pdf` },
+  { examSlug: 'cuet-ug', title: 'Mass Media / Mass Communication (318) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227328972301.pdf` },
+  { examSlug: 'cuet-ug', title: 'Mathematics / Applied Mathematics (319) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271521179041.pdf` },
+  { examSlug: 'cuet-ug', title: 'Performing Arts — Dance, Drama, Music (320) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271161227870.pdf` },
+  { examSlug: 'cuet-ug', title: 'Physical Education — Yoga, Sports (321) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271937553070.pdf` },
+  { examSlug: 'cuet-ug', title: 'Physics (322) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271334142557.pdf` },
+  { examSlug: 'cuet-ug', title: 'Political Science (323) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227158639183.pdf` },
+  { examSlug: 'cuet-ug', title: 'Psychology (324) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271803303381.pdf` },
+  { examSlug: 'cuet-ug', title: 'Sanskrit (325) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/202512271597735514.pdf`, note: 'Domain-subject Sanskrit (not translated into other languages per the bulletin).' },
+  { examSlug: 'cuet-ug', title: 'Sociology (326) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227621541284.pdf` },
+  { examSlug: 'cuet-ug', title: 'General Aptitude Test (501) — official syllabus (PDF)', provider: 'National Testing Agency', type: 'OFFICIAL_SUBJECT_SYLLABUS', fileKind: 'PDF', docDate: 'December 2025', url: `${CD}/2025/12/20251227140287889.pdf`, note: 'GK, current affairs, mental ability, numerical ability, quantitative reasoning, logical & analytical reasoning, general science & environmental literacy.' },
+]
+
 export const OFFICIAL_DOCS: ResourceSeed[] = [
   // ─── Engineering & Medical entrances (NTA + organising IITs) ───
   {
@@ -104,16 +152,33 @@ export const OFFICIAL_DOCS: ResourceSeed[] = [
     provider: 'National Testing Agency',
     type: 'OFFICIAL_PORTAL', fileKind: 'PORTAL',
     url: 'https://cuet.nta.nic.in',
-    note: 'Official hub: information bulletin and test structure for CUET UG.',
+    note: 'Official hub: information bulletin, syllabus PDFs, admit cards and results for CUET UG.',
   },
   {
     examSlug: 'cuet-ug',
-    title: 'CUET UG — Official syllabus page',
+    title: 'CUET (UG) 2026 — Information bulletin (PDF, 3 MB)',
+    provider: 'National Testing Agency',
+    type: 'OFFICIAL_BULLETIN', fileKind: 'PDF', docDate: 'January 2026',
+    url: 'https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/202601031633478370.pdf',
+    note: 'The authoritative CUET (UG) 2026 bulletin: eligibility, up-to-5-subject choice rule, per-paper pattern (50 MCQs / 60 min, +5 correct, −1 incorrect), university list and subject codes.',
+  },
+  {
+    examSlug: 'cuet-ug',
+    title: 'CUET (UG) 2026 — Official syllabus page (2026 cycle)',
     provider: 'National Testing Agency',
     type: 'OFFICIAL_SYLLABUS', fileKind: 'WEBPAGE',
-    url: 'https://cuet.nta.nic.in/syllabus/',
-    note: 'Section-wise test structure and syllabus documents.',
+    url: 'https://cuet.nta.nic.in/cuetug-2026-syllabus/',
+    note: 'The current-cycle page that links every official subject syllabus PDF (13 languages, 23 domain subjects, General Aptitude Test) plus the 2026 bulletin and FAQ.',
   },
+  {
+    examSlug: 'cuet-ug',
+    title: 'CUET (UG) 2026 — Official FAQ (PDF)',
+    provider: 'National Testing Agency',
+    type: 'OFFICIAL_NOTICE', fileKind: 'PDF', docDate: 'January 2026',
+    url: 'https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/2026011697237004.pdf',
+    note: 'Official answers to common queries — subject choice, normalization, eligibility and application process.',
+  },
+  ...CUET_SUBJECT_SYLLABUS_DOCS,
   {
     examSlug: 'cmat',
     title: 'CMAT — Official examination portal',

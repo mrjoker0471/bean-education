@@ -200,6 +200,9 @@ export function ExamView({ slug, initialTab }: { slug: string; initialTab?: stri
   if (!data) return null
   const { exam } = data
   const officialDocs = data.examResources.filter(isOfficialDoc)
+  // Subject-wise syllabus PDFs (37 for CUET UG) get their own compact section
+  const primaryDocs = officialDocs.filter(r => r.type !== 'OFFICIAL_SUBJECT_SYLLABUS')
+  const subjectSyllabusDocs = officialDocs.filter(r => r.type === 'OFFICIAL_SUBJECT_SYLLABUS')
   const otherExamResources = data.examResources.filter(r => !isOfficialDoc(r))
 
   return (
@@ -348,7 +351,8 @@ export function ExamView({ slug, initialTab }: { slug: string; initialTab?: stri
         {tab === 'study' && (
           <StudyTab
             data={data}
-            officialDocs={officialDocs}
+            officialDocs={primaryDocs}
+            subjectSyllabusDocs={subjectSyllabusDocs}
             otherExamResources={otherExamResources}
             pendingTopicId={pendingTopicId}
             onStartTopicTest={startTopicTest}
@@ -383,6 +387,7 @@ export function ExamView({ slug, initialTab }: { slug: string; initialTab?: stri
 function StudyTab({
   data,
   officialDocs,
+  subjectSyllabusDocs,
   otherExamResources,
   pendingTopicId,
   onStartTopicTest,
@@ -390,6 +395,7 @@ function StudyTab({
 }: {
   data: ExamDetailDTO
   officialDocs: ResourceDTO[]
+  subjectSyllabusDocs: ResourceDTO[]
   otherExamResources: ResourceDTO[]
   pendingTopicId: string | null
   onStartTopicTest: (topic: TopicNode) => void
@@ -431,6 +437,26 @@ function StudyTab({
               title="No official documents registered for this exam yet"
               description="We haven't verified an official syllabus PDF or bulletin link for this examination yet. The official sources above the tabs are the current best pointer — we never fabricate document links or verification statuses."
             />
+          </div>
+        )}
+
+        {subjectSyllabusDocs.length > 0 && (
+          <div className="mt-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 id="subject-syllabus-heading" className="font-display text-base font-semibold text-foreground sm:text-lg">
+                Subject-wise official syllabus PDFs
+              </h3>
+              <span className="text-xs text-muted-foreground">
+                {subjectSyllabusDocs.length} official document{subjectSyllabusDocs.length === 1 ? '' : 's'} — direct NTA downloads
+              </span>
+            </div>
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              One official syllabus PDF per subject, exactly as published by {data.exam.authority} for the current cycle.
+              Each card offers a direct download — verified as a real PDF file, never a disguised webpage.
+            </p>
+            <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {subjectSyllabusDocs.map(r => <DocumentCard key={r.id} resource={r} />)}
+            </ul>
           </div>
         )}
 

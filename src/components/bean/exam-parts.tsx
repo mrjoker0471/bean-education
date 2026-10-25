@@ -353,6 +353,7 @@ export function TemplateCard({
 // ─── Official document type labels ───────────────────────────────────────────
 export const DOC_TYPE_LABELS: Record<string, string> = {
   OFFICIAL_SYLLABUS: 'Official syllabus',
+  OFFICIAL_SUBJECT_SYLLABUS: 'Official subject syllabus (PDF)',
   OFFICIAL_BULLETIN: 'Official information bulletin',
   OFFICIAL_PORTAL: 'Official portal',
   OFFICIAL_NOTICE: 'Official document / notice',

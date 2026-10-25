@@ -10,6 +10,7 @@ export interface StagePattern {
   totalQuestions: number
   totalMarks: number
   negativeMark: number // marks deducted per wrong answer
+  marksPerQuestion?: number // marks awarded per correct answer (default 1)
   qualifying?: string
   sections: { name: string; questions: number; marks: number; durationMin?: number }[]
 }
@@ -216,6 +217,7 @@ const gsAptitudeSubjects = (): SubjectSeed[] => [
 ]
 
 // ─── Exam definitions ────────────────────────────────────────────────────────
+import { CUET_DOMAIN_SUBJECTS } from './cuet-domains'
 
 export const EXAMS: ExamSeed[] = [
   // ═══ TAMIL NADU ═══
@@ -1368,19 +1370,66 @@ export const EXAMS: ExamSeed[] = [
   {
     slug: 'cuet-ug', name: 'CUET Undergraduate (UG)', shortName: 'CUET UG',
     authority: 'National Testing Agency', category: 'university-professional', featured: true,
-    description: 'Common University Entrance Test for undergraduate admissions to central, state and participating universities.',
-    syllabusStatus: 'PARTIAL',
-    contentNote: 'Language, domain-subject and general-test structure recorded; domain subjects share core topic content.',
-    sourceRefs: [{ label: 'NTA CUET', url: 'https://cuet.nta.nic.in' }],
-    stages: [
-      { slug: 'cuet-ug-paper', name: 'CUET UG Examination', paperNote: 'Up to 5 tests: Languages, Domain Subjects and General Test — each 50 questions in 60 minutes; +5 correct, −1 incorrect (2025 pattern — verify latest).', subjects: [
-        { slug: 'general-test', name: 'General Test', icon: 'Brain', units: [
-          { slug: 'gt-quant-reasoning', name: 'Quantitative & Reasoning', topics: [t('gt-percentages', 'Percentages', 'aptitude-percentages'), t('gt-ratio', 'Ratio & Proportion', 'aptitude-ratio'), t('gt-average', 'Averages', 'aptitude-average'), t('gt-series', 'Series & Reasoning', 'reasoning-series')] },
-          { slug: 'gt-gk', name: 'General Knowledge & Current Affairs', topics: [t('gt-polity', 'Polity', 'polity-constitution'), t('gt-history', 'History', 'history-modern'), t('gt-current', 'Current Affairs', 'current-affairs')] },
-        ] as unknown as UnitSeed[] },
-        { slug: 'language', name: 'Languages', icon: 'Languages', units: [{ slug: 'lang-core', name: 'Language Comprehension', topics: englishUnit().topics }] },
-      ] },
+    description: 'Common University Entrance Test (CBT) for undergraduate admissions to central, state and participating universities. Candidates choose up to five test papers from 13 languages, 23 domain subjects and the General Aptitude Test. Each paper: 50 MCQs (all compulsory) in 60 minutes — +5 per correct answer, −1 per incorrect answer (CUET UG 2026 information bulletin).',
+    syllabusStatus: 'VERIFIED',
+    contentNote: 'Full official syllabus mapped for all 37 subjects (13 languages, 23 domain subjects, General Aptitude Test) directly from the NTA CUET (UG) 2026 bulletin and the official subject-wise syllabus PDFs. Original notes and practice questions currently cover the General Aptitude Test, English language skills and selected flagship domain topics — the remaining domain topics show their official units honestly marked “material in progress”.',
+    sourceRefs: [
+      { label: 'NTA CUET portal', url: 'https://cuet.nta.nic.in' },
+      { label: 'CUET (UG) 2026 information bulletin (PDF)', url: 'https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/202601031633478370.pdf' },
+      { label: 'Subject-wise syllabus PDFs (official)', url: 'https://cuet.nta.nic.in/cuetug-2026-syllabus/' },
     ],
+    stages: [
+      {
+        slug: 'cuet-ug-paper', name: 'CUET UG Examination',
+        paperNote: 'Choose up to 5 test papers from 13 languages, 23 domain subjects and the General Aptitude Test. Every paper: 50 MCQs, all compulsory, 60 minutes, CBT. Marking: +5 correct, −1 incorrect. Domain-subject syllabus follows the Class-12 NCERT; the pattern above describes one test paper.',
+        pattern: {
+          durationMin: 60, totalQuestions: 50, totalMarks: 250, negativeMark: 1, marksPerQuestion: 5,
+          sections: [{ name: 'Each test paper (any of the 37 subjects)', questions: 50, marks: 250, durationMin: 60 }],
+        },
+        subjects: [
+          // ── Section III — General Aptitude Test (code 501) ──
+          { slug: 'general-test', name: 'General Aptitude Test (GAT)', icon: 'Brain', description: 'Official outline (2026 syllabus PDF): General Knowledge, Current Affairs, General Mental Ability, Numerical Ability, Quantitative Reasoning (arithmetic, algebra, geometry, mensuration, statistics), Logical & Analytical Reasoning, General Science and Environmental Literacy.', units: [
+            { slug: 'gt-quant-reasoning', name: 'Numerical Ability & Quantitative Reasoning', description: 'Arithmetic, algebra and quantitative application — Class-12 level simple application of basic mathematical concepts.', topics: [
+              t('gt-percentages', 'Percentages', 'aptitude-percentages'),
+              t('gt-ratio', 'Ratio & Proportion', 'aptitude-ratio'),
+              t('gt-average', 'Averages', 'aptitude-average'),
+              t('gt-profit-loss', 'Profit, Loss & Discount', 'aptitude-profit-loss'),
+              t('gt-si-ci', 'Simple & Compound Interest', 'aptitude-si-ci'),
+              t('gt-time-work', 'Time & Work', 'aptitude-time-work'),
+              t('gt-time-speed-distance', 'Time, Speed & Distance', 'aptitude-time-speed-distance'),
+              t('gt-number-system', 'Number System & Simplification', 'aptitude-number-system'),
+              t('gt-data-interpretation', 'Data Interpretation & Statistics Basics', 'aptitude-data-interpretation'),
+              t('gt-series', 'Number & Letter Series', 'reasoning-series'),
+              t('gt-geometry-mensuration', 'Geometry, Mensuration & Trigonometry Basics'),
+            ] },
+            { slug: 'gt-mental-ability', name: 'General Mental Ability, Logical & Analytical Reasoning', description: 'Verbal and non-verbal reasoning: deduction, arrangements, coding and relationships.', topics: [
+              t('gt-syllogism', 'Syllogisms & Logical Deduction', 'reasoning-syllogism'),
+              t('gt-puzzles', 'Seating Arrangements & Puzzles', 'reasoning-puzzles'),
+              t('gt-blood-relations', 'Blood Relations & Family Trees', 'reasoning-blood-relations'),
+              t('gt-directions', 'Direction Sense', 'reasoning-directions'),
+              t('gt-coding-decoding', 'Coding–Decoding & Analogy', 'reasoning-coding'),
+            ] },
+            { slug: 'gt-gk', name: 'General Knowledge, Current Affairs & Science', description: 'Static GK, current events, and general science with environmental literacy (per the official GAT syllabus).', topics: [
+              t('gt-polity', 'Polity & Governance', 'polity-constitution'),
+              t('gt-history', 'History & Culture', 'history-modern'),
+              t('gt-current', 'Current Affairs', 'current-affairs'),
+              t('gt-science-env', 'General Science & Environmental Literacy', 'cuet-gat-science-env'),
+            ] },
+          ] },
+          // ── Languages (Section IA — codes 101–113) ──
+          { slug: 'language', name: 'Languages (13 offered)', icon: 'Languages', description: 'Assamese, Bengali, English, Gujarati, Hindi, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu, Urdu (codes 101–113). Official outline for every language test: reading comprehension based on factual, narrative and literary passages, literary aptitude and vocabulary. Notes below use English (101) as the model; the per-language official syllabus PDFs are linked under Study Material.', units: [
+            { slug: 'lang-core', name: 'Reading Comprehension & Verbal Ability', description: 'The official language-test outline (English 101 shown): RC (factual, narrative, literary — passages up to 300 words) and verbal ability (rearranging parts, match the following, choosing the correct word, synonyms & antonyms).', topics: [
+              t('comprehension', 'Reading Comprehension: Factual, Narrative & Literary Passages', 'english-comprehension'),
+              t('lang-verbal-ability', 'Verbal Ability: Rearranging Parts, Match the Following, Correct Word', 'cuet-lang-verbal-ability'),
+              t('lang-literary-aptitude', 'Literary Aptitude', 'cuet-lang-literary-aptitude'),
+              t('vocabulary', 'Vocabulary: Synonyms, Antonyms & Word Choice', 'english-vocabulary'),
+              t('grammar', 'Grammar & Sentence Correctness (support skill)', 'english-grammar'),
+              t('error-spotting', 'Sentence Correction & Error Spotting (support skill)', 'english-error-spotting'),
+            ] },
+          ] },
+          ...CUET_DOMAIN_SUBJECTS,
+        ] },
+      ],
   },
   {
     slug: 'cuet-pg', name: 'CUET Postgraduate (PG)', shortName: 'CUET PG',

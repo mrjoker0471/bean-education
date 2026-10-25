@@ -2,381 +2,576 @@
   "https://en.wikipedia.org/wiki/Constitution_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:17.027Z"
+    "checkedAt": "2026-10-25T10:36:58.523Z"
   },
   "https://www.india.gov.in/my-government/constitution-india": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-25T09:46:32.038Z"
+    "checkedAt": "2026-10-25T10:37:18.536Z"
   },
   "https://en.wikipedia.org/wiki/Fundamental_Rights_in_India": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:32.175Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:18.900Z"
   },
   "https://en.wikipedia.org/wiki/President_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:32.552Z"
+    "checkedAt": "2026-10-25T10:37:19.290Z"
   },
   "https://en.wikipedia.org/wiki/Parliament_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:32.885Z"
+    "checkedAt": "2026-10-25T10:37:19.610Z"
   },
   "https://en.wikipedia.org/wiki/Supreme_Court_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:33.249Z"
+    "checkedAt": "2026-10-25T10:37:20.054Z"
   },
   "https://en.wikipedia.org/wiki/Panchayati_raj_in_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:33.598Z"
+    "checkedAt": "2026-10-25T10:37:20.397Z"
   },
   "https://en.wikipedia.org/wiki/Comptroller_and_Auditor_General_of_India": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:33.737Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:20.746Z"
   },
   "https://en.wikipedia.org/wiki/Government_of_Tamil_Nadu": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:34.051Z"
+    "checkedAt": "2026-10-25T10:37:21.071Z"
   },
   "https://www.tnpsc.gov.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-25T09:46:49.062Z"
+    "checkedAt": "2026-10-25T10:37:41.081Z"
   },
   "https://en.wikipedia.org/wiki/Indus_Valley_Civilisation": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:49.456Z"
+    "checkedAt": "2026-10-25T10:37:41.509Z"
   },
   "https://en.wikipedia.org/wiki/Maurya_Empire": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:49.851Z"
+    "checkedAt": "2026-10-25T10:37:41.900Z"
   },
   "https://en.wikipedia.org/wiki/Delhi_Sultanate": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:50.293Z"
+    "checkedAt": "2026-10-25T10:37:42.271Z"
   },
   "https://en.wikipedia.org/wiki/Indian_independence_movement": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:50.438Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:43.596Z"
   },
   "https://en.wikipedia.org/wiki/Chola_dynasty": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:50.579Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:43.959Z"
   },
   "https://en.wikipedia.org/wiki/Great_Living_Chola_Temples": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:50.903Z"
+    "checkedAt": "2026-10-25T10:37:44.257Z"
   },
   "https://en.wikipedia.org/wiki/Indian_National_Congress": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:51.380Z"
+    "checkedAt": "2026-10-25T10:37:44.738Z"
   },
   "https://en.wikipedia.org/wiki/Geography_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:51.781Z"
+    "checkedAt": "2026-10-25T10:37:45.115Z"
   },
   "https://en.wikipedia.org/wiki/Geography_of_Tamil_Nadu": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:51.943Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:45.644Z"
   },
   "https://en.wikipedia.org/wiki/Geography": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:52.358Z"
+    "checkedAt": "2026-10-25T10:37:46.031Z"
   },
   "https://en.wikipedia.org/wiki/Economy_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:52.915Z"
+    "checkedAt": "2026-10-25T10:37:46.623Z"
   },
   "https://pib.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:53.459Z"
+    "checkedAt": "2026-10-25T10:37:47.545Z"
   },
   "https://en.wikipedia.org/wiki/Reserve_Bank_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:53.883Z"
+    "checkedAt": "2026-10-25T10:37:47.950Z"
   },
   "https://opportunities.rbi.org.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:54.734Z"
+    "checkedAt": "2026-10-25T10:37:48.552Z"
   },
   "https://en.wikipedia.org/wiki/Economy_of_Tamil_Nadu": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:54.864Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:48.950Z"
   },
   "https://www.ibps.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-25T09:46:55.607Z"
+    "checkedAt": "2026-10-25T10:37:49.726Z"
   },
   "https://en.wikipedia.org/wiki/Physics": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:55.954Z"
+    "checkedAt": "2026-10-25T10:37:50.128Z"
   },
   "https://en.wikipedia.org/wiki/Chemistry": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:56.310Z"
+    "checkedAt": "2026-10-25T10:37:50.490Z"
   },
   "https://en.wikipedia.org/wiki/Human_body": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:56.639Z"
+    "checkedAt": "2026-10-25T10:37:50.854Z"
   },
   "https://en.wikipedia.org/wiki/Solar_System": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:57.105Z"
+    "checkedAt": "2026-10-25T10:37:51.320Z"
   },
   "https://en.wikipedia.org/wiki/Biodiversity": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:57.533Z"
+    "checkedAt": "2026-10-25T10:37:51.747Z"
   },
   "https://www.gktoday.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:57.823Z"
+    "checkedAt": "2026-10-25T10:37:52.130Z"
   },
   "https://www.drishtiias.com": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:57.923Z"
+    "checkedAt": "2026-10-25T10:37:52.275Z"
   },
   "https://en.wikipedia.org/wiki/Percentage": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:58.243Z"
+    "checkedAt": "2026-10-25T10:37:52.848Z"
   },
   "https://en.wikipedia.org/wiki/Chart": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:58.561Z"
+    "checkedAt": "2026-10-25T10:37:53.150Z"
   },
   "https://en.wikipedia.org/wiki/Grammatical_tense": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:46:58.693Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:53.710Z"
   },
   "https://www.jagranjosh.com": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:58.841Z"
+    "checkedAt": "2026-10-25T10:37:53.873Z"
   },
   "https://en.wikipedia.org/wiki/Cell_(biology)": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:59.237Z"
+    "checkedAt": "2026-10-25T10:37:54.276Z"
   },
   "https://en.wikipedia.org/wiki/Respiratory_system": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:59.567Z"
+    "checkedAt": "2026-10-25T10:37:54.603Z"
   },
   "https://en.wikipedia.org/wiki/Mole_(unit)": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:46:59.891Z"
+    "checkedAt": "2026-10-25T10:37:54.908Z"
   },
   "https://en.wikipedia.org/wiki/Kinematics": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-25T09:47:00.032Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:37:55.283Z"
   },
   "https://en.wikipedia.org/wiki/Quadratic_equation": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:00.421Z"
+    "checkedAt": "2026-10-25T10:37:55.656Z"
   },
   "https://nptel.ac.in/courses": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:01.091Z"
+    "checkedAt": "2026-10-25T10:37:55.816Z"
   },
   "https://swayam.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:01.737Z"
+    "checkedAt": "2026-10-25T10:37:57.056Z"
   },
   "https://archive.org/details/texts": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:03.268Z"
+    "checkedAt": "2026-10-25T10:37:57.600Z"
   },
   "https://upsc.gov.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-25T09:47:18.277Z"
+    "checkedAt": "2026-10-25T10:38:17.609Z"
   },
   "https://ssc.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:18.954Z"
+    "checkedAt": "2026-10-25T10:38:18.105Z"
   },
   "https://www.rrbcdg.gov.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-25T09:47:33.963Z"
+    "checkedAt": "2026-10-25T10:38:38.114Z"
   },
   "https://neet.nta.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:34.056Z"
+    "checkedAt": "2026-10-25T10:38:38.472Z"
   },
   "https://sbi.co.in/web/careers": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:35.038Z"
+    "checkedAt": "2026-10-25T10:38:39.461Z"
   },
   "https://ctet.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:36.056Z"
+    "checkedAt": "2026-10-25T10:38:40.634Z"
   },
   "https://jeemain.nta.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:36.321Z"
+    "checkedAt": "2026-10-25T10:38:41.224Z"
   },
   "https://jeemain.nta.nic.in/syllabus/": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:36.416Z"
+    "checkedAt": "2026-10-25T10:38:43.047Z"
   },
   "https://jeemain.nta.nic.in/information-bulletin/": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:36.573Z"
+    "checkedAt": "2026-10-25T10:38:43.389Z"
   },
   "https://jeeadv.ac.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:36.676Z"
+    "checkedAt": "2026-10-25T10:38:43.667Z"
   },
   "https://neet.nta.nic.in/syllabus/": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:40.530Z"
+    "checkedAt": "2026-10-25T10:38:44.193Z"
   },
   "https://neet.nta.nic.in/information-bulletin/": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:43.099Z"
+    "checkedAt": "2026-10-25T10:38:44.398Z"
   },
   "https://nbe.edu.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:43.561Z"
+    "checkedAt": "2026-10-25T10:38:44.861Z"
   },
   "https://aiimsexams.ac.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:43.874Z"
+    "checkedAt": "2026-10-25T10:38:45.162Z"
   },
   "https://cuet.nta.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:45.053Z"
+    "checkedAt": "2026-10-25T10:38:46.093Z"
   },
-  "https://cuet.nta.nic.in/syllabus/": {
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/202601031633478370.pdf": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:46.456Z"
+    "checkedAt": "2026-10-25T10:38:46.353Z"
+  },
+  "https://cuet.nta.nic.in/cuetug-2026-syllabus/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:47.713Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/2026011697237004.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:47.772Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227980877010.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:47.821Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271367681884.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:47.911Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227237505054.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:47.972Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271803368333.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.111Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271413553522.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.158Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227946030806.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.228Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271352620716.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.488Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227262140491.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.574Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227991376595.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.647Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227900793676.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.737Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271178809232.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.842Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/2025122713492501.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.911Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227870466763.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:48.989Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227522720880.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.047Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227220683220.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.152Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512272060536755.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.260Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227553390532.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.386Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227259182286.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.466Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227437950608.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.568Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271868030697.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.662Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271589155179.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.741Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271366341541.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.821Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227993225795.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.911Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227925964065.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:49.979Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227167662981.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.037Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/20260120190240355.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.136Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271210828150.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.216Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227328972301.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.271Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271521179041.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.413Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271161227870.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.469Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271937553070.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.560Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271334142557.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.671Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227158639183.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.729Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271803303381.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.797Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/202512271597735514.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:50.859Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227621541284.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:51.082Z"
+  },
+  "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2025/12/20251227140287889.pdf": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T10:38:51.169Z"
   },
   "https://cmat.nta.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:47.965Z"
+    "checkedAt": "2026-10-25T10:38:52.256Z"
   },
   "https://gate2026.iitg.ac.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:48.788Z"
+    "checkedAt": "2026-10-25T10:38:53.205Z"
   },
   "https://consortiumofnlus.ac.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:49.194Z"
+    "checkedAt": "2026-10-25T10:38:53.620Z"
   },
   "https://iimcat.ac.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:50.179Z"
+    "checkedAt": "2026-10-25T10:38:54.596Z"
   },
   "https://www.upsc.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:50.281Z"
+    "checkedAt": "2026-10-25T10:38:54.788Z"
   },
   "https://www.upsc.gov.in/examinations/previous-question-papers": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:50.387Z"
+    "checkedAt": "2026-10-25T10:38:55.022Z"
   },
   "https://ssc.gov.in/candidate-information/syllabus": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:50.899Z"
+    "checkedAt": "2026-10-25T10:38:55.488Z"
   },
   "https://licindia.in/web/guest/careers": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:50.949Z"
+    "checkedAt": "2026-10-25T10:38:55.549Z"
   },
   "https://ctet.nic.in/information-bulletin/": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:51.786Z"
+    "checkedAt": "2026-10-25T10:38:56.831Z"
   },
   "https://ugcnet.nta.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:53.956Z"
+    "checkedAt": "2026-10-25T10:38:57.210Z"
   },
   "https://uppsc.up.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:54.924Z"
+    "checkedAt": "2026-10-25T10:38:58.298Z"
   },
   "https://psc.kerala.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:47:56.281Z"
+    "checkedAt": "2026-10-25T10:39:00.504Z"
   },
   "https://kpsc.kar.nic.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-25T09:48:11.359Z"
+    "checkedAt": "2026-10-25T10:39:20.745Z"
   },
   "https://legislative.gov.in/constitution-of-india": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:48:12.025Z"
+    "checkedAt": "2026-10-25T10:39:21.364Z"
   },
   "https://www.india.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-25T09:48:12.217Z"
+    "checkedAt": "2026-10-25T10:39:21.561Z"
   }
 }

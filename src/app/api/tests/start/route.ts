@@ -21,6 +21,29 @@ interface TestConfig {
   negativeMark: number
 }
 
+// Honour the exam's REAL marking scheme & pace when its stage pattern defines
+// one (e.g. CUET UG: +5 correct, −1 wrong, 50 Q / 60 min → 1.2 min per question).
+function cfgFromStagePattern(
+  patternJson: string | null,
+  count: number,
+  fallbackDurationMin?: number,
+): TestConfig {
+  const pat = safeParse<{ durationMin?: number; totalQuestions?: number; totalMarks?: number; negativeMark?: number; marksPerQuestion?: number } | null>(patternJson, null)
+  if (!pat || !pat.durationMin || !pat.totalQuestions) {
+    return { count, durationMin: fallbackDurationMin ?? count, marksPerQuestion: 1, negativeMark: 0 }
+  }
+  const minutesPerQ = pat.durationMin / pat.totalQuestions
+  // Marks per correct answer: explicit override (CUET UG: 5), else the exam's real
+  // marks-per-question average from its official pattern (JEE: +4, TNPSC: +1.5 …).
+  const derived = pat.totalMarks ? Math.round((pat.totalMarks / pat.totalQuestions) * 100) / 100 : 1
+  return {
+    count,
+    durationMin: Math.max(5, Math.round(count * minutesPerQ)),
+    marksPerQuestion: pat.marksPerQuestion ?? derived,
+    negativeMark: pat.negativeMark ?? 0,
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const parsed = bodySchema.safeParse(await req.json())
@@ -30,11 +53,12 @@ export async function POST(req: NextRequest) {
     const { guestId, templateId, examId, subjectId, topicId } = parsed.data
 
     let filter: { examId?: string; subjectId?: string; topicId?: string } = {}
-    let config: TestConfig
+    let config: TestConfig | null = null
     let title = 'Practice Test'
     let examLabel = ''
     let resumeKey = ''
     let revisionQuestionIds: string[] | null = null
+    let attemptExamId: string | null = null // exam scoping for revision/progress (topic/subject starts resolve it too)
 
     if (templateId) {
       const tpl = await db.testTemplate.findUnique({ where: { id: templateId }, include: { exam: true } })
@@ -44,6 +68,7 @@ export async function POST(req: NextRequest) {
       filter = Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined)) as typeof filter
       title = tpl.title
       examLabel = tpl.exam?.shortName ?? tpl.exam?.name ?? ''
+      attemptExamId = tpl.examId
       resumeKey = `tpl:${tpl.id}`
     } else if (topicId) {
       const topic = await db.topic.findUnique({
@@ -52,28 +77,28 @@ export async function POST(req: NextRequest) {
       })
       if (!topic) return NextResponse.json({ error: 'Topic not found' }, { status: 404 })
       const exam = topic.unit.subject.stage.exam
-      const stagePattern = safeParse<{ negativeMark?: number } | null>(topic.unit.subject.stage.patternJson, null)
       const available = await db.question.count({ where: { topicId } })
       if (available < 4) {
         return NextResponse.json({ error: 'Not enough questions yet for a topic test — try the subject or mixed test instead.' }, { status: 409 })
       }
       const count = Math.min(10, available)
-      config = { count, durationMin: count, marksPerQuestion: 1, negativeMark: stagePattern?.negativeMark ?? 0 }
+      config = cfgFromStagePattern(topic.unit.subject.stage.patternJson, count)
       filter = { topicId }
       title = `${topic.name} — Topic Practice`
       examLabel = exam.shortName ?? exam.name
+      attemptExamId = exam.id
       resumeKey = `topic:${topicId}`
     } else if (examId && subjectId) {
       const subject = await db.subject.findUnique({ where: { id: subjectId }, include: { stage: { include: { exam: true } } } })
       if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
       const available = await db.question.count({ where: { subjectId } })
       if (available < 4) return NextResponse.json({ error: 'Not enough questions available yet.' }, { status: 409 })
-      const stagePattern = safeParse<{ negativeMark?: number } | null>(subject.stage.patternJson, null)
       const count = Math.min(15, available)
-      config = { count, durationMin: count, marksPerQuestion: 1, negativeMark: stagePattern?.negativeMark ?? 0 }
+      config = cfgFromStagePattern(subject.stage.patternJson, count)
       filter = { subjectId }
       title = `${subject.name} — Practice Test`
       examLabel = subject.stage.exam.shortName ?? subject.stage.exam.name
+      attemptExamId = subject.stage.exam.id
       resumeKey = `subject:${subjectId}`
     } else if (examId) {
       const exam = await db.exam.findUnique({ where: { id: examId } })
@@ -114,25 +139,30 @@ export async function POST(req: NextRequest) {
         const firstStage = await db.stage.findFirst({
           where: { examId }, orderBy: { order: 'asc' },
         })
-        const stagePattern = safeParse<{ negativeMark?: number } | null>(firstStage?.patternJson ?? null, null)
         const count = Math.min(15, revisionQuestionIds.length)
-        config = { count, durationMin: count, marksPerQuestion: 1, negativeMark: stagePattern?.negativeMark ?? 0 }
+        config = cfgFromStagePattern(firstStage?.patternJson ?? null, count)
         filter = { examId }
         title = `${exam.shortName ?? exam.name} — Revision (my mistakes)`
         examLabel = exam.shortName ?? exam.name
+        attemptExamId = exam.id
         resumeKey = `revision:${examId}`
       } else {
         const available = await db.question.count({ where: { examId } })
         if (available < 4) return NextResponse.json({ error: 'Not enough questions available yet for this exam.' }, { status: 409 })
         const count = Math.min(25, available)
-        config = { count, durationMin: Math.max(20, count), marksPerQuestion: 1, negativeMark: 0 }
+        const firstStage = await db.stage.findFirst({ where: { examId }, orderBy: { order: 'asc' } })
+        config = cfgFromStagePattern(firstStage?.patternJson ?? null, count, Math.max(20, count))
         filter = { examId }
         title = `${exam.shortName ?? exam.name} — Mixed Practice`
         examLabel = exam.shortName ?? exam.name
+        attemptExamId = exam.id
         resumeKey = `exam:${examId}`
       }
     } else {
       return NextResponse.json({ error: 'Specify a template, topic, subject or exam' }, { status: 400 })
+    }
+    if (!config) {
+      return NextResponse.json({ error: 'Could not build a test configuration' }, { status: 400 })
     }
 
     // Resume: return the existing unfinished attempt for the same scope & guest
@@ -172,7 +202,7 @@ export async function POST(req: NextRequest) {
       data: {
         guestId,
         templateId: templateId ?? null,
-        examId: filter.examId ?? null,
+        examId: attemptExamId,
         title,
         examLabel,
         topicId: filter.topicId ?? null,

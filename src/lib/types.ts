@@ -37,6 +37,7 @@ export interface StagePatternDTO {
   totalQuestions: number
   totalMarks: number
   negativeMark: number
+  marksPerQuestion?: number // marks per correct answer (default 1) — e.g. CUET UG: 5
   qualifying?: string
   sections: { name: string; questions: number; marks: number; durationMin?: number }[]
 }

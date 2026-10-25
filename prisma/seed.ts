@@ -8,7 +8,9 @@ import { createHash } from 'node:crypto'
 import { EXAMS, CATEGORIES } from '../src/data/exams'
 import { NOTES_GS } from '../src/data/notes-gs'
 import { NOTES_APT } from '../src/data/notes-apt'
+import { NOTES_CUET } from '../src/data/notes-cuet'
 import { QUESTIONS } from '../src/data/questions'
+import { QUESTIONS_CUET } from '../src/data/questions-cuet'
 import { RESOURCES, EXAM_RESOURCES } from '../src/data/resources'
 import { OFFICIAL_DOCS } from '../src/data/official-docs'
 import { readFileSync } from 'node:fs'
@@ -25,9 +27,9 @@ const verification: Verification = JSON.parse(
 
 async function main() {
   const noteLib = new Map<string, (typeof NOTES_GS)[number]>()
-  for (const n of [...NOTES_GS, ...NOTES_APT]) noteLib.set(n.canonical, n)
+  for (const n of [...NOTES_GS, ...NOTES_APT, ...NOTES_CUET]) noteLib.set(n.canonical, n)
   const questionsByCanonical = new Map<string, (typeof QUESTIONS)[number][]>()
-  for (const q of QUESTIONS) {
+  for (const q of [...QUESTIONS, ...QUESTIONS_CUET]) {
     const list = questionsByCanonical.get(q.canonical) ?? []
     list.push(q)
     questionsByCanonical.set(q.canonical, list)
@@ -227,12 +229,14 @@ async function main() {
           where: { id: `resd_${ex.slug}_${hash8(r.url)}` },
           create: {
             id: `resd_${ex.slug}_${hash8(r.url)}`, examId: exam.id, title: r.title, provider: r.provider,
-            type: r.type, url: r.url, accessType: r.accessType ?? 'FREE', verificationStatus: status,
+            type: r.type, url: r.url, language: r.language ?? 'English',
+            accessType: r.accessType ?? 'FREE', verificationStatus: status,
             lastChecked: v ? new Date(v.checkedAt) : null, note: r.note ?? null,
             fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
           },
           update: {
             examId: exam.id, title: r.title, provider: r.provider, type: r.type, url: r.url,
+            language: r.language ?? 'English',
             accessType: r.accessType ?? 'FREE', verificationStatus: status,
             lastChecked: v ? new Date(v.checkedAt) : null, note: r.note ?? null,
             fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
@@ -242,9 +246,28 @@ async function main() {
       }
     }
 
-    // 3. Test templates — subject tests + one mixed mock per exam (config from stage pattern)
-    const negFor = (stageSlug: string) =>
-      ex.stages.find(s => s.slug === stageSlug)?.pattern?.negativeMark ?? 0
+    // 3. Test templates — subject tests + one mixed mock per exam.
+    // Marking & duration honour the exam's REAL pattern when the stage defines
+    // one (e.g. CUET UG: +5 correct, −1 wrong, 60 min per 50-question paper →
+    // practice length scales by the same minutes-per-question pace).
+    const patternFor = (stageSlug: string) =>
+      ex.stages.find(s => s.slug === stageSlug)?.pattern ?? null
+
+    const cfgFromPattern = (count: number, pat: { durationMin: number; totalQuestions: number; totalMarks: number; negativeMark: number; marksPerQuestion?: number } | null) => {
+      if (!pat) return { count, durationMin: count, marksPerQuestion: 1, negativeMark: 0 }
+      const minutesPerQ = pat.durationMin / pat.totalQuestions
+      const derived = Math.round((pat.totalMarks / pat.totalQuestions) * 100) / 100
+      return {
+        count,
+        durationMin: Math.max(5, Math.round(count * minutesPerQ)),
+        marksPerQuestion: pat.marksPerQuestion ?? derived,
+        negativeMark: pat.negativeMark ?? 0,
+      }
+    }
+
+    const describeConfig = (c: { durationMin: number; marksPerQuestion: number; negativeMark: number }) =>
+      `Duration ${c.durationMin} min.` +
+      (c.marksPerQuestion !== 1 ? ` Marking: +${c.marksPerQuestion} correct, ${c.negativeMark ? `\u2212${c.negativeMark} incorrect` : 'no penalty'} — as per the exam's official scheme.` : `${c.negativeMark ? ` Negative marking: ${c.negativeMark} per wrong answer.` : ' No negative marking.'}`)
 
     const subjectRows = await db.subject.findMany({
       where: { stage: { examId: exam.id } },
@@ -254,24 +277,25 @@ async function main() {
       if (su._count.questions < 5) continue
       const count = Math.min(15, su._count.questions)
       const stage = await db.stage.findFirst({ where: { id: su.stageId } })
-      const neg = negFor(stage?.slug ?? '')
+      const config = cfgFromPattern(count, patternFor(stage?.slug ?? ''))
       const slug = `t_${ex.slug}_${stage?.slug ?? 'x'}_${su.slug}`
+      const desc = `${count} original practice questions from ${su.name} (${ex.shortName ?? ex.name}). ${describeConfig(config)}`
       await db.testTemplate.upsert({
         where: { slug },
         create: {
           slug, examId: exam.id, stageId: stage?.id, subjectId: su.id,
           title: `${su.name} — Practice Test`,
-          description: `${count} original practice questions from ${su.name} (${ex.shortName ?? ex.name}). Duration ${count} min.${neg ? ` Negative marking: ${neg} per wrong answer.` : ' No negative marking.'}`,
+          description: desc,
           type: 'SUBJECT',
-          configJson: JSON.stringify({ count, durationMin: count, marksPerQuestion: 1, negativeMark: neg }),
+          configJson: JSON.stringify(config),
           order: 2,
         },
         update: {
           examId: exam.id, stageId: stage?.id, subjectId: su.id,
           title: `${su.name} — Practice Test`,
-          description: `${count} original practice questions from ${su.name} (${ex.shortName ?? ex.name}). Duration ${count} min.${neg ? ` Negative marking: ${neg} per wrong answer.` : ' No negative marking.'}`,
+          description: desc,
           type: 'SUBJECT',
-          configJson: JSON.stringify({ count, durationMin: count, marksPerQuestion: 1, negativeMark: neg }),
+          configJson: JSON.stringify(config),
           order: 2,
         },
       })
@@ -282,24 +306,25 @@ async function main() {
     if (examQCount >= 15) {
       const count = Math.min(25, examQCount)
       const firstStage = ex.stages[0]
-      const neg = firstStage?.pattern?.negativeMark ?? 0
+      const config = cfgFromPattern(count, firstStage?.pattern ?? null)
       const slug = `mock_${ex.slug}`
+      const desc = `${count} mixed questions across subjects. ${describeConfig(config)}`
       await db.testTemplate.upsert({
         where: { slug },
         create: {
           slug, examId: exam.id,
           title: `${ex.shortName ?? ex.name} — Mixed Mock`,
-          description: `${count} mixed questions across subjects. ${count} minutes.${neg ? ` Negative marking ${neg} per wrong answer (as per the exam's pattern).` : ' No negative marking.'}`,
+          description: desc,
           type: 'MIXED',
-          configJson: JSON.stringify({ count, durationMin: count, marksPerQuestion: 1, negativeMark: neg }),
+          configJson: JSON.stringify(config),
           order: 1,
         },
         update: {
           examId: exam.id,
           title: `${ex.shortName ?? ex.name} — Mixed Mock`,
-          description: `${count} mixed questions across subjects. ${count} minutes.${neg ? ` Negative marking ${neg} per wrong answer (as per the exam's pattern).` : ' No negative marking.'}`,
+          description: desc,
           type: 'MIXED',
-          configJson: JSON.stringify({ count, durationMin: count, marksPerQuestion: 1, negativeMark: neg }),
+          configJson: JSON.stringify(config),
           order: 1,
         },
       })
