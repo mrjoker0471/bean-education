@@ -11,7 +11,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const guestId = new URL(req.url).searchParams.get('guestId')
     if (!guestId) return NextResponse.json({ error: 'guestId required' }, { status: 400 })
 
-    const attempt = await db.attempt.findUnique({ where: { id } })
+    const attempt = await db.attempt.findUnique({ where: { id }, include: { exam: { select: { slug: true } } } })
     if (!attempt || attempt.guestId !== guestId) {
       return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
     }
@@ -26,7 +26,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const questions = await db.question.findMany({
       where: { id: { in: ids } },
-      select: { id: true, text: true, optionsJson: true, correctIndex: true, explanation: true, topic: { select: { name: true } } },
+      select: {
+        id: true, text: true, optionsJson: true, correctIndex: true, explanation: true,
+        topicId: true,
+        sourceType: true, sourcePaper: true, year: true,
+        topic: { select: { name: true } },
+      },
     })
     const byId = new Map(questions.map(q => [q.id, q]))
 
@@ -34,6 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       id: attempt.id,
       title: attempt.title,
       examLabel: attempt.examLabel,
+      examSlug: attempt.exam?.slug ?? null,
       status: attempt.status as AttemptResultDTO['status'],
       config,
       score: attempt.score ?? 0,
@@ -52,10 +58,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           text: q?.text ?? '',
           options: safeParse<string[]>(q?.optionsJson, []),
           topicName: q?.topic?.name,
+          topicId: q?.topicId ?? null,
           selectedIndex: isAnswered ? selected : null,
           correctIndex: q?.correctIndex ?? 0,
           explanation: q?.explanation ?? '',
           isCorrect: isAnswered && selected === q?.correctIndex,
+          sourceType: (q?.sourceType ?? 'ORIGINAL') as AttemptResultDTO['questions'][number]['sourceType'],
+          sourcePaper: q?.sourcePaper ?? null,
+          year: q?.year ?? null,
         }
       }),
     }

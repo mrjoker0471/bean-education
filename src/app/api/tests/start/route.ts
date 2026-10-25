@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     let title = 'Practice Test'
     let examLabel = ''
     let resumeKey = ''
+    let revisionQuestionIds: string[] | null = null
 
     if (templateId) {
       const tpl = await db.testTemplate.findUnique({ where: { id: templateId }, include: { exam: true } })
@@ -77,14 +78,59 @@ export async function POST(req: NextRequest) {
     } else if (examId) {
       const exam = await db.exam.findUnique({ where: { id: examId } })
       if (!exam) return NextResponse.json({ error: 'Examination not found' }, { status: 404 })
-      const available = await db.question.count({ where: { examId } })
-      if (available < 4) return NextResponse.json({ error: 'Not enough questions available yet for this exam.' }, { status: 409 })
-      const count = Math.min(25, available)
-      config = { count, durationMin: Math.max(20, count), marksPerQuestion: 1, negativeMark: 0 }
-      filter = { examId }
-      title = `${exam.shortName ?? exam.name} — Mixed Practice`
-      examLabel = exam.shortName ?? exam.name
-      resumeKey = `exam:${examId}`
+
+      if (parsed.data.type === 'REVISION') {
+        // Revision test — built ONLY from this guest's actual wrong answers in this exam.
+        const pastAttempts = await db.attempt.findMany({
+          where: { guestId, examId, status: { in: ['SUBMITTED', 'TIMED_OUT'] } },
+          select: { questionIdsJson: true, answersJson: true },
+          orderBy: { startedAt: 'desc' },
+          take: 30,
+        })
+        const answered = new Map<string, number>()
+        for (const attempt of pastAttempts) {
+          const ids = safeParse<string[]>(attempt.questionIdsJson, [])
+          const answers = safeParse<Record<string, number>>(attempt.answersJson, {})
+          for (const qid of ids) {
+            const selected = answers[qid]
+            if (selected === undefined || selected < 0) continue
+            answered.set(qid, selected)
+          }
+        }
+        if (answered.size > 0) {
+          const rows = await db.question.findMany({
+            where: { id: { in: [...answered.keys()] }, examId },
+            select: { id: true, correctIndex: true },
+          })
+          revisionQuestionIds = rows
+            .filter(r => answered.get(r.id) !== r.correctIndex)
+            .map(r => r.id)
+        }
+        if (!revisionQuestionIds || revisionQuestionIds.length < 4) {
+          return NextResponse.json({
+            error: 'Not enough wrong answers to build a revision test yet — take a practice test first.',
+          }, { status: 409 })
+        }
+        const firstStage = await db.stage.findFirst({
+          where: { examId }, orderBy: { order: 'asc' },
+        })
+        const stagePattern = safeParse<{ negativeMark?: number } | null>(firstStage?.patternJson ?? null, null)
+        const count = Math.min(15, revisionQuestionIds.length)
+        config = { count, durationMin: count, marksPerQuestion: 1, negativeMark: stagePattern?.negativeMark ?? 0 }
+        filter = { examId }
+        title = `${exam.shortName ?? exam.name} — Revision (my mistakes)`
+        examLabel = exam.shortName ?? exam.name
+        resumeKey = `revision:${examId}`
+      } else {
+        const available = await db.question.count({ where: { examId } })
+        if (available < 4) return NextResponse.json({ error: 'Not enough questions available yet for this exam.' }, { status: 409 })
+        const count = Math.min(25, available)
+        config = { count, durationMin: Math.max(20, count), marksPerQuestion: 1, negativeMark: 0 }
+        filter = { examId }
+        title = `${exam.shortName ?? exam.name} — Mixed Practice`
+        examLabel = exam.shortName ?? exam.name
+        resumeKey = `exam:${examId}`
+      }
     } else {
       return NextResponse.json({ error: 'Specify a template, topic, subject or exam' }, { status: 400 })
     }
@@ -107,11 +153,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Select questions server-side (never expose answers at this stage)
-    const ids = await db.question.findMany({
-      where: filter,
-      select: { id: true },
-    })
-    const chosen = shuffle(ids.map(q => q.id)).slice(0, config.count)
+    let chosen: string[]
+    if (revisionQuestionIds) {
+      chosen = shuffle(revisionQuestionIds).slice(0, config.count)
+    } else {
+      const ids = await db.question.findMany({
+        where: filter,
+        select: { id: true },
+      })
+      chosen = shuffle(ids.map(q => q.id)).slice(0, config.count)
+    }
     if (chosen.length < 4) {
       return NextResponse.json({ error: 'Not enough questions available.' }, { status: 409 })
     }

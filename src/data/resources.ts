@@ -6,17 +6,25 @@
 // are kept but honestly labelled UNREACHABLE / PENDING_REVIEW.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type ResourceType =
+  | 'OFFICIAL_SYLLABUS' | 'OFFICIAL_BULLETIN' | 'OFFICIAL_PORTAL' | 'OFFICIAL_NOTICE'
+  | 'TEXTBOOK_PDF' | 'STUDY_NOTES' | 'ARTICLE' | 'VIDEO' | 'REVISION' | 'ORIGINAL_GUIDE'
+
+export type ResourceFileKind = 'PORTAL' | 'WEBPAGE' | 'PDF'
+
 export interface ResourceSeed {
   canonical?: string
   examSlug?: string
   title: string
   provider: string
-  type: 'TEXTBOOK_PDF' | 'STUDY_NOTES' | 'ARTICLE' | 'VIDEO' | 'REVISION' | 'ORIGINAL_GUIDE'
+  type: ResourceType
   url: string
   language?: string
   accessType?: 'FREE' | 'REGISTRATION' | 'PAID'
   attribution?: string
   note?: string
+  fileKind?: ResourceFileKind // how the link opens — PORTAL/WEBPAGE open as pages, PDF downloads
+  docDate?: string // publication/revision date, only when verifiably known
 }
 
 export const RESOURCES: ResourceSeed[] = [

@@ -2,256 +2,381 @@
   "https://en.wikipedia.org/wiki/Constitution_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:11:49.641Z"
+    "checkedAt": "2026-10-25T09:46:17.027Z"
   },
   "https://www.india.gov.in/my-government/constitution-india": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-24T20:12:04.652Z"
+    "checkedAt": "2026-10-25T09:46:32.038Z"
   },
   "https://en.wikipedia.org/wiki/Fundamental_Rights_in_India": {
-    "status": "VERIFIED",
-    "code": 200,
-    "checkedAt": "2026-10-24T20:12:04.963Z"
+    "status": "PENDING_REVIEW",
+    "code": 429,
+    "checkedAt": "2026-10-25T09:46:32.175Z"
   },
   "https://en.wikipedia.org/wiki/President_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:05.317Z"
+    "checkedAt": "2026-10-25T09:46:32.552Z"
   },
   "https://en.wikipedia.org/wiki/Parliament_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:05.656Z"
+    "checkedAt": "2026-10-25T09:46:32.885Z"
   },
   "https://en.wikipedia.org/wiki/Supreme_Court_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:06.116Z"
+    "checkedAt": "2026-10-25T09:46:33.249Z"
   },
   "https://en.wikipedia.org/wiki/Panchayati_raj_in_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:06.436Z"
+    "checkedAt": "2026-10-25T09:46:33.598Z"
   },
   "https://en.wikipedia.org/wiki/Comptroller_and_Auditor_General_of_India": {
-    "status": "VERIFIED",
-    "code": 200,
-    "checkedAt": "2026-10-24T20:12:06.755Z"
+    "status": "PENDING_REVIEW",
+    "code": 429,
+    "checkedAt": "2026-10-25T09:46:33.737Z"
   },
   "https://en.wikipedia.org/wiki/Government_of_Tamil_Nadu": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:07.115Z"
+    "checkedAt": "2026-10-25T09:46:34.051Z"
   },
   "https://www.tnpsc.gov.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-24T20:12:22.125Z"
+    "checkedAt": "2026-10-25T09:46:49.062Z"
   },
   "https://en.wikipedia.org/wiki/Indus_Valley_Civilisation": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:22.567Z"
+    "checkedAt": "2026-10-25T09:46:49.456Z"
   },
   "https://en.wikipedia.org/wiki/Maurya_Empire": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:22.973Z"
+    "checkedAt": "2026-10-25T09:46:49.851Z"
   },
   "https://en.wikipedia.org/wiki/Delhi_Sultanate": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:23.372Z"
+    "checkedAt": "2026-10-25T09:46:50.293Z"
   },
   "https://en.wikipedia.org/wiki/Indian_independence_movement": {
-    "status": "VERIFIED",
-    "code": 200,
-    "checkedAt": "2026-10-24T20:12:23.751Z"
-  },
-  "https://en.wikipedia.org/wiki/Chola_dynasty": {
-    "status": "VERIFIED",
-    "code": 200,
-    "checkedAt": "2026-10-24T20:12:24.103Z"
-  },
-  "https://en.wikipedia.org/wiki/Great_Living_Chola_Temples": {
     "status": "PENDING_REVIEW",
     "code": 429,
-    "checkedAt": "2026-10-24T20:12:24.250Z"
+    "checkedAt": "2026-10-25T09:46:50.438Z"
+  },
+  "https://en.wikipedia.org/wiki/Chola_dynasty": {
+    "status": "PENDING_REVIEW",
+    "code": 429,
+    "checkedAt": "2026-10-25T09:46:50.579Z"
+  },
+  "https://en.wikipedia.org/wiki/Great_Living_Chola_Temples": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:46:50.903Z"
   },
   "https://en.wikipedia.org/wiki/Indian_National_Congress": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:24.755Z"
+    "checkedAt": "2026-10-25T09:46:51.380Z"
   },
   "https://en.wikipedia.org/wiki/Geography_of_India": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-24T20:12:24.900Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:46:51.781Z"
   },
   "https://en.wikipedia.org/wiki/Geography_of_Tamil_Nadu": {
     "status": "PENDING_REVIEW",
     "code": 429,
-    "checkedAt": "2026-10-24T20:12:25.036Z"
+    "checkedAt": "2026-10-25T09:46:51.943Z"
   },
   "https://en.wikipedia.org/wiki/Geography": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:25.391Z"
+    "checkedAt": "2026-10-25T09:46:52.358Z"
   },
   "https://en.wikipedia.org/wiki/Economy_of_India": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-24T20:12:25.530Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:46:52.915Z"
   },
   "https://pib.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:26.107Z"
+    "checkedAt": "2026-10-25T09:46:53.459Z"
   },
   "https://en.wikipedia.org/wiki/Reserve_Bank_of_India": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:26.536Z"
+    "checkedAt": "2026-10-25T09:46:53.883Z"
   },
   "https://opportunities.rbi.org.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:27.024Z"
+    "checkedAt": "2026-10-25T09:46:54.734Z"
   },
   "https://en.wikipedia.org/wiki/Economy_of_Tamil_Nadu": {
-    "status": "VERIFIED",
-    "code": 200,
-    "checkedAt": "2026-10-24T20:12:27.381Z"
+    "status": "PENDING_REVIEW",
+    "code": 429,
+    "checkedAt": "2026-10-25T09:46:54.864Z"
   },
   "https://www.ibps.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-24T20:12:27.938Z"
+    "checkedAt": "2026-10-25T09:46:55.607Z"
   },
   "https://en.wikipedia.org/wiki/Physics": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:28.373Z"
+    "checkedAt": "2026-10-25T09:46:55.954Z"
   },
   "https://en.wikipedia.org/wiki/Chemistry": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:28.723Z"
+    "checkedAt": "2026-10-25T09:46:56.310Z"
   },
   "https://en.wikipedia.org/wiki/Human_body": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:29.102Z"
+    "checkedAt": "2026-10-25T09:46:56.639Z"
   },
   "https://en.wikipedia.org/wiki/Solar_System": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:29.650Z"
+    "checkedAt": "2026-10-25T09:46:57.105Z"
   },
   "https://en.wikipedia.org/wiki/Biodiversity": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:30.056Z"
+    "checkedAt": "2026-10-25T09:46:57.533Z"
   },
   "https://www.gktoday.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:30.396Z"
+    "checkedAt": "2026-10-25T09:46:57.823Z"
   },
   "https://www.drishtiias.com": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:30.533Z"
+    "checkedAt": "2026-10-25T09:46:57.923Z"
   },
   "https://en.wikipedia.org/wiki/Percentage": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-24T20:12:30.666Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:46:58.243Z"
   },
   "https://en.wikipedia.org/wiki/Chart": {
-    "status": "PENDING_REVIEW",
-    "code": 429,
-    "checkedAt": "2026-10-24T20:12:30.799Z"
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:46:58.561Z"
   },
   "https://en.wikipedia.org/wiki/Grammatical_tense": {
     "status": "PENDING_REVIEW",
     "code": 429,
-    "checkedAt": "2026-10-24T20:12:30.937Z"
+    "checkedAt": "2026-10-25T09:46:58.693Z"
   },
   "https://www.jagranjosh.com": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:31.084Z"
+    "checkedAt": "2026-10-25T09:46:58.841Z"
   },
   "https://en.wikipedia.org/wiki/Cell_(biology)": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:31.455Z"
+    "checkedAt": "2026-10-25T09:46:59.237Z"
   },
   "https://en.wikipedia.org/wiki/Respiratory_system": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:31.819Z"
+    "checkedAt": "2026-10-25T09:46:59.567Z"
   },
   "https://en.wikipedia.org/wiki/Mole_(unit)": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:32.103Z"
+    "checkedAt": "2026-10-25T09:46:59.891Z"
   },
   "https://en.wikipedia.org/wiki/Kinematics": {
-    "status": "VERIFIED",
-    "code": 200,
-    "checkedAt": "2026-10-24T20:12:32.507Z"
+    "status": "PENDING_REVIEW",
+    "code": 429,
+    "checkedAt": "2026-10-25T09:47:00.032Z"
   },
   "https://en.wikipedia.org/wiki/Quadratic_equation": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:32.846Z"
+    "checkedAt": "2026-10-25T09:47:00.421Z"
   },
   "https://nptel.ac.in/courses": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:33.777Z"
+    "checkedAt": "2026-10-25T09:47:01.091Z"
   },
   "https://swayam.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:34.292Z"
+    "checkedAt": "2026-10-25T09:47:01.737Z"
   },
   "https://archive.org/details/texts": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:34.845Z"
+    "checkedAt": "2026-10-25T09:47:03.268Z"
   },
   "https://upsc.gov.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-24T20:12:49.856Z"
+    "checkedAt": "2026-10-25T09:47:18.277Z"
   },
   "https://ssc.gov.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:12:50.647Z"
+    "checkedAt": "2026-10-25T09:47:18.954Z"
   },
   "https://www.rrbcdg.gov.in": {
     "status": "UNREACHABLE",
     "code": 0,
-    "checkedAt": "2026-10-24T20:13:05.657Z"
+    "checkedAt": "2026-10-25T09:47:33.963Z"
   },
   "https://neet.nta.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:13:05.978Z"
+    "checkedAt": "2026-10-25T09:47:34.056Z"
   },
   "https://sbi.co.in/web/careers": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:13:07.299Z"
+    "checkedAt": "2026-10-25T09:47:35.038Z"
   },
   "https://ctet.nic.in": {
     "status": "VERIFIED",
     "code": 200,
-    "checkedAt": "2026-10-24T20:13:08.316Z"
+    "checkedAt": "2026-10-25T09:47:36.056Z"
+  },
+  "https://jeemain.nta.nic.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:36.321Z"
+  },
+  "https://jeemain.nta.nic.in/syllabus/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:36.416Z"
+  },
+  "https://jeemain.nta.nic.in/information-bulletin/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:36.573Z"
+  },
+  "https://jeeadv.ac.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:36.676Z"
+  },
+  "https://neet.nta.nic.in/syllabus/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:40.530Z"
+  },
+  "https://neet.nta.nic.in/information-bulletin/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:43.099Z"
+  },
+  "https://nbe.edu.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:43.561Z"
+  },
+  "https://aiimsexams.ac.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:43.874Z"
+  },
+  "https://cuet.nta.nic.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:45.053Z"
+  },
+  "https://cuet.nta.nic.in/syllabus/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:46.456Z"
+  },
+  "https://cmat.nta.nic.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:47.965Z"
+  },
+  "https://gate2026.iitg.ac.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:48.788Z"
+  },
+  "https://consortiumofnlus.ac.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:49.194Z"
+  },
+  "https://iimcat.ac.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:50.179Z"
+  },
+  "https://www.upsc.gov.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:50.281Z"
+  },
+  "https://www.upsc.gov.in/examinations/previous-question-papers": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:50.387Z"
+  },
+  "https://ssc.gov.in/candidate-information/syllabus": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:50.899Z"
+  },
+  "https://licindia.in/web/guest/careers": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:50.949Z"
+  },
+  "https://ctet.nic.in/information-bulletin/": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:51.786Z"
+  },
+  "https://ugcnet.nta.nic.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:53.956Z"
+  },
+  "https://uppsc.up.nic.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:54.924Z"
+  },
+  "https://psc.kerala.gov.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:47:56.281Z"
+  },
+  "https://kpsc.kar.nic.in": {
+    "status": "UNREACHABLE",
+    "code": 0,
+    "checkedAt": "2026-10-25T09:48:11.359Z"
+  },
+  "https://legislative.gov.in/constitution-of-india": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:48:12.025Z"
+  },
+  "https://www.india.gov.in": {
+    "status": "VERIFIED",
+    "code": 200,
+    "checkedAt": "2026-10-25T09:48:12.217Z"
   }
 }

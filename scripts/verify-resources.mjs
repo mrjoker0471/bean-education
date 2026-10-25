@@ -5,8 +5,9 @@
 import { writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { RESOURCES, EXAM_RESOURCES } from '../src/data/resources.ts'
+import { OFFICIAL_DOCS } from '../src/data/official-docs.ts'
 
-const all = [...RESOURCES, ...EXAM_RESOURCES]
+const all = [...RESOURCES, ...EXAM_RESOURCES, ...OFFICIAL_DOCS]
 const urls = [...new Set(all.map(r => r.url))]
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 

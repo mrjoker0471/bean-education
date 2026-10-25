@@ -12,8 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { cn } from '@/lib/utils'
 import {
-  CheckCircle2, Clock, Loader2, MessageCircleQuestion, MinusCircle, RotateCcw,
-  ShieldCheck, Sparkles, Trophy, XCircle,
+  BookOpen, CheckCircle2, ClipboardList, Clock, FileText, Loader2, MessageCircleQuestion,
+  MinusCircle, RotateCcw, ShieldCheck, ShieldQuestion, Sparkles, Trophy, XCircle,
 } from 'lucide-react'
 
 export function ResultView({ attemptId }: { attemptId: string }) {
@@ -81,7 +81,23 @@ export function ResultView({ attemptId }: { attemptId: string }) {
       ? weak.map(t => `${t.name} (${t.correct}/${t.total}, ${pct(t.correct, t.total)}%)`).join('; ')
       : 'none below 60%'
     useAppStore.getState().setBeanContext({
+      examSlug: dto.examSlug ?? undefined,
+      examName: dto.examLabel,
       attemptSummary: `Scored ${dto.score}/${dto.maxScore} on "${dto.title}". Weak topics: ${weakLabel}.`,
+    })
+    navigate({ view: 'bean', seeded: false })
+  }
+
+  /** Ask BEAN about one specific weak topic. */
+  const handleAskBeanTopic = (topicId: string, topicName: string) => {
+    if (!dto) return
+    const t = dto.perTopic.find(x => x.topicId === topicId)
+    useAppStore.getState().setBeanContext({
+      examSlug: dto.examSlug ?? undefined,
+      examName: dto.examLabel,
+      topicId,
+      topicName,
+      attemptSummary: `In "${dto.title}" this topic scored ${t ? `${t.correct}/${t.total} (${pct(t.correct, t.total)}%)` : '—'}. Explain the mistakes and build my revision plan.`,
     })
     navigate({ view: 'bean', seeded: false })
   }
@@ -175,17 +191,43 @@ export function ResultView({ attemptId }: { attemptId: string }) {
           </p>
         ) : (
           <ul className="mt-4 flex flex-col gap-4">
-            {dto.perTopic.map(t => (
-              <li key={t.topicId}>
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <p className="text-sm font-medium text-foreground">{t.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t.correct}/{t.total} correct ({pct(t.correct, t.total)}%)
-                  </p>
-                </div>
-                <Progress value={pct(t.correct, t.total)} className="mt-2 h-2" aria-label={`${t.name}: ${pct(t.correct, t.total)}% correct`} />
-              </li>
-            ))}
+            {dto.perTopic.map(t => {
+              const weak = t.total > 0 && t.correct / t.total < 0.6
+              return (
+                <li key={t.topicId}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {t.name}
+                      {weak && (
+                        <span className="ml-2 rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 text-[11px] text-gold">weak topic</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t.correct}/{t.total} correct ({pct(t.correct, t.total)}%)
+                    </p>
+                  </div>
+                  <Progress value={pct(t.correct, t.total)} className="mt-2 h-2" aria-label={`${t.name}: ${pct(t.correct, t.total)}% correct`} />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 border-gold/40 px-2.5 text-xs text-gold hover:bg-gold/10"
+                      onClick={() => navigate({ view: 'topic', topicId: t.topicId })}
+                    >
+                      <BookOpen className="mr-1 h-3 w-3" aria-hidden /> Study this topic
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 border-gold/40 px-2.5 text-xs text-gold hover:bg-gold/10"
+                      onClick={() => handleAskBeanTopic(t.topicId, t.name)}
+                    >
+                      <Sparkles className="mr-1 h-3 w-3" aria-hidden /> Ask BEAN
+                    </Button>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </section>
@@ -200,8 +242,17 @@ export function ResultView({ attemptId }: { attemptId: string }) {
           >
             {retaking
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Preparing…</>
-              : <><RotateCcw className="mr-2 h-4 w-4" /> Retake a fresh test</>}
+              : <><RotateCcw className="mr-2 h-4 w-4" /> Try another test</>}
           </Button>
+          {dto.examSlug && (
+            <Button
+              variant="outline"
+              className="border-gold/40 text-gold hover:bg-gold/10"
+              onClick={() => navigate({ view: 'exam', slug: dto.examSlug!, tab: 'practice' })}
+            >
+              <ClipboardList className="mr-2 h-4 w-4" /> Practice exam
+            </Button>
+          )}
           <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={handleAskBean}>
             <Sparkles className="mr-2 h-4 w-4" /> Ask BEAN about my mistakes
           </Button>
@@ -255,8 +306,30 @@ export function ResultView({ attemptId }: { attemptId: string }) {
                   </AccordionTrigger>
                   <AccordionContent className="flex flex-col gap-4 pb-5">
                     <p className="text-sm leading-relaxed text-foreground">{q.text}</p>
-                    {q.topicName && (
-                      <Badge variant="outline" className="w-fit border-border text-muted-foreground">{q.topicName}</Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {q.topicName && (
+                        <Badge variant="outline" className="border-border text-muted-foreground">{q.topicName}</Badge>
+                      )}
+                      {q.sourceType === 'PYQ_VERIFIED' && (
+                        <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
+                          <ShieldCheck className="mr-1 h-3 w-3" /> PYQ — verified
+                        </Badge>
+                      )}
+                      {q.sourceType === 'PYQ_UNVERIFIED' && (
+                        <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold">
+                          <ShieldQuestion className="mr-1 h-3 w-3" /> PYQ — provenance uncertain
+                        </Badge>
+                      )}
+                      {(!q.sourceType || q.sourceType === 'ORIGINAL') && (
+                        <Badge variant="outline" className="border-border text-muted-foreground">
+                          <FileText className="mr-1 h-3 w-3" /> Original practice question
+                        </Badge>
+                      )}
+                    </div>
+                    {q.sourcePaper && (
+                      <p className="text-xs text-muted-foreground">
+                        Source: {q.sourcePaper}{q.year ? ` · ${q.year}` : ''}
+                      </p>
                     )}
                     <dl className="flex flex-col gap-2 text-sm">
                       <div className="flex flex-col gap-0.5">
@@ -285,6 +358,29 @@ export function ResultView({ attemptId }: { attemptId: string }) {
                         <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{q.explanation}</p>
                       </div>
                     )}
+                    {q.topicId && (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-gold/40 px-2.5 text-xs text-gold hover:bg-gold/10"
+                          onClick={() => navigate({ view: 'topic', topicId: q.topicId! })}
+                        >
+                          <BookOpen className="mr-1 h-3 w-3" aria-hidden /> Study this topic
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-gold/40 px-2.5 text-xs text-gold hover:bg-gold/10"
+                          onClick={() => {
+                            if (!q.topicId) return
+                            handleAskBeanTopic(q.topicId, q.topicName ?? 'this topic')
+                          }}
+                        >
+                          <Sparkles className="mr-1 h-3 w-3" aria-hidden /> Ask BEAN about this question
+                        </Button>
+                      </div>
+                    )}
                   </AccordionContent>
                 </AccordionItem>
               )
@@ -294,7 +390,9 @@ export function ResultView({ attemptId }: { attemptId: string }) {
 
         <p className="mt-4 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
           <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
-          All questions are original BEAN EXAMS practice questions with author-verified answers.
+          {dto.questions.some(q => q.sourceType === 'PYQ_VERIFIED' || q.sourceType === 'PYQ_UNVERIFIED')
+            ? 'Question sources are labelled per item above — verified previous-year questions carry their source paper and year; originals carry an author-verified answer.'
+            : 'All questions in this attempt are original BEAN EXAMS practice questions with author-verified answers — no unverified material is presented as previous-year.'}
         </p>
       </section>
     </div>

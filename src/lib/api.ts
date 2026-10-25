@@ -10,6 +10,7 @@ import type {
   ExamDetailDTO,
   ExamListItem,
   ProgressDTO,
+  RevisionCheckDTO,
   TopicDetailDTO,
 } from './types'
 
@@ -67,6 +68,10 @@ export const api = {
 
   attemptResult: (attemptId: string, guestId: string) =>
     jsonFetch<AttemptResultDTO>(`/api/attempts/${attemptId}/result?guestId=${encodeURIComponent(guestId)}`),
+
+  // ─── Revision (built from this guest's wrong answers in this exam) ───
+  revisionCheck: (examId: string, guestId: string) =>
+    jsonFetch<RevisionCheckDTO>(`/api/tests/revision-check?examId=${encodeURIComponent(examId)}&guestId=${encodeURIComponent(guestId)}`),
 
   // ─── Progress ───
   progress: (guestId: string) => jsonFetch<ProgressDTO>(`/api/progress?guestId=${encodeURIComponent(guestId)}`),

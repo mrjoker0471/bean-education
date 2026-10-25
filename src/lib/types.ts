@@ -15,6 +15,7 @@ export interface ExamListItem {
   shortName: string | null
   authority: string
   categorySlug: string
+  categoryName?: string | null
   state: string | null
   description: string
   featured: boolean
@@ -28,6 +29,7 @@ export interface ExamListItem {
     resources: number
     tests: number
   }
+  questionSources?: { ORIGINAL: number; PYQ_VERIFIED: number; PYQ_UNVERIFIED: number }
 }
 
 export interface StagePatternDTO {
@@ -87,6 +89,8 @@ export interface TestTemplateDTO {
   title: string
   description: string
   type: string
+  stageName?: string | null
+  subjectName?: string | null
   config: { count: number; durationMin: number; marksPerQuestion: number; negativeMark: number }
 }
 
@@ -102,6 +106,8 @@ export interface ResourceDTO {
   lastChecked: string | null
   attribution: string | null
   note: string | null
+  fileKind: 'PORTAL' | 'WEBPAGE' | 'PDF' | null
+  docDate: string | null
 }
 
 export interface ExamDetailDTO {
@@ -162,12 +168,17 @@ export interface AttemptReviewQuestionDTO extends AttemptQuestionDTO {
   correctIndex: number
   explanation: string
   isCorrect: boolean
+  topicId?: string | null
+  sourceType?: 'ORIGINAL' | 'PYQ_VERIFIED' | 'PYQ_UNVERIFIED'
+  sourcePaper?: string | null
+  year?: number | null
 }
 
 export interface AttemptResultDTO {
   id: string
   title: string
   examLabel: string
+  examSlug: string | null
   status: 'SUBMITTED' | 'TIMED_OUT'
   config: { count: number; durationMin: number; marksPerQuestion: number; negativeMark: number }
   score: number
@@ -178,6 +189,11 @@ export interface AttemptResultDTO {
   timeSpentSec: number
   perTopic: { topicId: string; name: string; correct: number; total: number }[]
   questions: AttemptReviewQuestionDTO[]
+}
+
+export interface RevisionCheckDTO {
+  count: number
+  ready: boolean // count >= 4 → a revision test can be built
 }
 
 export interface ProgressDTO {

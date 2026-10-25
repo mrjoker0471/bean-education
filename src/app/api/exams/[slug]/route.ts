@@ -45,12 +45,29 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
     const templates = await db.testTemplate.findMany({
       where: { examId: exam.id },
       orderBy: { order: 'asc' },
+      include: {
+        stage: { select: { name: true } },
+        subject: { select: { name: true } },
+      },
     })
 
     const examResources = await db.resource.findMany({
       where: { examId: exam.id, topicId: null },
       orderBy: { createdAt: 'asc' },
     })
+
+    // Question provenance counts — powers the honest question-integrity panel
+    const sourceAgg = await db.question.groupBy({
+      by: ['sourceType'],
+      where: { examId: exam.id },
+      _count: { _all: true },
+    })
+    const questionSources = { ORIGINAL: 0, PYQ_VERIFIED: 0, PYQ_UNVERIFIED: 0 }
+    for (const row of sourceAgg) {
+      if (row.sourceType === 'ORIGINAL') questionSources.ORIGINAL = row._count._all
+      else if (row.sourceType === 'PYQ_VERIFIED') questionSources.PYQ_VERIFIED = row._count._all
+      else if (row.sourceType === 'PYQ_UNVERIFIED') questionSources.PYQ_UNVERIFIED = row._count._all
+    }
 
     const topicCountAgg = await db.$queryRawUnsafe<{ c: number }>(`
       SELECT COUNT(t.id) AS c FROM Topic t
@@ -77,12 +94,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         shortName: exam.shortName,
         authority: exam.authority,
         categorySlug: exam.categorySlug,
+        categoryName: exam.category?.name ?? null,
         state: exam.state,
         description: exam.description,
         featured: exam.featured,
         syllabusStatus: exam.syllabusStatus as ExamDetailDTO['exam']['syllabusStatus'],
         contentNote: exam.contentNote,
         sourceRefs,
+        questionSources,
         counts: {
           topics: Number(topicCountAgg[0]?.c ?? 0),
           notes: Number(noteCountAgg[0]?.c ?? 0),
@@ -132,6 +151,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         title: t.title,
         description: t.description,
         type: t.type,
+        stageName: t.stage?.name ?? null,
+        subjectName: t.subject?.name ?? null,
         config: safeParse(t.configJson, { count: 0, durationMin: 0, marksPerQuestion: 1, negativeMark: 0 }),
       })),
       examResources: examResources.map(r => ({
@@ -146,6 +167,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         lastChecked: r.lastChecked?.toISOString() ?? null,
         attribution: r.attribution,
         note: r.note,
+        fileKind: (r.fileKind ?? null) as ExamDetailDTO['examResources'][number]['fileKind'],
+        docDate: r.docDate,
       })),
     }
 

@@ -10,6 +10,7 @@ import { NOTES_GS } from '../src/data/notes-gs'
 import { NOTES_APT } from '../src/data/notes-apt'
 import { QUESTIONS } from '../src/data/questions'
 import { RESOURCES, EXAM_RESOURCES } from '../src/data/resources'
+import { OFFICIAL_DOCS } from '../src/data/official-docs'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -32,7 +33,7 @@ async function main() {
     questionsByCanonical.set(q.canonical, list)
   }
   const resourcesByCanonical = new Map<string, (typeof RESOURCES)[number][]>()
-  for (const r of RESOURCES) {
+  for (const r of [...RESOURCES, ...OFFICIAL_DOCS.filter(od => od.canonical)]) {
     if (!r.canonical) continue
     const list = resourcesByCanonical.get(r.canonical) ?? []
     list.push(r)
@@ -178,6 +179,7 @@ async function main() {
                     url: r.url, language: r.language ?? 'English', accessType: r.accessType ?? 'FREE',
                     verificationStatus: status, lastChecked: v ? new Date(v.checkedAt) : null,
                     attribution: r.attribution ?? null, note: r.note ?? null,
+                    fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
                   },
                   update: {
                     examId: exam.id, topicId: topic.id, canonicalSlug: r.canonical, title: r.title,
@@ -185,6 +187,7 @@ async function main() {
                     accessType: r.accessType ?? 'FREE', verificationStatus: status,
                     lastChecked: v ? new Date(v.checkedAt) : null,
                     attribution: r.attribution ?? null, note: r.note ?? null,
+                    fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
                   },
                 })
                 stats.resources++
@@ -204,11 +207,35 @@ async function main() {
             id: `resx_${ex.slug}_${hash8(r.url)}`, examId: exam.id, title: r.title, provider: r.provider,
             type: r.type, url: r.url, accessType: r.accessType ?? 'FREE', verificationStatus: status,
             lastChecked: v ? new Date(v.checkedAt) : null, note: r.note ?? null,
+            fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
           },
           update: {
             examId: exam.id, title: r.title, provider: r.provider, type: r.type, url: r.url,
             accessType: r.accessType ?? 'FREE', verificationStatus: status,
             lastChecked: v ? new Date(v.checkedAt) : null, note: r.note ?? null,
+            fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
+          },
+        })
+        stats.resources++
+      }
+
+      // Exam-level OFFICIAL documents (syllabus pages, bulletins, portals, official notices)
+      for (const r of OFFICIAL_DOCS.filter(od => od.examSlug === ex.slug)) {
+        const v = verification[r.url]
+        const status = v?.status ?? 'PENDING_REVIEW'
+        await db.resource.upsert({
+          where: { id: `resd_${ex.slug}_${hash8(r.url)}` },
+          create: {
+            id: `resd_${ex.slug}_${hash8(r.url)}`, examId: exam.id, title: r.title, provider: r.provider,
+            type: r.type, url: r.url, accessType: r.accessType ?? 'FREE', verificationStatus: status,
+            lastChecked: v ? new Date(v.checkedAt) : null, note: r.note ?? null,
+            fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
+          },
+          update: {
+            examId: exam.id, title: r.title, provider: r.provider, type: r.type, url: r.url,
+            accessType: r.accessType ?? 'FREE', verificationStatus: status,
+            lastChecked: v ? new Date(v.checkedAt) : null, note: r.note ?? null,
+            fileKind: r.fileKind ?? null, docDate: r.docDate ?? null,
           },
         })
         stats.resources++

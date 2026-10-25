@@ -85,6 +85,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         lastChecked: r.lastChecked?.toISOString() ?? null,
         attribution: r.attribution,
         note: r.note,
+        fileKind: (r.fileKind ?? null) as TopicDetailDTO['resources'][number]['fileKind'],
+        docDate: r.docDate,
       })),
       questionCount: topic._count.questions,
       hasTest: topic._count.questions >= 4,

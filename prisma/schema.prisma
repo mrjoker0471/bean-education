@@ -143,6 +143,8 @@ model Resource {
   lastChecked        DateTime?
   attribution        String?
   note               String?
+  fileKind           String?   // PDF | WEBPAGE | PORTAL — how the link should open (no fake PDF buttons)
+  docDate            String?   // publication/revision date when verifiably known
   createdAt          DateTime  @default(now())
   exam               Exam?     @relation(fields: [examId], references: [id])
   topic              Topic?    @relation(fields: [topicId], references: [id])
