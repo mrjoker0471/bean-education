@@ -10,6 +10,7 @@ import type {
   ExamDetailDTO,
   ExamListItem,
   ProgressDTO,
+  ResourceMetaDTO,
   RevisionCheckDTO,
   TopicDetailDTO,
 } from './types'
@@ -46,6 +47,17 @@ export const api = {
   exam: (slug: string) => jsonFetch<ExamDetailDTO>(`/api/exams/${encodeURIComponent(slug)}`),
 
   topic: (topicId: string) => jsonFetch<TopicDetailDTO>(`/api/topics/${encodeURIComponent(topicId)}`),
+
+  // ─── Integrated PDF viewer ───
+  resource: (resourceId: string) =>
+    jsonFetch<ResourceMetaDTO>(`/api/resources/${encodeURIComponent(resourceId)}`),
+
+  /** Same-origin proxied PDF (registry-whitelisted). Pass download for a Content-Disposition attachment. */
+  pdfStreamUrl: (url: string, download?: string) => {
+    const p = new URLSearchParams({ url })
+    if (download) p.set('download', download)
+    return `/api/pdf?${p.toString()}`
+  },
 
   // ─── Test engine (server-authoritative) ───
   startTest: (body: {

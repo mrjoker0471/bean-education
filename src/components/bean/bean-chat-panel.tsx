@@ -81,6 +81,9 @@ function contextChips(ctx: BeanContext): { label: string; value: string }[] {
     chips.push({ label: 'MCQ', value: `${ctx.questionOptions.length} options attached` })
   }
   if (ctx.attemptSummary) chips.push({ label: 'Attempt summary', value: truncate(ctx.attemptSummary, 140) })
+  if (ctx.documentTitle && ctx.documentExcerpt) {
+    chips.push({ label: 'Document', value: `${truncate(ctx.documentTitle, 70)} · excerpt of ${ctx.documentPagesRead ?? 'read pages'}` })
+  }
   return chips
 }
 

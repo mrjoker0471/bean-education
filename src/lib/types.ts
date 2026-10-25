@@ -118,6 +118,23 @@ export interface ExamDetailDTO {
   examResources: ResourceDTO[]
 }
 
+/** Everything the integrated PDF viewer needs about one document. */
+export interface ResourceMetaDTO {
+  resource: ResourceDTO
+  context: {
+    /** Where "Back" should lead: the exam's Study Material tab or the topic workspace. */
+    origin: 'exam' | 'topic' | 'none'
+    examSlug: string | null
+    examName: string | null
+    examShortName: string | null
+    authority: string | null
+    stageName: string | null
+    subjectName: string | null
+    topicId: string | null
+    topicName: string | null
+  }
+}
+
 export interface NoteDTO {
   title: string
   markdown: string
@@ -237,6 +254,12 @@ export interface BeanContext {
   questionText?: string
   questionOptions?: string[]
   attemptSummary?: string
+  // Official-document handoff (only set when real text was extracted in the
+  // viewer and actually supplied to the model — never a claim to have read a PDF)
+  documentTitle?: string
+  documentUrl?: string
+  documentPagesRead?: string
+  documentExcerpt?: string
 }
 
 export interface BeanSettings {

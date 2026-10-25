@@ -13,6 +13,7 @@ export type Route =
   | { view: 'result'; attemptId: string }
   | { view: 'bean'; seeded?: boolean }
   | { view: 'progress' }
+  | { view: 'pdf'; resourceId: string }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -37,6 +38,8 @@ export function parseHash(hash: string): Route {
       return { view: 'bean', seeded: params.get('seeded') === '1' }
     case 'progress':
       return { view: 'progress' }
+    case 'pdf':
+      return parts[1] ? { view: 'pdf', resourceId: decodeURIComponent(parts[1]) } : { view: 'not-found' }
     default:
       return { view: 'not-found' }
   }
@@ -58,6 +61,7 @@ export function routeToHash(route: Route): string {
     case 'result': return `#/result/${route.attemptId}`
     case 'bean': return `#/bean${route.seeded ? '?seeded=1' : ''}`
     case 'progress': return '#/progress'
+    case 'pdf': return `#/pdf/${encodeURIComponent(route.resourceId)}`
     default: return '#/'
   }
 }

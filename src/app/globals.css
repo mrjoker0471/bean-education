@@ -221,3 +221,64 @@
 .timer-warning {
   animation: timer-warn 1s ease-in-out infinite;
 }
+
+/* ═══ Integrated PDF reader (pdf.js) ═══ */
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 2;
+  color-scheme: only light;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+}
+.pdf-text-layer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdf-text-layer .markedContent {
+  display: contents;
+}
+.pdf-text-layer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+.pdf-text-layer mark.pdf-hl {
+  background: rgba(214, 165, 20, 0.32);
+  color: transparent;
+  border-radius: 2px;
+  padding: 0;
+  margin: 0;
+}
+.pdf-text-layer mark.pdf-hl-current {
+  background: rgba(214, 165, 20, 0.62);
+  box-shadow: 0 0 0 2px rgba(214, 165, 20, 0.85);
+  border-radius: 3px;
+}

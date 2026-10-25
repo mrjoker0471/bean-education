@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import {
-  ChevronRight, ExternalLink, FileText, Link2,
+  BookOpenText, ChevronRight, ExternalLink, FileDown, FileText, Link2,
   Loader2, RotateCcw, SearchX, Sparkles,
 } from 'lucide-react'
 
@@ -360,7 +360,9 @@ export function TopicView({ topicId }: { topicId: string }) {
 
 // ─── Resource row ───
 function ResourceRow({ resource: r }: { resource: ResourceDTO }) {
+  const navigate = useAppStore(s => s.navigate)
   const unreachable = r.verificationStatus === 'UNREACHABLE'
+  const isPdf = r.fileKind === 'PDF'
   return (
     <li className={cn('rounded-xl border border-border bg-card p-4', unreachable && 'opacity-80')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -380,21 +382,41 @@ function ResourceRow({ resource: r }: { resource: ResourceDTO }) {
             </p>
           )}
         </div>
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className={cn(
-            'shrink-0',
-            unreachable
-              ? 'border-border text-muted-foreground'
-              : 'border-gold/40 text-gold hover:bg-gold/10',
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {isPdf && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                unreachable ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold hover:bg-gold/10',
+              )}
+              onClick={() => navigate({ view: 'pdf', resourceId: r.id })}
+              aria-label={`Open ${r.title} in the integrated reader`}
+            >
+              Open in reader <BookOpenText className="ml-1.5 h-3.5 w-3.5" aria-hidden />
+            </Button>
           )}
-        >
-          <a href={r.url} target="_blank" rel="noopener noreferrer" aria-label={`Open resource: ${r.title} (opens in a new tab)`}>
-            Open <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden />
-          </a>
-        </Button>
+          <Button
+            asChild
+            variant={isPdf ? 'ghost' : 'outline'}
+            size="sm"
+            className={cn(
+              unreachable && !isPdf
+                ? 'border-border text-muted-foreground'
+                : isPdf
+                  ? 'text-muted-foreground hover:text-foreground'
+                  : 'border-gold/40 text-gold hover:bg-gold/10',
+            )}
+          >
+            <a
+              href={isPdf ? api.pdfStreamUrl(r.url, '1') : r.url}
+              {...(isPdf ? { download: true } : { target: '_blank', rel: 'noopener noreferrer' })}
+              aria-label={isPdf ? `Download PDF: ${r.title}` : `Open resource: ${r.title} (opens in a new tab)`}
+            >
+              {isPdf ? 'Download' : 'Open'} {isPdf ? <FileDown className="ml-1 h-3.5 w-3.5" aria-hidden /> : <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden />}
+            </a>
+          </Button>
+        </div>
       </div>
     </li>
   )

@@ -27,6 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import {
   BookOpen,
+  BookOpenText,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
@@ -120,37 +121,60 @@ export function PatternTable({ pattern }: { pattern: StagePatternDTO }) {
 
 // ─── Exam-level resource list ───
 export function ResourceList({ resources }: { resources: ResourceDTO[] }) {
+  const navigate = useAppStore(s => s.navigate)
   return (
     <ul className="space-y-2">
-      {resources.map(resource => (
-        <li
-          key={resource.id}
-          className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="min-w-0">
-            <p className="text-sm font-medium leading-snug text-foreground">{resource.title}</p>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {resource.provider}
-              {resource.language ? ` · ${resource.language}` : ''}
-              {resource.note ? ` · ${resource.note}` : ''}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <ResourceStatusBadge status={resource.verificationStatus} />
-              <AccessTypeBadge access={resource.accessType} />
-            </div>
-          </div>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="shrink-0 self-start border-gold/40 text-gold hover:bg-gold/10 sm:self-center"
+      {resources.map(resource => {
+        const isPdf = resource.fileKind === 'PDF'
+        return (
+          <li
+            key={resource.id}
+            className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
           >
-            <a href={resource.url} target="_blank" rel="noopener noreferrer" aria-label={`Open resource: ${resource.title}`}>
-              Open <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
-            </a>
-          </Button>
-        </li>
-      ))}
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-snug text-foreground">{resource.title}</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {resource.provider}
+                {resource.language ? ` · ${resource.language}` : ''}
+                {resource.note ? ` · ${resource.note}` : ''}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <ResourceStatusBadge status={resource.verificationStatus} />
+                <AccessTypeBadge access={resource.accessType} />
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2 sm:self-center">
+              {isPdf && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-gold/40 text-gold hover:bg-gold/10"
+                  onClick={() => navigate({ view: 'pdf', resourceId: resource.id })}
+                  aria-label={`Open ${resource.title} in the integrated reader`}
+                >
+                  Open in reader <BookOpenText className="ml-1.5 h-3.5 w-3.5" aria-hidden />
+                </Button>
+              )}
+              <Button
+                asChild
+                variant={isPdf ? 'ghost' : 'outline'}
+                size="sm"
+                className={isPdf
+                  ? 'text-muted-foreground hover:text-foreground'
+                  : 'border-gold/40 text-gold hover:bg-gold/10'}
+              >
+                <a
+                  href={isPdf ? api.pdfStreamUrl(resource.url, '1') : resource.url}
+                  {...(isPdf ? { download: true } : { target: '_blank', rel: 'noopener noreferrer' })}
+                  aria-label={isPdf ? `Download ${resource.title}` : `Open resource: ${resource.title}`}
+                >
+                  {isPdf ? 'Download' : 'Open'} {isPdf ? <FileDown className="ml-1.5 h-3.5 w-3.5" /> : <ExternalLink className="ml-1.5 h-3.5 w-3.5" />}
+                </a>
+              </Button>
+            </div>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -371,14 +395,17 @@ export function isOfficialDoc(r: ResourceDTO): boolean {
 
 // ─── Official document card (Layer 1 — Study Material) ───────────────────────
 // Honest behaviour: PORTAL/WEBPAGE open as pages (never fake PDF downloads);
-// PDF entries (only when a stable direct file is confirmed) offer a download.
+// PDF entries open in the integrated reader (real pdf.js rendering) with a
+// separate direct-download action.
 export function DocumentCard({ resource: r }: { resource: ResourceDTO }) {
+  const navigate = useAppStore(s => s.navigate)
   const unreachable = r.verificationStatus === 'UNREACHABLE'
   const kind = r.fileKind ?? 'WEBPAGE'
+  const isPdf = kind === 'PDF'
 
-  const Icon = kind === 'PDF' ? FileDown : kind === 'PORTAL' ? Landmark : ScrollText
-  const actionLabel = kind === 'PDF' ? 'Download PDF' : kind === 'PORTAL' ? 'Open portal' : 'Open page'
-  const ActionIcon = kind === 'PDF' ? FileDown : ExternalLink
+  const Icon = isPdf ? BookOpenText : kind === 'PORTAL' ? Landmark : ScrollText
+  const actionLabel = isPdf ? 'Open in reader' : kind === 'PORTAL' ? 'Open portal' : 'Open page'
+  const ActionIcon = isPdf ? BookOpenText : ExternalLink
 
   return (
     <li className={cn('flex h-full flex-col rounded-xl border border-border bg-card p-4', unreachable && 'opacity-80')}>
@@ -411,25 +438,57 @@ export function DocumentCard({ resource: r }: { resource: ResourceDTO }) {
         </p>
       )}
 
-      <Button
-        asChild
-        variant="outline"
-        size="sm"
-        className={cn(
-          'mt-3 w-full shrink-0 sm:w-auto sm:self-start',
-          unreachable ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold hover:bg-gold/10',
+      <div className="mt-3 flex shrink-0 flex-wrap gap-2">
+        {isPdf ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                'sm:w-auto sm:self-start',
+                unreachable ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold hover:bg-gold/10',
+              )}
+              onClick={() => navigate({ view: 'pdf', resourceId: r.id })}
+              aria-label={`Open ${r.title} in the integrated reader`}
+            >
+              {actionLabel} <BookOpenText className="ml-1.5 h-3.5 w-3.5" aria-hidden />
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground sm:self-start"
+            >
+              <a
+                href={api.pdfStreamUrl(r.url, '1')}
+                download
+                aria-label={`Download PDF: ${r.title}`}
+              >
+                Download <FileDown className="ml-1.5 h-3.5 w-3.5" aria-hidden />
+              </a>
+            </Button>
+          </>
+        ) : (
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className={cn(
+              'w-full shrink-0 sm:w-auto sm:self-start',
+              unreachable ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold hover:bg-gold/10',
+            )}
+          >
+            <a
+              href={r.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${actionLabel}: ${r.title} (opens in a new tab)`}
+            >
+              {actionLabel} <ActionIcon className="ml-1.5 h-3.5 w-3.5" aria-hidden />
+            </a>
+          </Button>
         )}
-      >
-        <a
-          href={r.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          download={kind === 'PDF' ? true : undefined}
-          aria-label={`${actionLabel}: ${r.title} (opens in a new tab)`}
-        >
-          {actionLabel} <ActionIcon className="ml-1.5 h-3.5 w-3.5" aria-hidden />
-        </a>
-      </Button>
+      </div>
     </li>
   )
 }
@@ -547,21 +606,36 @@ function InlineTopicPanel({
             Documents &amp; resources for this topic ({dto.resources.length})
           </p>
           <ul className="mt-2 space-y-1.5">
-            {dto.resources.slice(0, 4).map(r => (
-              <li key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                <a
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-gold"
-                >
-                  {isOfficialDoc(r) ? <Landmark className="h-3 w-3 shrink-0 text-gold" aria-hidden /> : <Globe className="h-3 w-3 shrink-0 text-gold" aria-hidden />}
-                  {r.title}
-                </a>
-                <span className="text-[11px] text-muted-foreground/70">{r.provider}</span>
-                <ResourceStatusBadge status={r.verificationStatus} />
-              </li>
-            ))}
+            {dto.resources.slice(0, 4).map(r => {
+              const isPdf = r.fileKind === 'PDF'
+              return (
+                <li key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  {isPdf ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate({ view: 'pdf', resourceId: r.id })}
+                      className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-gold"
+                      aria-label={`Open ${r.title} in the integrated reader`}
+                    >
+                      <BookOpenText className="h-3 w-3 shrink-0 text-gold" aria-hidden />
+                      {r.title}
+                    </button>
+                  ) : (
+                    <a
+                      href={r.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-gold"
+                    >
+                      {isOfficialDoc(r) ? <Landmark className="h-3 w-3 shrink-0 text-gold" aria-hidden /> : <Globe className="h-3 w-3 shrink-0 text-gold" aria-hidden />}
+                      {r.title}
+                    </a>
+                  )}
+                  <span className="text-[11px] text-muted-foreground/70">{r.provider}</span>
+                  <ResourceStatusBadge status={r.verificationStatus} />
+                </li>
+              )
+            })}
             {dto.resources.length > 4 && (
               <li className="text-[11px] text-muted-foreground">
                 + {dto.resources.length - 4} more in the full topic workspace

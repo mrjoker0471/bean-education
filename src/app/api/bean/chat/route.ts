@@ -28,6 +28,11 @@ const bodySchema = z.object({
     questionText: z.string().max(2000).optional(),
     questionOptions: z.array(z.string().max(500)).max(6).optional(),
     attemptSummary: z.string().max(1000).optional(),
+    // Official-document handoff: only supplied when the viewer really extracted text.
+    documentTitle: z.string().max(300).optional(),
+    documentUrl: z.string().max(2000).optional(),
+    documentPagesRead: z.string().max(120).optional(),
+    documentExcerpt: z.string().max(6000).optional(),
   }).default({}),
   settings: z.object({
     style: z.enum(['exam-focused', 'simple', 'detailed']).default('exam-focused'),
@@ -98,6 +103,10 @@ export async function POST(req: NextRequest) {
       contextLines.push(`Student's recent test performance: ${context.attemptSummary}`)
       usedContext.push('recent test summary')
     }
+    if (context.documentTitle && context.documentExcerpt) {
+      contextLines.push(`Official document the student is reading: "${context.documentTitle}" (${context.documentPagesRead ?? 'partial pages'})`)
+      usedContext.push(`document text: "${context.documentTitle}" (excerpt only, not the full file)`)
+    }
 
     const stylePrompt = STYLE_PROMPTS[settings.style] ?? STYLE_PROMPTS['exam-focused']
 
@@ -113,6 +122,9 @@ export async function POST(req: NextRequest) {
       '- Keep responses in Markdown, concise enough for study use. Do not pad.',
       contextLines.length ? `\nSTUDENT CONTEXT:\n${contextLines.join('\n')}` : '',
       noteExcerpt ? `\nTOPIC STUDY NOTE (authoritative for this topic):\n"""\n${noteExcerpt}\n"""` : '',
+      context.documentTitle && context.documentExcerpt
+        ? `\nOFFICIAL DOCUMENT EXCERPT (only the pages the student actually read — you have NOT seen the full document; say so if asked about the rest):\n"""\n${context.documentExcerpt}\n"""`
+        : '',
     ].filter(Boolean).join('\n')
 
     // Cap conversation history

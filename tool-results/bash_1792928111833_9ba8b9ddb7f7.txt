@@ -1,0 +1,1062 @@
+     1→'use client'
+     2→
+     3→// Exam detail view — THE THREE-LAYER LEARNING SYSTEM.
+     4→// Layer 1: Study Material + official PDFs   → tab "study"
+     5→// Layer 2: BEAN Intelligence                → tab "intelligence"
+     6→// Layer 3: Practice Exam                    → tab "practice"
+     7→// The exam header (breadcrumbs, authority, pattern, honest coverage status)
+     8→// stays above the tabs; syllabus/pattern detail lives inside Layer 1.
+     9→// Legacy deep links (?tab=overview|syllabus|materials|tests) still resolve.
+    10→
+    11→import { useEffect, useState } from 'react'
+    12→import { api } from '@/lib/api'
+    13→import type { ExamDetailDTO, ResourceDTO, TopicNode } from '@/lib/types'
+    14→import { useAppStore } from '@/lib/store'
+    15→import { CountPill } from '@/components/bean/count-pill'
+    16→import { EmptyState } from '@/components/bean/empty-state'
+    17→import { SyllabusStatusBadge } from '@/components/bean/status-badge'
+    18→import {
+    19→  negativeMarkText,
+    20→  isOfficialDoc,
+    21→  DocumentCard,
+    22→  PatternSummaryStrip,
+    23→  PatternTable,
+    24→  ResourceList,
+    25→  StudySubjectCard,
+    26→  TemplateCard,
+    27→  type FocusTopic,
+    28→} from '@/components/bean/exam-parts'
+    29→import { BeanChatPanel } from '@/components/bean/bean-chat-panel'
+    30→import { Button } from '@/components/ui/button'
+    31→import { Card, CardContent } from '@/components/ui/card'
+    32→import { Skeleton } from '@/components/ui/skeleton'
+    33→import { toast } from '@/hooks/use-toast'
+    34→import { cn } from '@/lib/utils'
+    35→import {
+    36→  ArrowLeft,
+    37→  BookOpen,
+    38→  ChevronRight,
+    39→  ClipboardList,
+    40→  Compass,
+    41→  ExternalLink,
+    42→  FileText,
+    43→  Info,
+    44→  Landmark,
+    45→  Loader2,
+    46→  Play,
+    47→  RotateCcw,
+    48→  ShieldCheck,
+    49→  Sparkles,
+    50→} from 'lucide-react'
+    51→
+    52→const TAB_IDS = ['study', 'intelligence', 'practice'] as const
+    53→type TabId = (typeof TAB_IDS)[number]
+    54→
+    55→const TABS: { id: TabId; label: string; sub: string; icon: typeof BookOpen }[] = [
+    56→  { id: 'study', label: 'Study Material', sub: 'Notes + official PDFs', icon: BookOpen },
+    57→  { id: 'intelligence', label: 'BEAN Intelligence', sub: 'AI tutor for this exam', icon: Sparkles },
+    58→  { id: 'practice', label: 'Practice Exam', sub: 'Timed, real scoring', icon: ClipboardList },
+    59→]
+    60→
+    61→/** New tabs with graceful handling of legacy deep links. */
+    62→function normalizeTab(tab: string | undefined): TabId {
+    63→  switch (tab) {
+    64→    case 'study': case 'intelligence': case 'practice':
+    65→      return tab
+    66→    case 'overview': case 'syllabus': case 'materials':
+    67→      return 'study'
+    68→    case 'tests': case 'practice-exam':
+    69→      return 'practice'
+    70→    case 'bean':
+    71→      return 'intelligence'
+    72→    default:
+    73→      return 'study'
+    74→  }
+    75→}
+    76→
+    77→export function ExamView({ slug, initialTab }: { slug: string; initialTab?: string }) {
+    78→  const navigate = useAppStore(s => s.navigate)
+    79→  const guestId = useAppStore(s => s.guestId)
+    80→
+    81→  const [reloadToken, setReloadToken] = useState(0)
+    82→  const [tab, setTab] = useState<TabId>(normalizeTab(initialTab))
+    83→  const [pendingTopicId, setPendingTopicId] = useState<string | null>(null)
+    84→  // The selected topic shared across the three layers (Study ⇄ Intelligence ⇄ Practice)
+    85→  const [focusTopic, setFocusTopic] = useState<FocusTopic | null>(null)
+    86→
+    87→  // Keyed load state — each slug+retry combination has its own slot, so loading/error are
+    88→  // derived during render (no cascading setState inside effects).
+    89→  const loadKey = `${slug}|${reloadToken}`
+    90→  const [loaded, setLoaded] = useState<{ key: string; data: ExamDetailDTO } | null>(null)
+    91→  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
+    92→
+    93→  // Load the exam
+    94→  useEffect(() => {
+    95→    let alive = true
+    96→    api.exam(slug)
+    97→      .then(d => {
+    98→        if (!alive) return
+    99→        setLoaded({ key: loadKey, data: d })
+   100→        setFailure(null)
+   101→        // Carry exam context into BEAN Intelligence (#/bean inherits it)
+   102→        useAppStore.getState().setBeanContext({ examSlug: slug, examName: d.exam.name })
+   103→      })
+   104→      .catch(e => {
+   105→        if (alive) setFailure({ key: loadKey, message: e.message })
+   106→      })
+   107→    return () => {
+   108→      alive = false
+   109→    }
+   110→  }, [slug, loadKey])
+   111→
+   112→  // Keep the active tab in sync with deep links (browser back/forward).
+   113→  // Guarded render-time adjustment — the pattern documented at react.dev/learn/you-might-not-need-an-effect.
+   114→  const [lastInitialTab, setLastInitialTab] = useState(initialTab)
+   115→  if (lastInitialTab !== initialTab) {
+   116→    setLastInitialTab(initialTab)
+   117→    setTab(normalizeTab(initialTab))
+   118→  }
+   119→
+   120→  const data = loaded && loaded.key === loadKey ? loaded.data : null
+   121→  const error = failure && failure.key === loadKey ? failure.message : null
+   122→  const loading = !data && !error
+   123→
+   124→  const changeTab = (value: string) => {
+   125→    const next = normalizeTab(value)
+   126→    setTab(next)
+   127→    navigate({ view: 'exam', slug, tab: next === 'study' ? undefined : next })
+   128→  }
+   129→
+   130→  /** Layer-crossing: focus a topic and hand its full context to BEAN Intelligence. */
+   131→  const focusOnTopic = (t: FocusTopic, noteTitle?: string) => {
+   132→    setFocusTopic(t)
+   133→    useAppStore.getState().setBeanContext({
+   134→      examSlug: slug,
+   135→      examName: data?.exam.name,
+   136→      stageName: t.stageName,
+   137→      subjectName: t.subjectName,
+   138→      topicId: t.id,
+   139→      topicName: t.name,
+   140→      noteTitle,
+   141→    })
+   142→    changeTab('intelligence')
+   143→  }
+   144→
+   145→  const startTopicTest = (topic: TopicNode) => {
+   146→    if (!guestId) {
+   147→      toast({
+   148→        title: 'Preparing your session',
+   149→        description: 'Your guest profile is still initialising — try again in a moment.',
+   150→        variant: 'destructive',
+   151→      })
+   152→      return
+   153→    }
+   154→    if (pendingTopicId) return
+   155→    setPendingTopicId(topic.id)
+   156→    api.startTest({ guestId, topicId: topic.id })
+   157→      .then(r => navigate({ view: 'test', attemptId: r.attemptId }))
+   158→      .catch(e => {
+   159→        toast({ title: 'Could not start the practice test', description: e.message, variant: 'destructive' })
+   160→      })
+   161→      .finally(() => setPendingTopicId(null))
+   162→  }
+   163→
+   164→  // ─── Loading ───
+   165→  if (loading) return <ExamSkeleton />
+   166→
+   167→  // ─── Not found / errors ───
+   168→  if (error) {
+   169→    if (/not found/i.test(error)) {
+   170→      return (
+   171→        <div className="mx-auto w-full max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
+   172→          <EmptyState
+   173→            icon={Compass}
+   174→            title="Examination not found"
+   175→            description={`No examination lives at “${slug}” in the BEAN EXAMS catalogue. It may have been renamed — browse the catalogue to find what you need.`}
+   176→            actionLabel="Back to catalogue"
+   177→            onAction={() => navigate({ view: 'catalog' })}
+   178→          />
+   179→        </div>
+   180→      )
+   181→    }
+   182→    return (
+   183→      <div className="mx-auto w-full max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
+   184→        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+   185→          <p className="font-display text-lg font-semibold text-destructive">Could not load this examination</p>
+   186→          <p className="mt-2 text-sm text-destructive/90">{error}</p>
+   187→          <div className="mt-5 flex flex-wrap gap-3">
+   188→            <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setReloadToken(t => t + 1)}>
+   189→              <RotateCcw className="mr-1.5 h-4 w-4" /> Try again
+   190→            </Button>
+   191→            <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => navigate({ view: 'catalog' })}>
+   192→              Back to catalogue
+   193→            </Button>
+   194→          </div>
+   195→        </div>
+   196→      </div>
+   197→    )
+   198→  }
+   199→
+   200→  if (!data) return null
+   201→  const { exam } = data
+   202→  const officialDocs = data.examResources.filter(isOfficialDoc)
+   203→  // Subject-wise syllabus PDFs (37 for CUET UG) get their own compact section
+   204→  const primaryDocs = officialDocs.filter(r => r.type !== 'OFFICIAL_SUBJECT_SYLLABUS')
+   205→  const subjectSyllabusDocs = officialDocs.filter(r => r.type === 'OFFICIAL_SUBJECT_SYLLABUS')
+   206→  const otherExamResources = data.examResources.filter(r => !isOfficialDoc(r))
+   207→
+   208→  return (
+   209→    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+   210→      {/* ─── Header ─── */}
+   211→      <header>
+   212→        {/* Breadcrumbs */}
+   213→        <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground sm:text-sm">
+   214→          <button type="button" onClick={() => navigate({ view: 'home' })} className="transition-colors hover:text-gold">
+   215→            Home
+   216→          </button>
+   217→          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" aria-hidden />
+   218→          <button type="button" onClick={() => navigate({ view: 'catalog' })} className="transition-colors hover:text-gold">
+   219→            All examinations
+   220→          </button>
+   221→          {exam.categoryName && (
+   222→            <>
+   223→              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" aria-hidden />
+   224→              <button
+   225→                type="button"
+   226→                onClick={() => navigate({ view: 'catalog', category: exam.categorySlug })}
+   227→                className="transition-colors hover:text-gold"
+   228→              >
+   229→                {exam.categoryName}
+   230→              </button>
+   231→            </>
+   232→          )}
+   233→          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" aria-hidden />
+   234→          <span aria-current="page" className="font-medium text-foreground">{exam.shortName ?? exam.name}</span>
+   235→        </nav>
+   236→
+   237→        <button
+   238→          type="button"
+   239→          onClick={() => navigate({ view: 'catalog' })}
+   240→          className="mt-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-gold"
+   241→        >
+   242→          <ArrowLeft className="h-4 w-4" aria-hidden /> All examinations
+   243→        </button>
+   244→
+   245→        <div className="mt-5 flex flex-wrap items-center gap-2">
+   246→          <span className="rounded-full border border-gold/30 bg-gold/5 px-3 py-1 text-xs font-medium text-gold">
+   247→            {exam.shortName ?? 'Examination'}
+   248→          </span>
+   249→          <SyllabusStatusBadge status={exam.syllabusStatus} />
+   250→        </div>
+   251→
+   252→        <h1 className="mt-3 font-display text-2xl font-bold leading-tight text-foreground sm:text-3xl lg:text-4xl">
+   253→          {exam.name}
+   254→        </h1>
+   255→
+   256→        <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+   257→          <span>Conducted by {exam.authority}</span>
+   258→          {exam.state && <span>{exam.state}</span>}
+   259→        </p>
+   260→
+   261→        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-base">{exam.description}</p>
+   262→
+   263→        {/* Exam pattern summary — always visible above the three learning tabs */}
+   264→        <PatternSummaryStrip stages={data.stages} />
+   265→
+   266→        {/* Honesty feature: preparation coverage */}
+   267→        {exam.contentNote && (
+   268→          <div className="mt-5 max-w-3xl rounded-xl border border-gold/30 bg-gold/5 p-4 sm:p-5" role="note">
+   269→            <p className="flex items-center gap-2 text-sm font-semibold text-gold">
+   270→              <Info className="h-4 w-4 shrink-0" aria-hidden /> Honest coverage status
+   271→            </p>
+   272→            <p className="mt-2 text-sm leading-relaxed text-foreground/90">{exam.contentNote}</p>
+   273→          </div>
+   274→        )}
+   275→
+   276→        {/* Official source links */}
+   277→        {exam.sourceRefs && exam.sourceRefs.length > 0 && (
+   278→          <div className="mt-4 flex flex-wrap items-center gap-2">
+   279→            <span className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Official sources</span>
+   280→            {exam.sourceRefs.map(ref => (
+   281→              <a
+   282→                key={ref.url}
+   283→                href={ref.url}
+   284→                target="_blank"
+   285→                rel="noopener noreferrer"
+   286→                className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold"
+   287→              >
+   288→                {ref.label} <ExternalLink className="h-3 w-3" aria-hidden />
+   289→              </a>
+   290→            ))}
+   291→          </div>
+   292→        )}
+   293→
+   294→        <div className="mt-5 flex flex-wrap gap-2">
+   295→          <CountPill label="topics" value={exam.counts.topics} />
+   296→          <CountPill label="notes" value={exam.counts.notes} />
+   297→          <CountPill label="questions" value={exam.counts.questions} />
+   298→          <CountPill label="tests" value={exam.counts.tests} />
+   299→        </div>
+   300→      </header>
+   301→
+   302→      {/* ─── THE THREE LEARNING LAYERS ─── */}
+   303→      <div
+   304→        role="tablist"
+   305→        aria-label="Learning layers"
+   306→        className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3"
+   307→      >
+   308→        {TABS.map(t => {
+   309→          const active = tab === t.id
+   310→          return (
+   311→            <button
+   312→              key={t.id}
+   313→              type="button"
+   314→              role="tab"
+   315→              id={`exam-tab-${t.id}`}
+   316→              aria-selected={active}
+   317→              aria-controls={`exam-panel-${t.id}`}
+   318→              onClick={() => changeTab(t.id)}
+   319→              className={cn(
+   320→                'group flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors',
+   321→                active
+   322→                  ? 'border-gold bg-gold/10 shadow-[0_0_0_1px_rgba(214,165,20,0.35)]'
+   323→                  : 'border-border bg-card hover:border-gold/40 hover:bg-elevated'
+   324→              )}
+   325→            >
+   326→              <span
+   327→                className={cn(
+   328→                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
+   329→                  active ? 'border-gold/50 bg-gold/15' : 'border-border bg-elevated'
+   330→                )}
+   331→              >
+   332→                <t.icon className={cn('h-4 w-4', active ? 'text-gold' : 'text-muted-foreground')} aria-hidden />
+   333→              </span>
+   334→              <span className="min-w-0">
+   335→                <span className={cn('block text-sm font-semibold sm:text-base', active ? 'text-gold' : 'text-foreground')}>
+   336→                  {t.label}
+   337→                </span>
+   338→                <span className="block truncate text-[11px] text-muted-foreground sm:text-xs">{t.sub}</span>
+   339→              </span>
+   340→            </button>
+   341→          )
+   342→        })}
+   343→      </div>
+   344→
+   345→      <div
+   346→        role="tabpanel"
+   347→        id={`exam-panel-${tab}`}
+   348→        aria-labelledby={`exam-tab-${tab}`}
+   349→        className="mt-8 focus-visible:outline-none"
+   350→      >
+   351→        {tab === 'study' && (
+   352→          <StudyTab
+   353→            data={data}
+   354→            officialDocs={primaryDocs}
+   355→            subjectSyllabusDocs={subjectSyllabusDocs}
+   356→            otherExamResources={otherExamResources}
+   357→            pendingTopicId={pendingTopicId}
+   358→            onStartTopicTest={startTopicTest}
+   359→            onFocusTopic={focusOnTopic}
+   360→          />
+   361→        )}
+   362→        {tab === 'intelligence' && (
+   363→          <IntelligenceTab
+   364→            data={data}
+   365→            slug={slug}
+   366→            focusTopic={focusTopic}
+   367→            onFocusTopic={focusOnTopic}
+   368→            pendingTopicId={pendingTopicId}
+   369→            onStartTopicTest={startTopicTest}
+   370→            onGoPractice={() => changeTab('practice')}
+   371→          />
+   372→        )}
+   373→        {tab === 'practice' && (
+   374→          <PracticeTab
+   375→            data={data}
+   376→            guestId={guestId}
+   377→            slug={slug}
+   378→            focusTopic={focusTopic}
+   379→          />
+   380→        )}
+   381→      </div>
+   382→    </div>
+   383→  )
+   384→}
+   385→
+   386→// ═══ LAYER 1 — STUDY MATERIAL + OFFICIAL PDFS ═══════════════════════════════
+   387→function StudyTab({
+   388→  data,
+   389→  officialDocs,
+   390→  subjectSyllabusDocs,
+   391→  otherExamResources,
+   392→  pendingTopicId,
+   393→  onStartTopicTest,
+   394→  onFocusTopic,
+   395→}: {
+   396→  data: ExamDetailDTO
+   397→  officialDocs: ResourceDTO[]
+   398→  subjectSyllabusDocs: ResourceDTO[]
+   399→  otherExamResources: ResourceDTO[]
+   400→  pendingTopicId: string | null
+   401→  onStartTopicTest: (topic: TopicNode) => void
+   402→  onFocusTopic: (t: FocusTopic, noteTitle?: string) => void
+   403→}) {
+   404→  const multiStage = data.stages.length > 1
+   405→  const [stageIdx, setStageIdx] = useState(0)
+   406→  const stage = data.stages[Math.min(stageIdx, data.stages.length - 1)]
+   407→
+   408→  return (
+   409→    <div className="space-y-10">
+   410→      {/* ── Official documents & PDFs ── */}
+   411→      <section aria-labelledby="official-docs-heading">
+   412→        <div className="flex flex-wrap items-baseline justify-between gap-2">
+   413→          <h2 id="official-docs-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   414→            Official documents &amp; PDFs
+   415→          </h2>
+   416→          {officialDocs.length > 0 && (
+   417→            <span className="text-xs text-muted-foreground">
+   418→              {officialDocs.length} document{officialDocs.length === 1 ? '' : 's'} for {data.exam.shortName ?? 'this exam'}
+   419→            </span>
+   420→          )}
+   421→        </div>
+   422→        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+   423→          Syllabus documents, information bulletins and portals from the conducting authority — plus legitimate
+   424→          public-domain textbook archives. Each card states its issuing authority, type, language and real
+   425→          verification status. Pages open as pages; a direct PDF download is offered only when a stable official
+   426→          file is confirmed.
+   427→        </p>
+   428→
+   429→        {officialDocs.length > 0 ? (
+   430→          <ul className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+   431→            {officialDocs.map(r => <DocumentCard key={r.id} resource={r} />)}
+   432→          </ul>
+   433→        ) : (
+   434→          <div className="mt-4">
+   435→            <EmptyState
+   436→              icon={Landmark}
+   437→              title="No official documents registered for this exam yet"
+   438→              description="We haven't verified an official syllabus PDF or bulletin link for this examination yet. The official sources above the tabs are the current best pointer — we never fabricate document links or verification statuses."
+   439→            />
+   440→          </div>
+   441→        )}
+   442→
+   443→        {subjectSyllabusDocs.length > 0 && (
+   444→          <div className="mt-8">
+   445→            <div className="flex flex-wrap items-baseline justify-between gap-2">
+   446→              <h3 id="subject-syllabus-heading" className="font-display text-base font-semibold text-foreground sm:text-lg">
+   447→                Subject-wise official syllabus PDFs
+   448→              </h3>
+   449→              <span className="text-xs text-muted-foreground">
+   450→                {subjectSyllabusDocs.length} official document{subjectSyllabusDocs.length === 1 ? '' : 's'} — direct NTA downloads
+   451→              </span>
+   452→            </div>
+   453→            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+   454→              One official syllabus PDF per subject, exactly as published by {data.exam.authority} for the current cycle.
+   455→              Each card offers a direct download — verified as a real PDF file, never a disguised webpage.
+   456→            </p>
+   457→            <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+   458→              {subjectSyllabusDocs.map(r => <DocumentCard key={r.id} resource={r} />)}
+   459→            </ul>
+   460→          </div>
+   461→        )}
+   462→
+   463→        {officialDocs.some(d => d.verificationStatus === 'UNREACHABLE') && (
+   464→          <p className="mt-3 rounded-lg border border-border bg-card px-4 py-2.5 text-xs leading-relaxed text-muted-foreground">
+   465→            <ShieldCheck className="mr-1.5 inline h-3.5 w-3.5 text-success" aria-hidden />
+   466→            Some official sites block automated checks from our servers, so their status may read &ldquo;unreachable&rdquo;
+   467→            even though the link is the authority&apos;s real, current page. Statuses reflect our last actual check —
+   468→            they are never assumed.
+   469→          </p>
+   470→        )}
+   471→      </section>
+   472→
+   473→      {/* ── Exam pattern & selection stages ── */}
+   474→      <section aria-labelledby="pattern-heading">
+   475→        <h2 id="pattern-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   476→          Exam pattern &amp; selection stages
+   477→        </h2>
+   478→        {data.stages.length === 0 ? (
+   479→          <p className="mt-4 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+   480→            Stage structure for this examination is being mapped.
+   481→          </p>
+   482→        ) : (
+   483→          <div className="mt-4 space-y-4">
+   484→            {data.stages.map(s => (
+   485→              <Card key={s.id} className="border-border bg-card">
+   486→                <CardContent className="p-4 sm:p-5">
+   487→                  <div className="flex flex-wrap items-start justify-between gap-2">
+   488→                    <div className="min-w-0">
+   489→                      <h3 className="font-display text-base font-semibold text-foreground sm:text-lg">{s.name}</h3>
+   490→                      {s.paperNote && <p className="mt-1 text-xs text-muted-foreground">{s.paperNote}</p>}
+   491→                    </div>
+   492→                    <CountPill label="subjects" value={s.subjects.length} />
+   493→                  </div>
+   494→                  {s.pattern ? (
+   495→                    <div className="mt-4">
+   496→                      <PatternTable pattern={s.pattern} />
+   497→                    </div>
+   498→                  ) : (
+   499→                    <p className="mt-4 rounded-lg border border-border bg-elevated px-3 py-2.5 text-xs text-muted-foreground">
+   500→                      A detailed marking pattern for this stage is not published here yet.
+   501→                    </p>
+   502→                  )}
+   503→                </CardContent>
+   504→              </Card>
+   505→            ))}
+   506→          </div>
+   507→        )}
+   508→      </section>
+   509→
+   510→      {/* ── Syllabus & topic-wise study notes ── */}
+   511→      <section aria-labelledby="syllabus-heading">
+   512→        <h2 id="syllabus-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   513→          Syllabus &amp; topic-wise study notes
+   514→        </h2>
+   515→        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+   516→          Expand any topic to read its original BEAN EXAMS note right here, see its verified documents, and jump
+   517→          into practice or BEAN Intelligence with the topic&apos;s context carried over.
+   518→        </p>
+   519→
+   520→        {multiStage && (
+   521→          <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Selection stage">
+   522→            {data.stages.map((s, i) => (
+   523→              <button
+   524→                key={s.id}
+   525→                type="button"
+   526→                role="tab"
+   527→                aria-selected={i === stageIdx}
+   528→                onClick={() => setStageIdx(i)}
+   529→                className={cn(
+   530→                  'rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors sm:text-[13px]',
+   531→                  i === stageIdx
+   532→                    ? 'border-gold/60 bg-gold/10 text-gold'
+   533→                    : 'border-border bg-elevated text-muted-foreground hover:border-gold/40 hover:text-foreground'
+   534→                )}
+   535→              >
+   536→                {s.name}
+   537→              </button>
+   538→            ))}
+   539→          </div>
+   540→        )}
+   541→
+   542→        {!stage || stage.subjects.length === 0 ? (
+   543→          <p className="mt-4 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+   544→            Subjects for this stage are being mapped.
+   545→          </p>
+   546→        ) : (
+   547→          <div className="mt-4 space-y-4">
+   548→            {stage.subjects.map(subject => (
+   549→              <StudySubjectCard
+   550→                key={subject.id}
+   551→                subject={subject}
+   552→                stageName={stage.name}
+   553→                examName={data.exam.name}
+   554→                pendingTopicId={pendingTopicId}
+   555→                onStartTopic={onStartTopicTest}
+   556→                onFocusTopic={onFocusTopic}
+   557→              />
+   558→            ))}
+   559→          </div>
+   560→        )}
+   561→      </section>
+   562→
+   563→      {/* ── Other curated exam-level resources ── */}
+   564→      {otherExamResources.length > 0 && (
+   565→        <section aria-labelledby="other-resources-heading">
+   566→          <h2 id="other-resources-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   567→            More curated resources for this examination
+   568→          </h2>
+   569→          <p className="mt-1 text-sm text-muted-foreground">
+   570→            Topic-level resources live inside each topic above — these are exam-wide picks.
+   571→          </p>
+   572→          <div className="mt-4">
+   573→            <ResourceList resources={otherExamResources} />
+   574→          </div>
+   575→        </section>
+   576→      )}
+   577→    </div>
+   578→  )
+   579→}
+   580→
+   581→// ═══ LAYER 2 — BEAN INTELLIGENCE ════════════════════════════════════════════
+   582→function IntelligenceTab({
+   583→  data,
+   584→  focusTopic,
+   585→  onFocusTopic,
+   586→  pendingTopicId,
+   587→  onStartTopicTest,
+   588→  onGoPractice,
+   589→}: {
+   590→  data: ExamDetailDTO
+   591→  slug: string
+   592→  focusTopic: FocusTopic | null
+   593→  onFocusTopic: (t: FocusTopic, noteTitle?: string) => void
+   594→  pendingTopicId: string | null
+   595→  onStartTopicTest: (topic: TopicNode) => void
+   596→  onGoPractice: () => void
+   597→}) {
+   598→  const navigate = useAppStore(s => s.navigate)
+   599→
+   600→  // Focusable topics: anything with a note or questions, labelled "Subject › Topic"
+   601→  const focusOptions = data.stages.flatMap(s =>
+   602→    s.subjects.flatMap(su =>
+   603→      su.units.flatMap(u =>
+   604→        u.topics
+   605→          .filter(t => t.noteAvailable || t.questionCount > 0)
+   606→          .map(t => ({
+   607→            id: t.id,
+   608→            label: `${su.name} › ${t.name}`,
+   609→            stageName: s.name,
+   610→            subjectName: su.name,
+   611→            name: t.name,
+   612→          }))
+   613→      )
+   614→    )
+   615→  )
+   616→
+   617→  const greeting = focusTopic
+   618→    ? `Hello! I'm BEAN Intelligence. You're focusing on "${focusTopic.name}" from ${data.exam.shortName ?? data.exam.name}${focusTopic.subjectName ? ` (${focusTopic.subjectName})` : ''} — its study note is attached as grounding when available. Ask me to explain it, simplify it, quiz you on it, or plan your revision.`
+   619→    : `Hello! I'm BEAN Intelligence, focused on ${data.exam.shortName ?? data.exam.name}. Ask me about its syllabus, exam pattern or any topic — or pick a focus topic below and I'll ground my answers in its study note.`
+   620→
+   621→  return (
+   622→    <div className="mx-auto max-w-4xl">
+   623→      {/* Focus topic chooser + return paths */}
+   624→      <div className="rounded-xl border border-gold/25 bg-gold/5 p-4 sm:p-5">
+   625→        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+   626→          <div className="min-w-0 flex-1">
+   627→            <label htmlFor="focus-topic" className="text-sm font-semibold text-foreground">
+   628→              Focus topic for this session
+   629→            </label>
+   630→            <p className="mt-0.5 text-xs text-muted-foreground">
+   631→              The chosen topic&apos;s study note is supplied to BEAN as grounding. {focusOptions.length} topics available for {data.exam.shortName ?? data.exam.name}.
+   632→            </p>
+   633→          </div>
+   634→          <div className="flex flex-wrap gap-2">
+   635→            {focusTopic && (
+   636→              <Button
+   637→                size="sm"
+   638→                variant="outline"
+   639→                className="border-gold/40 text-gold hover:bg-gold/10"
+   640→                onClick={() => navigate({ view: 'topic', topicId: focusTopic.id })}
+   641→              >
+   642→                <BookOpen className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Open topic workspace
+   643→              </Button>
+   644→            )}
+   645→            {focusTopic && (
+   646→              <Button
+   647→                size="sm"
+   648→                variant="outline"
+   649→                className="border-gold/40 text-gold hover:bg-gold/10"
+   650→                onClick={() => {
+   651→                  const node = data.stages
+   652→                    .flatMap(s => s.subjects.flatMap(su => su.units.flatMap(u => u.topics)))
+   653→                    .find(t => t.id === focusTopic.id)
+   654→                  if (node) onStartTopicTest(node)
+   655→                }}
+   656→                disabled={pendingTopicId !== null}
+   657→              >
+   658→                {pendingTopicId
+   659→                  ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+   660→                  : <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+   661→                Practice this topic
+   662→              </Button>
+   663→            )}
+   664→            <Button
+   665→              size="sm"
+   666→              variant="outline"
+   667→              className="border-border text-muted-foreground hover:bg-elevated hover:text-foreground"
+   668→              onClick={onGoPractice}
+   669→            >
+   670→              <ClipboardList className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Go to Practice Exam
+   671→            </Button>
+   672→          </div>
+   673→        </div>
+   674→        <div className="mt-3">
+   675→          <select
+   676→            id="focus-topic"
+   677→            value={focusTopic?.id ?? ''}
+   678→            onChange={e => {
+   679→              const opt = focusOptions.find(o => o.id === e.target.value)
+   680→              if (opt) onFocusTopic({ id: opt.id, name: opt.name, stageName: opt.stageName, subjectName: opt.subjectName })
+   681→            }}
+   682→            className="h-10 w-full rounded-lg border border-border bg-elevated px-3 text-sm text-foreground focus:border-gold/50 focus:outline-none"
+   683→          >
+   684→            <option value="">Whole exam — {data.exam.name}</option>
+   685→            {focusOptions.map(o => (
+   686→              <option key={o.id} value={o.id}>{o.label}</option>
+   687→            ))}
+   688→          </select>
+   689→        </div>
+   690→      </div>
+   691→
+   692→      <div className="mt-5">
+   693→        <BeanChatPanel variant="embedded" greeting={greeting} />
+   694→      </div>
+   695→    </div>
+   696→  )
+   697→}
+   698→
+   699→// ═══ LAYER 3 — PRACTICE EXAM ════════════════════════════════════════════════
+   700→function PracticeTab({
+   701→  data,
+   702→  guestId,
+   703→  slug,
+   704→  focusTopic,
+   705→}: {
+   706→  data: ExamDetailDTO
+   707→  guestId: string
+   708→  slug: string
+   709→  focusTopic: FocusTopic | null
+   710→}) {
+   711→  const navigate = useAppStore(s => s.navigate)
+   712→
+   713→  const [pendingId, setPendingId] = useState<string | null>(null)
+   714→  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+   715→
+   716→  const runStart = (key: string, start: () => Promise<{ attemptId: string }>) => {
+   717→    if (!guestId) {
+   718→      setErrorMessage('Your guest session is still initialising — try again in a moment.')
+   719→      return
+   720→    }
+   721→    if (pendingId) return
+   722→    setPendingId(key)
+   723→    setErrorMessage(null)
+   724→    start()
+   725→      .then(r => navigate({ view: 'test', attemptId: r.attemptId }))
+   726→      .catch(e => {
+   727→        setErrorMessage(e.message)
+   728→        toast({ title: 'Could not start this test', description: e.message, variant: 'destructive' })
+   729→      })
+   730→      .finally(() => setPendingId(null))
+   731→  }
+   732→
+   733→  const startTemplate = (templateId: string) =>
+   734→    runStart(templateId, () => api.startTest({ guestId, templateId }))
+   735→
+   736→  const startRevision = () =>
+   737→    runStart('REVISION', () => api.startTest({ guestId, examId: data.exam.id, type: 'REVISION' }))
+   738→
+   739→  const startTopic = (topicId: string) =>
+   740→    runStart(topicId, () => api.startTest({ guestId, topicId }))
+   741→
+   742→  const mocks = data.templates.filter(t => t.type === 'MIXED')
+   743→  const subjectTests = data.templates.filter(t => t.type === 'SUBJECT')
+   744→  const subjectGroups = new Map<string, typeof subjectTests>()
+   745→  for (const tpl of subjectTests) {
+   746→    const key = tpl.stageName ?? 'Practice tests'
+   747→    const list = subjectGroups.get(key) ?? []
+   748→    list.push(tpl)
+   749→    subjectGroups.set(key, list)
+   750→  }
+   751→
+   752→  // Practicable topics for the topic-practice picker
+   753→  const practicable = data.stages
+   754→    .flatMap(s =>
+   755→      s.subjects.map(su => ({
+   756→        subject: su,
+   757→        topics: su.units.flatMap(u => u.topics).filter(t => t.questionCount >= 4),
+   758→      }))
+   759→    )
+   760→    .filter(g => g.topics.length > 0)
+   761→  const [subjectIdx, setSubjectIdx] = useState(0)
+   762→  const activeGroup = practicable[Math.min(subjectIdx, practicable.length - 1)]
+   763→
+   764→  return (
+   765→    <div className="space-y-10">
+   766→      {/* Start failures surface here + as a toast */}
+   767→      {errorMessage && (
+   768→        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+   769→          {errorMessage}
+   770→        </p>
+   771→      )}
+   772→
+   773→      {/* ── Full mock ── */}
+   774→      <section aria-labelledby="mock-heading">
+   775→        <h2 id="mock-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   776→          Full-exam mock
+   777→        </h2>
+   778→        <p className="mt-1 text-sm text-muted-foreground">
+   779→          Mixed questions across the syllabus, this exam&apos;s own marking rules, server-timed.
+   780→        </p>
+   781→        {mocks.length > 0 ? (
+   782→          <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-2">
+   783→            {mocks.map(t => (
+   784→              <TemplateCard key={t.id} template={t} pending={pendingId === t.id} error={null} onStart={() => startTemplate(t.id)} />
+   785→            ))}
+   786→          </div>
+   787→        ) : (
+   788→          <p className="mt-4 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+   789→            A full-length mock needs at least 15 questions in the bank — this exam&apos;s mixed practice unlocks as
+   790→            authoring progresses. Subject and topic tests below are available today.
+   791→          </p>
+   792→        )}
+   793→      </section>
+   794→
+   795→      {/* ── Subject tests ── */}
+   796→      <section aria-labelledby="subject-tests-heading">
+   797→        <h2 id="subject-tests-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   798→          Subject tests
+   799→        </h2>
+   800→        <p className="mt-1 text-sm text-muted-foreground">
+   801→          One test per subject with enough authored questions — the same marking rules as the full exam.
+   802→        </p>
+   803→        {subjectTests.length > 0 ? (
+   804→          [...subjectGroups.entries()].map(([stageName, list]) => (
+   805→            <div key={stageName} className="mt-4">
+   806→              {subjectGroups.size > 1 && (
+   807→                <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-gold">{stageName}</h3>
+   808→              )}
+   809→              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+   810→                {list.map(t => (
+   811→                  <TemplateCard key={t.id} template={t} pending={pendingId === t.id} error={null} onStart={() => startTemplate(t.id)} />
+   812→                ))}
+   813→              </div>
+   814→            </div>
+   815→          ))
+   816→        ) : (
+   817→          <p className="mt-4 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+   818→            No subject has reached the 5-question minimum for its own test yet — topic practice below is the
+   819→            fastest way in.
+   820→          </p>
+   821→        )}
+   822→      </section>
+   823→
+   824→      {/* ── Topic practice ── */}
+   825→      <section aria-labelledby="topic-practice-heading">
+   826→        <h2 id="topic-practice-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   827→          Topic practice
+   828→        </h2>
+   829→        <p className="mt-1 text-sm text-muted-foreground">
+   830→          Short tests on a single syllabus topic — pick a subject, then a topic with questions ready.
+   831→        </p>
+   832→        {practicable.length === 0 ? (
+   833→          <p className="mt-4 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+   834→            No topic has 4+ questions yet. Questions are being authored — subject and mixed tests above cover
+   835→            what exists today.
+   836→          </p>
+   837→        ) : (
+   838→          <>
+   839→            <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Choose a subject">
+   840→              {practicable.map((g, i) => (
+   841→                <button
+   842→                  key={g.subject.id}
+   843→                  type="button"
+   844→                  role="tab"
+   845→                  aria-selected={i === subjectIdx}
+   846→                  onClick={() => setSubjectIdx(i)}
+   847→                  className={cn(
+   848→                    'rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors sm:text-[13px]',
+   849→                    i === subjectIdx
+   850→                      ? 'border-gold/60 bg-gold/10 text-gold'
+   851→                      : 'border-border bg-elevated text-muted-foreground hover:border-gold/40 hover:text-foreground'
+   852→                  )}
+   853→                >
+   854→                  {g.subject.name} ({g.topics.length})
+   855→                </button>
+   856→              ))}
+   857→            </div>
+   858→            {activeGroup && (
+   859→              <div className="mt-4 max-h-80 overflow-y-auto rounded-xl border border-border bg-card p-3">
+   860→                <div className="flex flex-wrap gap-2">
+   861→                  {activeGroup.topics.map(topic => (
+   862→                    <button
+   863→                      key={topic.id}
+   864→                      type="button"
+   865→                      disabled={pendingId === topic.id}
+   866→                      onClick={() => startTopic(topic.id)}
+   867→                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-foreground transition-colors hover:border-gold/40 hover:text-gold disabled:opacity-50 sm:text-[13px]"
+   868→                      aria-label={`Start topic practice: ${topic.name} (${topic.questionCount} questions available)`}
+   869→                    >
+   870→                      {pendingId === topic.id
+   871→                        ? <Loader2 className="h-3 w-3 animate-spin text-gold" aria-hidden />
+   872→                        : <Play className="h-3 w-3 text-gold" aria-hidden />}
+   873→                      {topic.name}
+   874→                      <span className="text-[11px] text-muted-foreground">· {topic.questionCount}Q</span>
+   875→                    </button>
+   876→                  ))}
+   877→                </div>
+   878→                {errorMessage && (
+   879→                  <p role="alert" className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+   880→                    {errorMessage}
+   881→                  </p>
+   882→                )}
+   883→              </div>
+   884→            )}
+   885→            <p className="mt-3 text-xs text-muted-foreground">
+   886→              Looking for a topic without practice questions? It&apos;s in the syllabus under Study Material — notes
+   887→              may still be readable there.
+   888→            </p>
+   889→          </>
+   890→        )}
+   891→      </section>
+   892→
+   893→      {/* ── Revision test (from my mistakes) ── */}
+   894→      <RevisionSection
+   895→        examId={data.exam.id}
+   896→        examName={data.exam.shortName ?? data.exam.name}
+   897→        guestId={guestId}
+   898→        pending={pendingId === 'REVISION'}
+   899→        onStart={startRevision}
+   900→      />
+   901→
+   902→      {/* ── Previous-year papers & question integrity ── */}
+   903→      <section aria-labelledby="pyq-heading">
+   904→        <h2 id="pyq-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   905→          Previous-year papers &amp; question integrity
+   906→        </h2>
+   907→        <div className="mt-4 rounded-xl border border-border bg-card p-4 sm:p-6">
+   908→          <div className="flex flex-wrap gap-2">
+   909→            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-foreground">
+   910→              <FileText className="h-3.5 w-3.5 text-gold" aria-hidden /> Original practice: {data.exam.questionSources?.ORIGINAL ?? 0}
+   911→            </span>
+   912→            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/40 bg-success/10 px-3 py-1 text-xs text-success">
+   913→              <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> PYQ verified: {data.exam.questionSources?.PYQ_VERIFIED ?? 0}
+   914→            </span>
+   915→            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-muted-foreground">
+   916→              <Info className="h-3.5 w-3.5" aria-hidden /> Provenance uncertain: {data.exam.questionSources?.PYQ_UNVERIFIED ?? 0}
+   917→            </span>
+   918→          </div>
+   919→          {(data.exam.questionSources?.PYQ_VERIFIED ?? 0) === 0 ? (
+   920→            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+   921→              No verified previous-year questions are in this exam&apos;s bank yet, so there is no &ldquo;previous-year
+   922→              paper&rdquo; mode to offer — and we will not label unverified material as PYQ. Every question above is an
+   923→              original BEAN EXAMS practice question with an author-verified answer. Official previous papers, where
+   924→              the authority publishes them, are linked under Study Material &rsaquo; Official documents.
+   925→            </p>
+   926→          ) : (
+   927→            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+   928→              Verified previous-year questions appear inside topic practice and mixed tests, always labelled with
+   929→              their source paper and year in the answer review.
+   930→            </p>
+   931→          )}
+   932→          <p className="mt-3 border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
+   933→            Marking rules follow this exam&apos;s actual pattern —
+   934→            {' '}{data.stages.filter(s => s.pattern).map(s => `${s.name}: ${negativeMarkText(s.pattern!.negativeMark)}`).join(' · ') || 'per-stage patterns are being mapped'}.
+   935→          </p>
+   936→        </div>
+   937→      </section>
+   938→
+   939→      {/* Keep focus context visible when arriving from Intelligence/Study */}
+   940→      {focusTopic && (
+   941→        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+   942→          <BookOpen className="h-3.5 w-3.5 text-gold" aria-hidden />
+   943→          Focused topic: <span className="font-medium text-foreground">{focusTopic.name}</span> — find it under Topic practice above, or
+   944→          <button type="button" onClick={() => navigate({ view: 'topic', topicId: focusTopic.id })} className="text-gold hover:underline">
+   945→            open its workspace
+   946→          </button>.
+   947→        </p>
+   948→      )}
+   949→    </div>
+   950→  )
+   951→}
+   952→
+   953→// ─── Revision section (lazy check against this guest's wrong answers) ────────
+   954→function RevisionSection({
+   955→  examId,
+   956→  examName,
+   957→  guestId,
+   958→  pending,
+   959→  onStart,
+   960→}: {
+   961→  examId: string
+   962→  examName: string
+   963→  guestId: string
+   964→  pending: boolean
+   965→  onStart: () => void
+   966→}) {
+   967→  const loadKey = `${examId}|${guestId}`
+   968→  const [loaded, setLoaded] = useState<{ key: string; count: number; ready: boolean } | null>(null)
+   969→  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null)
+   970→  const [retry, setRetry] = useState(0)
+   971→
+   972→  const data = loaded && loaded.key === `${loadKey}|${retry}` ? loaded : null
+   973→  const failure = failed && failed.key === `${loadKey}|${retry}` ? failed.message : null
+   974→
+   975→  useEffect(() => {
+   976→    if (!guestId) return
+   977→    let alive = true
+   978→    api.revisionCheck(examId, guestId)
+   979→      .then(r => { if (alive) setLoaded({ key: `${loadKey}|${retry}`, count: r.count, ready: r.ready }) })
+   980→      .catch(e => { if (alive) setFailed({ key: `${loadKey}|${retry}`, message: e.message }) })
+   981→    return () => { alive = false }
+   982→  }, [loadKey, retry, guestId, examId])
+   983→
+   984→  return (
+   985→    <section aria-labelledby="revision-heading">
+   986→      <h2 id="revision-heading" className="font-display text-lg font-semibold text-foreground sm:text-xl">
+   987→        Revision test — built from your mistakes
+   988→      </h2>
+   989→      <Card className="mt-4 border-gold/25 bg-gradient-to-b from-gold/10 to-transparent">
+   990→        <CardContent className="p-4 sm:p-5">
+   991→          {!guestId || (!data && !failure) ? (
+   992→            <div className="space-y-2" aria-busy="true" aria-label="Checking revision availability">
+   993→              <Skeleton className="h-4 w-64 bg-elevated" />
+   994→              <Skeleton className="h-10 w-48 bg-elevated" />
+   995→            </div>
+   996→          ) : failure ? (
+   997→            <div>
+   998→              <p role="alert" className="text-sm text-destructive">{failure}</p>
+   999→              <Button size="sm" variant="outline" className="mt-3 border-gold/40 text-gold hover:bg-gold/10" onClick={() => setRetry(r => r + 1)}>
+  1000→                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Try again
+  1001→              </Button>
+  1002→            </div>
+  1003→          ) : data && data.ready ? (
+  1004→            <>
+  1005→              <p className="text-sm leading-relaxed text-foreground/90">
+  1006→                You have <span className="font-semibold text-gold">{data.count} wrong answer{data.count === 1 ? '' : 's'}</span> saved
+  1007→                from real attempts in {examName}. This test rebuilds from exactly those questions — the honest way to
+  1008→                close gaps.
+  1009→              </p>
+  1010→              <Button
+  1011→                size="lg"
+  1012→                className="mt-4 w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto"
+  1013→                onClick={onStart}
+  1014→                disabled={pending}
+  1015→              >
+  1016→                {pending
+  1017→                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Building your revision test…</>
+  1018→                  : <><RotateCcw className="mr-2 h-4 w-4" /> Start revision test ({Math.min(15, data.count)} questions)</>}
+  1019→              </Button>
+  1020→            </>
+  1021→          ) : data ? (
+  1022→            <p className="text-sm leading-relaxed text-muted-foreground">
+  1023→              {data.count === 0
+  1024→                ? `Revision tests are built from your own wrong answers in ${examName}. Take a practice test first — this card activates automatically once you've made (and we've saved) a few mistakes.`
+  1025→                : `${data.count} wrong answer${data.count === 1 ? '' : 's'} saved so far — a revision test unlocks at 4. Keep practising.`}
+  1026→            </p>
+  1027→          ) : null}
+  1028→        </CardContent>
+  1029→      </Card>
+  1030→    </section>
+  1031→  )
+  1032→}
+  1033→
+  1034→// ─── Loading skeleton ───
+  1035→function ExamSkeleton() {
+  1036→  return (
+  1037→    <div
+  1038→      className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8"
+  1039→      aria-busy="true"
+  1040→      aria-label="Loading examination"
+  1041→    >
+  1042→      <Skeleton className="h-4 w-36 bg-elevated" />
+  1043→      <div className="mt-6 flex gap-2">
+  1044→        <Skeleton className="h-6 w-28 rounded-full bg-elevated" />
+  1045→        <Skeleton className="h-6 w-44 rounded-full bg-elevated" />
+  1046→      </div>
+  1047→      <Skeleton className="mt-4 h-10 w-full max-w-xl bg-elevated" />
+  1048→      <Skeleton className="mt-3 h-4 w-64 bg-elevated" />
+  1049→      <Skeleton className="mt-6 h-20 w-full max-w-3xl bg-elevated" />
+  1050→      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+  1051→        {TABS.map(t => (
+  1052→          <Skeleton key={t.id} className="h-16 rounded-xl bg-elevated" />
+  1053→        ))}
+  1054→      </div>
+  1055→      <div className="mt-8 space-y-4">
+  1056→        <Skeleton className="h-48 w-full bg-elevated" />
+  1057→        <Skeleton className="h-32 w-full bg-elevated" />
+  1058→      </div>
+  1059→    </div>
+  1060→  )
+  1061→}
+  1062→
