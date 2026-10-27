@@ -1,0 +1,854 @@
+     1→// ─── Riishe document structure detection (deterministic, no AI) ──────────────
+     2→// Infers a document's real organisation from the extracted text itself:
+     3→//   • table of contents (detected + validated against the body)
+     4→//   • headings (numbered, chapter-style, ALL-CAPS, Title-Case) with levels
+     5→//   • question-paper layouts (so question banks are not exploded into "topics")
+     6→//   • printed page numbers vs physical PDF pages (arabic offset + roman front
+     7→//     matter) so page references can show both honestly
+     8→// and turns all of that into structure-aware ANALYSIS UNITS that cover the
+     9→// whole document — never an arbitrary "first N pages" slice.
+    10→//
+    11→// Everything here is pure and deterministic: the same extraction always
+    12→// produces the same structure, so re-analysis is repeatable and unit-testable.
+    13→
+    14→import type { ExtractedPage } from './extract'
+    15→
+    16→// ─── Public shapes ────────────────────────────────────────────────────────────
+    17→
+    18→export type StructureKind = 'TOC_GUIDED' | 'HEADING_GUIDED' | 'QUESTION_PAPER' | 'UNSTRUCTURED'
+    19→
+    20→export interface TocEntry {
+    21→  title: string
+    22→  page: number | null // physical page the entry claims (1-based)
+    23→}
+    24→
+    25→export interface HeadingHit {
+    26→  title: string
+    27→  page: number
+    28→  lineIdx: number // line index within its page
+    29→  level: 1 | 2
+    30→  score: number
+    31→  fromToc: boolean // title matches a validated TOC entry
+    32→}
+    33→
+    34→export interface PrintedPageInfo {
+    35→  /** physical = printed + offset, when a consistent arabic numbering was found */
+    36→  offset: number | null
+    37→  /** front matter used roman numerals (i, ii, iii …) */
+    38→  romanFrontMatter: boolean
+    39→}
+    40→
+    41→export interface AnalysisUnit {
+    42→  index: number
+    43→  /** heading the unit sits under (null for un-headed chunks / front matter) */
+    44→  title: string | null
+    45→  level: 1 | 2 | null
+    46→  fromPage: number
+    47→  toPage: number
+    48→  text: string // includes "[page N]" markers, real line breaks preserved
+    49→  chars: number
+    50→  kind: 'SECTION' | 'FRONT' | 'CHUNK' | 'OVERFLOW'
+    51→}
+    52→
+    53→export interface DetectedStructure {
+    54→  kind: StructureKind
+    55→  toc: TocEntry[]
+    56→  tocValidated: boolean
+    57→  headings: HeadingHit[]
+    58→  printed: PrintedPageInfo
+    59→  units: AnalysisUnit[]
+    60→  tocPages: number[]
+    61→}
+    62→
+    63→// ─── Tuning constants ─────────────────────────────────────────────────────────
+    64→
+    65→const HEADING_MAX_LEN = 95
+    66→const TOC_MIN_ENTRIES = 4
+    67→const HEADING_DENSITY_LIMIT = 0.45 // >45% heading-looking lines ⇒ not headings
+    68→const QUESTION_LINE_RATIO = 0.12
+    69→const MIN_UNIT_CHARS = 1200 // merge tiny sections forward instead of one-call-per-heading
+    70→
+    71→export interface BuildUnitsOptions {
+    72→  maxUnitChars: number
+    73→}
+    74→
+    75→// ─── Small helpers ────────────────────────────────────────────────────────────
+    76→
+    77→const WORD_RE = /[A-Za-z]/
+    78→
+    79→function linesOf(page: ExtractedPage): string[] {
+    80→  return page.text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+    81→}
+    82→
+    83→function letters(s: string): string {
+    84→  return s.replace(/[^A-Za-z]/g, '')
+    85→}
+    86→
+    87→function upperRatio(s: string): number {
+    88→  const ls = letters(s)
+    89→  if (ls.length === 0) return 0
+    90→  let up = 0
+    91→  for (const c of ls) if (c === c.toUpperCase() && c !== c.toLowerCase()) up++
+    92→  return up / ls.length
+    93→}
+    94→
+    95→function titleCaseRatio(s: string): number {
+    96→  const words = s.split(/\s+/).filter(w => WORD_RE.test(w))
+    97→  if (words.length === 0) return 0
+    98→  let cap = 0
+    99→  for (const w of words) {
+   100→    const first = letters(w)[0]
+   101→    if (first && first === first.toUpperCase()) cap++
+   102→  }
+   103→  return cap / words.length
+   104→}
+   105→
+   106→const NON_HEADING_RE = /^(page|fig(?:ure)?|table|source|note|answer|marks?|time\s*[:–-]|total|name|roll|date|reg(istration)?\s*(no|number))/i
+   107→
+   108→// ─── TOC detection ────────────────────────────────────────────────────────────
+   109→
+   110→const TOC_LEADER_RE = /^(.{2,90}?)[\s.·⋅•‣⁃…]{2,}(\d{1,3})(?:\s*[-–—]\s*\d{1,3})?$/
+   111→const TOC_GAP_RE = /^(.{2,90}?)\s{3,}(\d{1,3})(?:\s*[-–—]\s*\d{1,3})?$/
+   112→// Real contents tables often use a single space: "Chapter-1 Introduction 13-14"
+   113→const TOC_TAIL_RE = /^(.{2,90}?)\s+(\d{1,3})(?:\s*[-–—]\s*\d{1,3})?$/
+   114→const TOC_PAGE_HINT_RE = /^(index|contents?|table of contents|content page no\.?|appendices?)\s*$/i
+   115→/** Running footer/header furniture: "Page |2", "- 12 -", "12" */
+   116→const TOC_PAGE_LABEL_RE = /^page\s*[|:\-]?\s*\d+/i
+   117→const ROW_NUMBER_PREFIX_RE = /^\d{1,2}\.\s/
+   118→
+   119→interface TocPageResult {
+   120→  page: number
+   121→  entries: TocEntry[]
+   122→}
+   123→
+   124→/**
+   125→ * Parse one contents page into entries.
+   126→ *
+   127→ * Real TOCs wrap long rows across several physical lines:
+   128→ *   "6. VI Procedure to be adopted for compilation of NTA Score"
+   129→ *   "for Multi Shifts Papers in CUET (UG) 2026 58-67"
+   130→ *   "8. VIII Certificate regarding physical limitation in an Examinee"
+   131→ *   "to Write 71"
+   132→ * A naive per-line parse turns those continuations into bogus standalone
+   133→ * sections ("for Multi Shifts Papers…", "to Write") and loses the real ones.
+   134→ * So lines are walked in order with a PENDING title buffer:
+   135→ *   • a line with a trailing page number completes an entry (pending text is
+   136→ *     prepended; a pure-number "title" like "2026 74-94" is treated as the
+   137→ *     wrapped page of the pending text);
+   138→ *   • a plain title-looking line without a page number is held as pending;
+   139→ *   • row-number restarts ("1. I List of …"), headers/footers (repeated lines),
+   140→ *     page labels and contents-hint lines reset or skip the buffer.
+   141→ * As a final safety net, an entry whose title begins lowercase is merged into
+   142→ * the previous entry (it is the tail of a wrapped row that carried its own
+   143→ * page number).
+   144→ */
+   145→function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[] {
+   146→  const lines = linesOf(page)
+   147→  if (lines.length < TOC_MIN_ENTRIES) return []
+   148→  const entries: TocEntry[] = []
+   149→  let pending = ''
+   150→  let hintSeen = false
+   151→
+   152→  const pushEntry = (rawTitle: string, num: number | null) => {
+   153→    const title = cleanTitle(rawTitle)
+   154→    if (title.length < 2 || !WORD_RE.test(title)) return
+   155→    entries.push({ title, page: Number.isFinite(num) ? num : null })
+   156→  }
+   157→
+   158→  for (const raw of lines) {
+   159→    const line = raw.trim()
+   160→    if (!line) continue
+   161→    if (TOC_PAGE_HINT_RE.test(line)) { hintSeen = true; pending = ''; continue }
+   162→
+   163→    const m = TOC_LEADER_RE.exec(line) ?? TOC_GAP_RE.exec(line) ?? TOC_TAIL_RE.exec(line)
+   164→    if (m) {
+   165→      const rawTitle = m[1].replace(/[\s.·⋅•‣⁃…]+$/g, '').trim()
+   166→      const num = Number(m[2])
+   167→      // A row-number restart ("1. I List of Central Universities 35") is a NEW
+   168→      // row, never the continuation of the pending text above it.
+   169→      const startsNewRow = ROW_NUMBER_PREFIX_RE.test(rawTitle) || NUMBERED_L2_RE.test(rawTitle)
+   170→      if (PURE_NUMBER_RE.test(rawTitle)) {
+   171→        // "2026 74-94" — the wrapped row's tail is part of the title and the
+   172→        // number completes the pending entry ("… CUET (UG) – 2026  74-94").
+   173→        if (pending) { pushEntry(`${pending} ${rawTitle}`, num); pending = '' }
+   174→        continue
+   175→      }
+   176→      if (rawTitle.length < 2 || rawTitle.length > 90 || !WORD_RE.test(rawTitle)) continue
+   177→      // Data rows of reference lists ("101  Ahmedabad  Zone  2") start with a
+   178→      // multi-digit code and are NOT contents entries — they would flood the
+   179→      // TOC with junk sections on list-heavy documents.
+   180→      if (/^\d{2,}\s/.test(rawTitle)) continue
+   181→      if (startsNewRow || !pending) {
+   182→        if (pending) { pending = ''; }
+   183→        // lowercase-start titles are wrapped tails of the previous entry
+   184→        const prev = entries[entries.length - 1]
+   185→        if (prev && /^[a-z]/.test(rawTitle)) {
+   186→          prev.title = cleanTitle(`${prev.title} ${rawTitle}`).slice(0, 120)
+   187→          if (num !== null && !Number.isNaN(num)) prev.page = num
+   188→          continue
+   189→        }
+   190→        pushEntry(rawTitle, num)
+   191→      } else {
+   192→        pending = `${pending} ${rawTitle}`.slice(0, 240)
+   193→        pushEntry(pending, num)
+   194→        pending = ''
+   195→      }
+   196→      continue
+   197→    }
+   198→
+   199→    // No page number on this line — hold as pending title text when it can
+   200→    // plausibly be one (running headers repeat across pages and are excluded).
+   201→    if (TOC_PAGE_LABEL_RE.test(line) || PURE_NUMBER_RE.test(line)) {
+   202→      // A bare number after pending title text is the wrapped row's page
+   203→      // ("9. IX / Certificate for person … / … in writing / 72").
+   204→      if (PURE_NUMBER_RE.test(line) && pending && !TOC_PAGE_LABEL_RE.test(line)) {
+   205→        pushEntry(pending, Number(line))
+   206→        pending = ''
+   207→      }
+   208→      continue
+   209→    }
+   210→    if (furniture.has(normKey(line))) continue
+   211→    if (line.length < 8 || line.length > 120) continue
+   212→    if (!WORD_RE.test(line)) continue
+   213→    if (entries.length === 0 && !hintSeen) continue // title/header before any entry
+   214→    pending = pending ? `${pending} ${line}` : line
+   215→  }
+   216→
+   217→  // A page is a TOC page when either a clear majority of its lines are entries,
+   218→  // or it announces itself (Index / Contents / Appendices) and has several.
+   219→  const announces = hintSeen || lines.slice(0, 6).some(l => TOC_PAGE_HINT_RE.test(l))
+   220→  const threshold = announces
+   221→    ? Math.max(TOC_MIN_ENTRIES, Math.ceil(lines.length * 0.25))
+   222→    : Math.max(TOC_MIN_ENTRIES, Math.ceil(lines.length * 0.5))
+   223→  if (entries.length < threshold) return []
+   224→  // Real contents tables point FORWARD through the document; a page whose
+   225→  // claimed numbers cycle (1,2,3,4,1,2…) is a data list, not a contents page.
+   226→  const numbered = entries.filter(e => e.page !== null) as (TocEntry & { page: number })[]
+   227→  if (numbered.length >= TOC_MIN_ENTRIES) {
+   228→    let downs = 0
+   229→    for (let i = 1; i < numbered.length; i++) if (numbered[i].page < numbered[i - 1].page - 2) downs++
+   230→    if (downs / (numbered.length - 1) > 0.25) return []
+   231→  }
+   232→  return entries
+   233→}
+   234→
+   235→/** Validate a TOC: entry pages must be plausible and broadly increasing. */
+   236→function validateToc(entries: TocEntry[], numPages: number): boolean {
+   237→  const withPages = entries.filter(e => e.page !== null) as (TocEntry & { page: number })[]
+   238→  if (withPages.length < TOC_MIN_ENTRIES) return false
+   239→  let inRange = 0
+   240→  for (const e of withPages) if (e.page >= 1 && e.page <= numPages) inRange++
+   241→  if (inRange / withPages.length < 0.8) return false
+   242→  // Broadly increasing: allow local noise (multi-column TOCs reorder), but the
+   243→  // overall trend must go up — otherwise the "TOC" is likely a name list.
+   244→  let up = 0
+   245→  let total = 0
+   246→  for (let i = 1; i < withPages.length; i++) {
+   247→    total++
+   248→    if (withPages[i].page >= withPages[i - 1].page - 2) up++
+   249→  }
+   250→  return total === 0 || up / total >= 0.75
+   251→}
+   252→
+   253→// ─── Heading detection ────────────────────────────────────────────────────────
+   254→
+   255→const CHAPTER_WORD_RE =
+   256→  /^(chapter|unit|section|part|module|appendix|annexure|annex|experiment|activity|practical|lesson)\s*[-–—:]?\s*([0-9ivxlcdm]+|[a-z])\b[\s.:–—-]*(.*)$/i
+   257→const NUMBERED_L1_RE = /^(\d{1,2})[.)]\s+(\S.*)$/
+   258→const NUMBERED_L2_RE = /^(\d{1,2})\.(\d{1,2})[.)]?\s+(\S.*)$/
+   259→const SECTION_LABEL_RE = /^(section|part|paper|book)\s+[-–—:]?\s*([A-Z0-9IVX]{1,4})\b(.*)$/i
+   260→const QUESTION_LINE_RE = /^\d{1,3}[.)]\s+(.{10,})$/
+   261→const PURE_NUMBER_RE = /^\d{1,4}$/
+   262→const ROMAN_RE = /^(?:[ivxlcdm]{1,7})$/i
+   263→/** "CHAPTER 10", "Appendix VII", "UNIT 3" — a bare label with no title text */
+   264→const BARE_CHAPTER_RE = /^(chapter|unit|part|section|appendix|annexure|annex)\s*[-–—:]?\s*([0-9ivxlcdm]{1,5}|[a-z])\.?$/i
+   265→
+   266→interface LineHit {
+   267→  title: string
+   268→  level: 1 | 2
+   269→  score: number
+   270→  page: number
+   271→  lineIdx: number
+   272→}
+   273→
+   274→function headingScore(line: string, inTocTitles: Set<string>): { level: 1 | 2; score: number; title: string } | null {
+   275→  const raw = line.trim()
+   276→  if (raw.length < 3 || raw.length > HEADING_MAX_LEN) return null
+   277→  if (PURE_NUMBER_RE.test(raw)) return null
+   278→  if (/[.,;:]$/.test(raw) && !NUMBERED_L1_RE.test(raw) && !NUMBERED_L2_RE.test(raw)) return null
+   279→  if (NON_HEADING_RE.test(raw)) return null
+   280→
+   281→  // x.y numbered subsection — strongest hierarchical signal
+   282→  const l2 = NUMBERED_L2_RE.exec(raw)
+   283→  if (l2 && l2[3].length >= 3 && WORD_RE.test(l2[3])) {
+   284→    return { level: 2, score: 6, title: l2[3].trim() }
+   285→  }
+   286→
+   287→  // Chapter / Unit / Appendix … style — keep the document's own wording
+   288→  const ch = CHAPTER_WORD_RE.exec(raw)
+   289→  if (ch) {
+   290→    return { level: 1, score: 7, title: cleanTitle(raw) }
+   291→  }
+   292→
+   293→  // "Section A", "PART — I"
+   294→  const sec = SECTION_LABEL_RE.exec(raw)
+   295→  if (sec && (sec[3] ?? '').trim().length < 40) {
+   296→    return { level: 1, score: 5, title: cleanTitle(raw) }
+   297→  }
+   298→
+   299→  // Numbered top-level heading "12. Reservation Policy"
+   300→  const l1 = NUMBERED_L1_RE.exec(raw)
+   301→  if (l1) {
+   302→    const title = l1[2].trim()
+   303→    if (title.length >= 3 && WORD_RE.test(title) && !QUESTION_LINE_RE.test(raw)) {
+   304→      const bonus = inTocTitles.has(normKey(title)) ? 2 : 0
+   305→      return { level: 1, score: 4 + bonus, title: cleanTitle(title) }
+   306→    }
+   307→    return null
+   308→  }
+   309→
+   310→  // ALL-CAPS short line
+   311→  const ls = letters(raw)
+   312→  if (ls.length >= 4 && upperRatio(raw) >= 0.8 && raw.split(/\s+/).length <= 12) {
+   313→    const bonus = inTocTitles.has(normKey(raw)) ? 2 : 0
+   314→    return { level: 1, score: 3 + bonus, title: cleanTitle(raw) }
+   315→  }
+   316→
+   317→  // Title-Case short line (two+ capitalised words, no ending punctuation)
+   318→  const words = raw.split(/\s+/)
+   319→  if (words.length >= 2 && words.length <= 10 && titleCaseRatio(raw) >= 0.7 && raw.length >= 8) {
+   320→    const bonus = inTocTitles.has(normKey(raw)) ? 3 : 0
+   321→    // Without a TOC match, plain Title-Case lines are weak signals — they are
+   322→    // often names, table headers or list items. Only TOC-corroborated ones or
+   323→    // clearly heading-ish lines (no verb-ish trailing punctuation) pass.
+   324→    if (bonus > 0) return { level: 1, score: 3 + bonus, title: cleanTitle(raw) }
+   325→    return null
+   326→  }
+   327→
+   328→  return null
+   329→}
+   330→
+   331→function cleanTitle(t: string): string {
+   332→  return t.replace(/\s+/g, ' ').replace(/[.:]\s*$/, '').trim().slice(0, 90)
+   333→}
+   334→
+   335→/** Remove leading row numbers from a TOC entry title: "1.1 About NTA" → "About NTA". */
+   336→function stripEntryTitle(t: string): string {
+   337→  return t
+   338→    .replace(/^\d{1,2}\.\d{1,2}\s*[.)]?\s*/, '')
+   339→    .replace(/^\d{1,2}\s*[.)]\s+/, '')
+   340→    .replace(/\s+/g, ' ')
+   341→    .trim()
+   342→}
+   343→
+   344→/** x.y subsection rows of a contents table ("1.1 About NTA  13") */
+   345→const SUBSECTION_ROW_RE = /^\d{1,2}\.\d{1,2}\b/
+   346→
+   347→/** Normalisation used to correlate TOC titles with body headings. */
+   348→export function normKey(s: string): string {
+   349→  return s
+   350→    .toLowerCase()
+   351→    .replace(/[^a-z0-9]+/g, ' ')
+   352→    .replace(/\b(the|a|an|of|for|and|in|to|on)\b/g, ' ')
+   353→    .replace(/\s+/g, ' ')
+   354→    .trim()
+   355→}
+   356→
+   357→// ─── Printed page number detection ────────────────────────────────────────────
+   358→
+   359→const ROMAN_VALUES: Record<string, number> = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 }
+   360→
+   361→function romanToInt(s: string): number | null {
+   362→  const str = s.toLowerCase()
+   363→  if (!/^[ivxlcdm]+$/.test(str)) return null
+   364→  let total = 0
+   365→  let prev = 0
+   366→  for (let i = str.length - 1; i >= 0; i--) {
+   367→    const v = ROMAN_VALUES[str[i]]
+   368→    if (v < prev) total -= v
+   369→    else {
+   370→      total += v
+   371→      prev = v
+   372→    }
+   373→  }
+   374→  return total >= 1 ? total : null
+   375→}
+   376→
+   377→function printedLabelFromEdge(lines: string[]): string | null {
+   378→  const edges = [...lines.slice(0, 2), ...lines.slice(-2)]
+   379→  for (const line of edges) {
+   380→    if (line.length > 40) continue
+   381→    // "Page 12 of 96", "Page |12", "Page | 12", "12", "- 12 -", "12."
+   382→    const m1 = /^page\s*[|:\-]?\s*(\d{1,4})(?:\s*(?:of|\/)\s*\d{1,4})?$/i.exec(line)
+   383→    if (m1) return m1[1]
+   384→    const m2 = /^[-–—\s]*(\d{1,4})[-–—\s.]*$/.exec(line)
+   385→    if (m2) return m2[1]
+   386→    if (ROMAN_RE.test(line) && line.length <= 7) {
+   387→      const v = romanToInt(line)
+   388→      if (v !== null && v <= 100) return line.toLowerCase()
+   389→    }
+   390→  }
+   391→  return null
+   392→}
+   393→
+   394→export function detectPrintedPages(pages: ExtractedPage[]): PrintedPageInfo {
+   395→  const pairs: { physical: number; printed: number | null; roman: boolean }[] = []
+   396→  for (const p of pages) {
+   397→    if (p.scanned || !p.text) {
+   398→      pairs.push({ physical: p.page, printed: null, roman: false })
+   399→      continue
+   400→    }
+   401→    const label = printedLabelFromEdge(linesOf(p))
+   402→    if (label === null) {
+   403→      pairs.push({ physical: p.page, printed: null, roman: false })
+   404→    } else if (/^\d+$/.test(label)) {
+   405→      pairs.push({ physical: p.page, printed: Number(label), roman: false })
+   406→    } else {
+   407→      pairs.push({ physical: p.page, printed: romanToInt(label), roman: true })
+   408→    }
+   409→  }
+   410→
+   411→  // Roman front matter anywhere in the first 15% of the document
+   412→  const headCount = Math.max(1, Math.ceil(pairs.length * 0.15))
+   413→  const romanFrontMatter = pairs.slice(0, headCount).some(p => p.roman && p.printed !== null)
+   414→
+   415→  // Longest consistent arabic run: printed = physical + offset
+   416→  let bestOffset: number | null = null
+   417→  let bestRun = 0
+   418→  const byOffset = new Map<number, number>()
+   419→  for (const p of pairs) {
+   420→    if (p.printed === null || p.roman) continue
+   421→    const offset = p.physical - p.printed
+   422→    if (offset < 0 || offset > 60) continue // cover/plate offsets beyond 60 are implausible
+   423→    byOffset.set(offset, (byOffset.get(offset) ?? 0) + 1)
+   424→  }
+   425→  for (const [offset, count] of byOffset) {
+   426→    if (count > bestRun) {
+   427→      bestRun = count
+   428→      bestOffset = offset
+   429→    }
+   430→  }
+   431→  // Require the offset to hold for a meaningful share of pages (≥5 and ≥25%)
+   432→  const arabicPages = pairs.filter(p => p.printed !== null && !p.roman).length
+   433→  if (bestOffset !== null && !(bestRun >= 5 && bestRun >= arabicPages * 0.5 && arabicPages >= pages.length * 0.25)) {
+   434→    bestOffset = null
+   435→  }
+   436→  return { offset: bestOffset, romanFrontMatter }
+   437→}
+   438→
+   439→// ─── Main detection ───────────────────────────────────────────────────────────
+   440→
+   441→export function detectStructure(pages: ExtractedPage[], numPages: number, opts: BuildUnitsOptions): DetectedStructure {
+   442→  const readable = pages.filter(p => !p.scanned && p.text.length > 0)
+   443→  const printed = detectPrintedPages(pages)
+   444→
+   445→  // Running headers/footers repeat across pages; inside a contents table such
+   446→  // lines must never be mistaken for a wrapped title row.
+   447→  const furniture = new Set<string>()
+   448→  {
+   449→    const freq = new Map<string, Set<number>>()
+   450→    for (const p of readable.slice(0, 15)) {
+   451→      for (const l of linesOf(p)) {
+   452→        if (l.length < 4 || l.length > 70) continue
+   453→        const key = normKey(l)
+   454→        if (!key) continue
+   455→        const set = freq.get(key) ?? new Set<number>()
+   456→        set.add(p.page)
+   457→        freq.set(key, set)
+   458→      }
+   459→    }
+   460→    for (const [key, pageSet] of freq) if (pageSet.size >= 2) furniture.add(key)
+   461→  }
+   462→
+   463→  // 1 ── TOC pages
+   464→  const tocPages: TocPageResult[] = []
+   465→  for (const p of readable.slice(0, 15)) {
+   466→    const entries = detectTocOnPage(p, furniture)
+   467→    if (entries.length > 0) tocPages.push({ page: p.page, entries })
+   468→  }
+   469→  const allTocEntries = tocPages.flatMap(t => t.entries)
+   470→  const tocValidated = validateToc(allTocEntries, numPages)
+   471→  // Titles stripped of leading row numbers ("1.1 About NTA" → "About NTA") so
+   472→  // TOC entries correlate with the body's own headings.
+   473→  const tocTitleKeys = new Set(allTocEntries.map(e => normKey(stripEntryTitle(e.title))))
+   474→
+   475→  // 2 ── Heading candidates over all readable lines
+   476→  const hits: LineHit[] = []
+   477→  let questionLines = 0
+   478→  let contentLines = 0
+   479→  for (const p of readable) {
+   480→    const onTocPage = tocPages.some(t => t.page === p.page)
+   481→    const lines = linesOf(p)
+   482→    for (let i = 0; i < lines.length; i++) {
+   483→      const line = lines[i]
+   484→      if (line.length >= 12) contentLines++
+   485→      if (QUESTION_LINE_RE.test(line)) questionLines++
+   486→      if (onTocPage) continue // TOC lines look like headings but are not
+   487→      const h = headingScore(line, tocTitleKeys)
+   488→      if (!h) continue
+   489→      // Bare "CHAPTER 10" / "APPENDIX VII" headings: the real title often sits
+   490→      // on the next line — merge it so the topic keeps the document's wording.
+   491→      let title = h.title
+   492→      let consumedExtra = 0
+   493→      const bare = BARE_CHAPTER_RE.exec(h.title)
+   494→      if (bare) {
+   495→        const next = lines[i + 1]
+   496→        if (
+   497→          next && next.length >= 3 && next.length <= 90 && !PURE_NUMBER_RE.test(next) &&
+   498→          !NON_HEADING_RE.test(next) && !headingScore(next, tocTitleKeys) && !QUESTION_LINE_RE.test(next)
+   499→        ) {
+   500→          title = cleanTitle(`${h.title} ${next}`)
+   501→          consumedExtra = 1
+   502→        }
+   503→      }
+   504→      hits.push({ title, level: h.level, score: h.score, page: p.page, lineIdx: i })
+   505→      i += consumedExtra
+   506→    }
+   507→  }
+   508→
+   509→  // 3 ── Question-paper layout? High numbered-line density + explicit marks
+   510→  // instructions near the front — both together, so ordinary numbered lists in
+   511→  // textbooks (or a phone directory) are not misclassified.
+   512→  const marksMention = readable
+   513→    .slice(0, 8)
+   514→    .some(p => /marks?\s*[:：]|max(?:imum)?\s*marks|time\s*(?:allowed|:)\s*\d/i.test(p.text))
+   515→  const questionPaper =
+   516→    contentLines > 30 && questionLines / Math.max(1, contentLines) >= QUESTION_LINE_RATIO && marksMention
+   517→
+   518→  // 4 ── Heading density sanity: too many "headings" ⇒ they are not headings
+   519→  let headingHits = hits.filter(h => h.score >= 4)
+   520→  const density = contentLines > 0 ? headingHits.length / contentLines : 0
+   521→  if (density > HEADING_DENSITY_LIMIT) headingHits = headingHits.filter(h => h.score >= 6)
+   522→  if (contentLines > 0 && headingHits.length / contentLines > HEADING_DENSITY_LIMIT) headingHits = []
+   523→
+   524→  // 5 ── Corroborate with the TOC: boost + mark
+   525→  const headings: HeadingHit[] = []
+   526→  let lastKey = ''
+   527→  for (const h of headingHits) {
+   528→    const key = normKey(h.title)
+   529→    if (!key || key === lastKey) continue // consecutive duplicate line
+   530→    lastKey = key
+   531→    headings.push({
+   532→      title: h.title,
+   533→      page: h.page,
+   534→      lineIdx: h.lineIdx,
+   535→      level: h.level,
+   536→      score: h.score,
+   537→      fromToc: tocTitleKeys.has(key),
+   538→    })
+   539→  }
+   540→
+   541→  // Drop weak one-off headings when a TOC exists (they are usually noise);
+   542→  // keep everything when the TOC corroborates them.
+   543→  const filtered = headings.filter(h => !tocValidated || h.fromToc || h.score >= 4)
+   544→
+   545→  // 6 ── Units. When a validated TOC exists, the document's own contents table
+   546→  // (validated against the body) defines the major sections — that is more
+   547→  // faithful than any heading heuristic. Headings are the fallback.
+   548→  let units: AnalysisUnit[] | null = null
+   549→  let kind: StructureKind
+   550→  if (questionPaper) {
+   551→    kind = 'QUESTION_PAPER'
+   552→  } else {
+   553→    if (tocValidated) units = buildTocUnits(readable, allTocEntries, printed.offset, opts)
+   554→    if (units && units.length >= 2) {
+   555→      kind = 'TOC_GUIDED'
+   556→    } else {
+   557→      units = null
+   558→      kind = filtered.length >= 3 ? (tocValidated ? 'TOC_GUIDED' : 'HEADING_GUIDED') : 'UNSTRUCTURED'
+   559→    }
+   560→  }
+   561→  if (!units) units = buildUnits(readable, filtered, kind, opts)
+   562→
+   563→  return {
+   564→    kind,
+   565→    toc: allTocEntries,
+   566→    tocValidated,
+   567→    headings: filtered,
+   568→    printed,
+   569→    units,
+   570→    tocPages: tocPages.map(t => t.page),
+   571→  }
+   572→}
+   573→
+   574→// ─── Analysis units ───────────────────────────────────────────────────────────
+   575→
+   576→/**
+   577→ * Build units directly from a VALIDATED table of contents: each major (non
+   578→ * x.y) entry becomes a section whose physical start page is the entry's page
+   579→ * (printed + detected offset) — but only when the body page actually contains
+   580→ * the entry's words. If too few entries verify, returns null so the caller
+   581→ * falls back to heading-anchored units. This is what makes page references
+   582→ * land on the right page in documents with a real contents table.
+   583→ */
+   584→export function buildTocUnits(
+   585→  readable: ExtractedPage[],
+   586→  entries: TocEntry[],
+   587→  printedOffset: number | null,
+   588→  opts: BuildUnitsOptions,
+   589→): AnalysisUnit[] | null {
+   590→  const physicalOf = (printed: number) => (printedOffset !== null ? printed + printedOffset : printed)
+   591→  const pageByNumber = new Map(readable.map(p => [p.page, p] as const))
+   592→  const normText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+   593→
+   594→  const majors = entries
+   595→    .filter(e => e.page !== null && !SUBSECTION_ROW_RE.test(e.title.trim()))
+   596→    .map(e => ({ title: stripEntryTitle(e.title), physical: physicalOf(e.page as number) }))
+   597→    .filter(x => x.title.length >= 2 && x.title.length <= 95)
+   598→  if (majors.length < TOC_MIN_ENTRIES) return null
+   599→
+   600→  // Wrapped TOC rows continue on the next line claiming the same page —
+   601→  // "…General Aptitude" + "Test under CUET (UG) – 2026 37-38" are ONE section.
+   602→  const mergedMajors: { title: string; physical: number }[] = []
+   603→  for (const m of majors) {
+   604→    const prev = mergedMajors[mergedMajors.length - 1]
+   605→    if (prev && prev.physical === m.physical) {
+   606→      prev.title = cleanTitle(`${prev.title} ${m.title}`)
+   607→      continue
+   608→    }
+   609→    mergedMajors.push({ ...m })
+   610→  }
+   611→  if (mergedMajors.length < TOC_MIN_ENTRIES) return null
+   612→
+   613→  // Verify each entry against the physical page it claims
+   614→  const verified: { title: string; physical: number }[] = []
+   615→  for (const m of mergedMajors) {
+   616→    const page = pageByNumber.get(m.physical)
+   617→    if (!page) continue
+   618→    const hay = normText(page.text)
+   619→    const tokens = normKey(m.title).split(' ').filter(t => t.length > 3)
+   620→    const hit = tokens.length === 0 || tokens.some(t => hay.includes(t))
+   621→    if (hit) verified.push(m)
+   622→  }
+   623→  if (verified.length < TOC_MIN_ENTRIES || verified.length < Math.ceil(majors.length * 0.5)) return null
+   624→
+   625→  verified.sort((a, b) => a.physical - b.physical)
+   626→  const cleaned = verified.filter((v, i) => i === 0 || v.physical > verified[i - 1].physical)
+   627→  if (cleaned.length < TOC_MIN_ENTRIES) return null
+   628→
+   629→  const units: AnalysisUnit[] = []
+   630→  const textOf = (from: number, to: number) =>
+   631→    readable
+   632→      .filter(p => p.page >= from && p.page <= to)
+   633→      .map(p => `[page ${p.page}]\n${p.text}`)
+   634→      .join('\n\n')
+   635→
+   636→  const pushRange = (title: string | null, from: number, to: number, kind: AnalysisUnit['kind']) => {
+   637→    const pagesSlice = readable.filter(p => p.page >= from && p.page <= to)
+   638→    if (pagesSlice.length === 0) return
+   639→    // oversize ranges split into consecutive chunks under the same title
+   640→    let start = pagesSlice[0]
+   641→    let prev = pagesSlice[0]
+   642→    let chars = 0
+   643→    const flush = () => {
+   644→      units.push({
+   645→        index: units.length, title, level: title ? 1 : null,
+   646→        fromPage: start.page, toPage: prev.page, text: textOf(start.page, prev.page),
+   647→        chars, kind,
+   648→      })
+   649→    }
+   650→    for (const p of pagesSlice) {
+   651→      if (chars > 0 && chars + p.text.length > opts.maxUnitChars) {
+   652→        flush()
+   653→        start = p
+   654→        chars = 0
+   655→      }
+   656→      chars += p.text.length
+   657→      prev = p
+   658→    }
+   659→    if (chars > 0) flush()
+   660→  }
+   661→
+   662→  // Front matter: everything before the first verified entry
+   663→  const first = cleaned[0].physical
+   664→  const front = readable.filter(p => p.page < first)
+   665→  if (front.length > 0) pushRange(null, front[0].page, front[front.length - 1].page, 'FRONT')
+   666→
+   667→  for (let i = 0; i < cleaned.length; i++) {
+   668→    const from = cleaned[i].physical
+   669→    const to = i + 1 < cleaned.length ? Math.min(cleaned[i + 1].physical - 1, readable[readable.length - 1].page) : readable[readable.length - 1].page
+   670→    if (to < from) continue
+   671→    pushRange(cleaned[i].title, from, to, 'SECTION')
+   672→  }
+   673→
+   674→  return units.length >= 2 ? units.map((u, i) => ({ ...u, index: i })) : null
+   675→}
+   676→
+   677→/**
+   678→ * Build analysis units that cover every readable page exactly once.
+   679→ * TOC/heading-guided documents are sliced at real heading boundaries (level-1
+   680→ * sections, split at level-2 subsections when oversize); everything else falls
+   681→ * back to whole-document page chunks. Tiny neighbouring sections are merged so
+   682→ * one-line headings don't each cost a model call, and oversize sections are
+   683→ * split further so no single call exceeds the char budget.
+   684→ */
+   685→export function buildUnits(
+   686→  readable: ExtractedPage[],
+   687→  headings: HeadingHit[],
+   688→  kind: StructureKind,
+   689→  opts: BuildUnitsOptions,
+   690→): AnalysisUnit[] {
+   691→  const units: AnalysisUnit[] = []
+   692→
+   693→  const pushUnit = (u: Omit<AnalysisUnit, 'index'>) => {
+   694→    units.push({ ...u, index: units.length })
+   695→  }
+   696→
+   697→  const textOf = (from: ExtractedPage, to: ExtractedPage) =>
+   698→    readable
+   699→      .slice(readable.indexOf(from), readable.indexOf(to) + 1)
+   700→      .map(p => `[page ${p.page}]\n${p.text}`)
+   701→      .join('\n\n')
+   702→
+   703→  if (kind === 'TOC_GUIDED' || kind === 'HEADING_GUIDED') {
+   704→    // Anchor each level-1 heading to its page; sections span to the next level-1 anchor.
+   705→    const anchors = headings
+   706→      .filter(h => h.level === 1)
+   707→      .sort((a, b) => a.page - b.page || a.lineIdx - b.lineIdx)
+   708→    // Collapse anchors that land on the same page with the same key (repeat prints)
+   709→    const deduped: HeadingHit[] = []
+   710→    for (const a of anchors) {
+   711→      const prev = deduped[deduped.length - 1]
+   712→      if (prev && prev.page === a.page && normKey(prev.title) === normKey(a.title)) continue
+   713→      deduped.push(a)
+   714→    }
+   715→
+   716→
+   717→    // Front matter: readable pages before the first anchor
+   718→    const firstAnchorPage = deduped[0]?.page ?? null
+   719→    const frontPages = firstAnchorPage ? readable.filter(p => p.page < firstAnchorPage) : []
+   720→    if (frontPages.length > 0) {
+   721→      const from = frontPages[0]
+   722→      const to = frontPages[frontPages.length - 1]
+   723→      pushUnit({ title: null, level: null, fromPage: from.page, toPage: to.page, text: textOf(from, to), chars: frontPages.reduce((s, p) => s + p.text.length, 0), kind: 'FRONT' })
+   724→    }
+   725→
+   726→    for (let i = 0; i < deduped.length; i++) {
+   727→      const anchor = deduped[i]
+   728→      const nextPage = deduped[i + 1]?.page ?? null
+   729→      const sectionPagesList = readable.filter(p => p.page >= anchor.page && (nextPage === null || p.page < nextPage))
+   730→      if (sectionPagesList.length === 0) continue
+   731→      // Split oversize sections at level-2 heading pages within the section
+   732→      const subAnchors = headings
+   733→        .filter(h => h.level === 2 && h.page >= anchor.page && (nextPage === null || h.page < nextPage))
+   734→        .sort((a, b) => a.page - b.page)
+   735→      const segments: { from: ExtractedPage; to: ExtractedPage; title: string | null }[] = []
+   736→      let cursorPage = anchor.page
+   737→      for (const sub of subAnchors) {
+   738→        if (sub.page <= cursorPage) continue
+   739→        const from = readable.find(p => p.page === cursorPage)
+   740→        const to = readable.find(p => p.page === sub.page - 1) ?? readable.find(p => p.page === cursorPage)
+   741→        if (from && to) segments.push({ from, to, title: null })
+   742→        cursorPage = sub.page
+   743→      }
+   744→      {
+   745→        const from = readable.find(p => p.page === cursorPage)
+   746→        const to = sectionPagesList[sectionPagesList.length - 1]
+   747→        if (from && to) segments.push({ from, to, title: null })
+   748→      }
+   749→
+   750→      let pendingFrom: ExtractedPage | null = null
+   751→      let pendingChars = 0
+   752→      let pendingStartPage = anchor.page
+   753→      const flushPending = (upto: ExtractedPage) => {
+   754→        if (!pendingFrom) return
+   755→        pushUnit({
+   756→          title: anchor.title,
+   757→          level: 1,
+   758→          fromPage: pendingStartPage,
+   759→          toPage: upto.page,
+   760→          text: textOf(pendingFrom, upto),
+   761→          chars: pendingChars,
+   762→          kind: 'SECTION',
+   763→        })
+   764→        pendingFrom = null
+   765→        pendingChars = 0
+   766→      }
+   767→      for (const seg of segments) {
+   768→        const segPages = readable.filter(p => p.page >= seg.from.page && p.page <= seg.to.page)
+   769→        const segChars = segPages.reduce((s, p) => s + p.text.length, 0)
+   770→        if (!pendingFrom) {
+   771→          pendingFrom = segPages[0]
+   772→          pendingStartPage = pendingFrom.page
+   773→          pendingChars = segChars
+   774→        } else {
+   775→          pendingChars += segChars
+   776→        }
+   777→        if (pendingChars >= opts.maxUnitChars) flushPending(seg.to)
+   778→      }
+   779→      flushPending(segments[segments.length - 1]?.to ?? sectionPagesList[sectionPagesList.length - 1])
+   780→    }
+   781→
+   782→    // Sanity: any readable pages beyond the last anchor (appendices etc.)
+   783→    const lastCovered = units.reduce((m, u) => Math.max(m, u.toPage), 0)
+   784→    const tail = readable.filter(p => p.page > lastCovered)
+   785→    if (tail.length > 0) {
+   786→      pushUnit({
+   787→        title: deduped.length > 0 ? 'Appendix & back matter' : null,
+   788→        level: deduped.length > 0 ? 1 : null,
+   789→        fromPage: tail[0].page,
+   790→        toPage: tail[tail.length - 1].page,
+   791→        text: textOf(tail[0], tail[tail.length - 1]),
+   792→        chars: tail.reduce((s, p) => s + p.text.length, 0),
+   793→        kind: 'SECTION',
+   794→      })
+   795→    }
+   796→
+   797→    // Merge tiny units forward (a 1-line heading should not cost a model call)
+   798→    return mergeTinyUnits(units, opts.maxUnitChars)
+   799→  }
+   800→
+   801→  // Fallback: UNSTRUCTURED / QUESTION_PAPER — page chunks across the WHOLE doc
+   802→  let cur: ExtractedPage[] = []
+   803→  let curChars = 0
+   804→  const flush = () => {
+   805→    if (cur.length === 0) return
+   806→    const from = cur[0]
+   807→    const to = cur[cur.length - 1]
+   808→    pushUnit({
+   809→      title: null,
+   810→      level: null,
+   811→      fromPage: from.page,
+   812→      toPage: to.page,
+   813→      text: textOf(from, to),
+   814→      chars: curChars,
+   815→      kind: kind === 'QUESTION_PAPER' ? 'CHUNK' : 'CHUNK',
+   816→    })
+   817→    cur = []
+   818→    curChars = 0
+   819→  }
+   820→  for (const p of readable) {
+   821→    if (p.text.length > opts.maxUnitChars) {
+   822→      flush()
+   823→      const text = `[page ${p.page}]\n${p.text.slice(0, opts.maxUnitChars)}`
+   824→      pushUnit({ title: null, level: null, fromPage: p.page, toPage: p.page, text, chars: text.length, kind: 'OVERFLOW' })
+   825→      continue
+   826→    }
+   827→    if (curChars + p.text.length > opts.maxUnitChars) flush()
+   828→    cur.push(p)
+   829→    curChars += p.text.length
+   830→  }
+   831→  flush()
+   832→  return units
+   833→}
+   834→
+   835→function mergeTinyUnits(units: AnalysisUnit[], maxUnitChars: number): AnalysisUnit[] {
+   836→  const out: AnalysisUnit[] = []
+   837→  for (const u of units) {
+   838→    const prev = out[out.length - 1]
+   839→    const tiny = u.chars < MIN_UNIT_CHARS
+   840→    if (
+   841→      tiny && prev && prev.kind === 'SECTION' && u.kind === 'SECTION' &&
+   842→      prev.title === u.title && // never fuse two different sections — a short chapter is still a chapter
+   843→      prev.chars + u.chars <= maxUnitChars
+   844→    ) {
+   845→      prev.toPage = u.toPage
+   846→      prev.text = `${prev.text}\n\n${u.text}`
+   847→      prev.chars += u.chars
+   848→      continue
+   849→    }
+   850→    out.push({ ...u })
+   851→  }
+   852→  return out.map((u, i) => ({ ...u, index: i }))
+   853→}
+   854→

@@ -1,6 +1,8 @@
 // ─── Riishe backend types (mirrored for the client in src/lib/types.ts) ──────
 
-export const PIPELINE_VERSION = 2
+// v3: fair topic cap (never drops level-1 sections), full multi-unit page
+// spans, wrapped-TOC-row joining, content-filter sub-chunk/skip accounting.
+export const PIPELINE_VERSION = 3
 
 export interface AnalyzedTopic {
   /** Canonical title — the variant that best matches the document's own wording */
@@ -32,10 +34,16 @@ export interface CoverageMetrics {
   analysedPages: number
   /** readable pages not covered by any successful unit (failed or pending) */
   unanalysedPages: number
+  /** readable pages in units deterministically skipped WITH a recorded reason
+   *  (e.g. the provider's safety filter refuses dense name lists) — terminal,
+   *  never retried silently, always disclosed */
+  skippedPages: number
   unitsTotal: number
   unitsOk: number
   unitsFailed: number
-  /** true only when every readable page sits in a successful unit */
+  unitsSkipped: number
+  /** true only when no readable page is left unaccounted: every page sits in
+   *  a successful unit or a skipped-with-reason unit, and nothing failed */
   complete: boolean
 }
 
@@ -45,7 +53,8 @@ export interface SectionOutcome {
   label: string
   fromPage: number
   toPage: number
-  status: 'OK' | 'FAILED'
+  status: 'OK' | 'FAILED' | 'SKIPPED'
+  /** FAILED: what went wrong (retryable). SKIPPED: why it was skipped (terminal). */
   error?: string
 }
 

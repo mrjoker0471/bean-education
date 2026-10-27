@@ -82,20 +82,23 @@ export interface CanonicalizeOptions {
 
 /**
  * Keep only page references the document itself supports:
- *  • the page lies in the unit the topic was extracted from (the model was
- *    shown exactly those [page N] markers), AND
+ *  • the page lies in one of the units the topic was extracted from (the model
+ *    was shown exactly those [page N] markers) — a topic merged from several
+ *    chunks of one long section keeps its full span, it is not clamped to the
+ *    first chunk, AND
  *  • at least one meaningful title token occurs on that page.
  * Heading-anchored pages are always kept. If nothing survives, fall back to
- * the unit's own page range (still document-derived — never invented).
+ * the unit ranges (still document-derived — never invented).
  */
 export function verifyPages(
   name: string,
   claimed: number[],
-  unit: { fromPage: number; toPage: number },
+  unitRanges: { fromPage: number; toPage: number }[],
   pageTextIndex: Map<number, string>,
   anchoredPage: number | null,
 ): { pages: number[]; verified: boolean } {
-  const inRange = [...new Set(claimed.filter(p => p >= unit.fromPage && p <= unit.toPage))].sort((a, b) => a - b)
+  const inAnyRange = (p: number) => unitRanges.some(r => p >= r.fromPage && p <= r.toPage)
+  const inRange = [...new Set(claimed.filter(inAnyRange))].sort((a, b) => a - b)
   const tokens = titleTokens(name).filter(t => t.length > 3)
   const supported: number[] = []
   for (const p of inRange) {
@@ -239,9 +242,9 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
 
   // 3 ── hierarchy: parent assignment by unit containment
   const topics: AnalyzedTopic[] = kept.map((t, i) => {
-    const unit = t.unitRefs[0]
+    const ranges = t.unitRefs.map(r => ({ fromPage: r.fromPage, toPage: r.toPage }))
     const claimedPages = [...t.pages]
-    const verified = verifyPages(t.name, claimedPages, { fromPage: unit.fromPage, toPage: unit.toPage }, opts.pageTextIndex, t.anchoredPage)
+    const verified = verifyPages(t.name, claimedPages, ranges, opts.pageTextIndex, t.anchoredPage)
     return {
       id: `t${i + 1}`,
       name: t.name,
@@ -293,8 +296,49 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
     if (t.parentId) t.parentId = idMap.get(t.parentId) ?? t.parentId
   }
 
-  const max = opts.maxTopics ?? 60
-  return ordered.slice(0, max)
+  const max = opts.maxTopics ?? 200
+  return capTopicsFairly(ordered, max)
+}
+
+/**
+ * Size ceiling that never sacrifices document coverage:
+ *   • every level-1 (major section) topic is ALWAYS kept — dropping one would
+ *     erase a whole region of the document from the topic list;
+ *   • when level-2 concepts must be trimmed, they are dropped round-robin
+ *     across parents (and within a parent in document order), so the cut is
+ *     spread over the whole document instead of silently amputating its tail
+ *     (a plain `slice` on the page-ordered list dropped every topic past the
+ *     cap — the back half of a long document vanished).
+ * Deterministic: same input, same survivors.
+ */
+function capTopicsFairly(ordered: AnalyzedTopic[], max: number): AnalyzedTopic[] {
+  if (ordered.length <= max) return ordered
+  const tops = ordered.filter(t => t.level !== 2)
+  const children = ordered.filter(t => t.level === 2)
+  const budget = Math.max(0, max - tops.length)
+  if (children.length <= budget) return ordered
+
+  const byParent = new Map<string, AnalyzedTopic[]>()
+  for (const c of children) {
+    const key = c.parentId ?? '_root'
+    const list = byParent.get(key) ?? []
+    list.push(c)
+    byParent.set(key, list)
+  }
+  const keptChildren: AnalyzedTopic[] = []
+  let added = true
+  while (keptChildren.length < budget && added) {
+    added = false
+    for (const list of byParent.values()) {
+      if (list.length === 0) continue
+      keptChildren.push(list.shift() as AnalyzedTopic)
+      added = true
+      if (keptChildren.length >= budget) break
+    }
+  }
+  const keptIds = new Set(keptChildren.map(t => t.id))
+  return [...tops, ...keptChildren].sort((a, b) => (a.pages[0] ?? 99999) - (b.pages[0] ?? 99999))
+    .filter(t => t.level !== 2 || keptIds.has(t.id))
 }
 
 function similarEnough(a: WorkingTopic, b: WorkingTopic): boolean {

@@ -264,8 +264,95 @@ function makeQuestionPaper() {
   return b.build()
 }
 
+// ─── 4. List-appendix document — wrapped TOC rows + dense reference lists ────
+// Exercises the failures seen on real bulletins: TOC rows that wrap over two
+// lines ("Appendix B Register of Approved Institutions and / Centres Directory
+// 7") and dense name/code list appendices (the archetype the provider's
+// content filter is known to refuse — the pipeline must sub-chunk or skip it
+// with a reason, never fabricate).
+function makeListAppendix() {
+  const b = new PdfBuilder()
+  // Page 1 — cover
+  b.text('Board Examination Guide', { x: 140, y: 700, bold: true, size: 22 })
+  b.text('With Appendices of Centres and Institutions', { x: 130, y: 660, size: 14 })
+  b.newPage()
+  // Page 2 — contents with one wrapped row (two physical lines, one entry)
+  let y = 740
+  b.text('Contents', { x: MARGIN, y, bold: true, size: 16 })
+  y -= 30
+  b.text('Chapter 1  Algebra Basics ......... 1', { x: MARGIN, y, size: 11 })
+  b.text('Chapter 2  Trigonometry Essentials ......... 3', { x: MARGIN, y: y - 20, size: 11 })
+  b.text('Appendix A  List of Examination Centres ......... 5', { x: MARGIN, y: y - 40, size: 11 })
+  b.text('Appendix B  Register of Approved Institutions and', { x: MARGIN, y: y - 60, size: 11 })
+  b.text('Centres Directory 7', { x: MARGIN, y: y - 80, size: 11 })
+  b.newPage()
+
+  // Pages 3-4 — Chapter 1 (printed 1-2), pages 5-6 — Chapter 2 (printed 3-4)
+  const chapters = [
+    { title: 'Chapter 1 Algebra Basics', body: 'Algebra studies operations on symbols that stand for numbers. Linear equations in one variable are solved by isolating the unknown using inverse operations. Quadratic equations are solved by factorisation completing the square or the quadratic formula. The discriminant tells how many real roots exist. Identities like the square of a sum simplify expansion and factorisation of expressions.' },
+    { title: 'Chapter 2 Trigonometry Essentials', body: 'Trigonometry relates the angles and sides of triangles. The sine cosine and tangent ratios are defined on a right triangle. Pythagoras identity connects sine and cosine. Angles are measured in degrees or radians and values repeat periodically. Heights and distances problems use the angle of elevation and depression with tangent ratios.' },
+  ]
+  let printed = 1
+  for (const ch of chapters) {
+    b.text(ch.title, { x: MARGIN, y: 780, bold: true, size: 15 })
+    para(b, ch.body, 740)
+    b.text(String(printed), { x: W / 2 - 10, y: 30, size: 9 })
+    b.newPage()
+    b.text(`${ch.title} — continued`, { x: MARGIN, y: 780, bold: true, size: 13 })
+    para(b, `${ch.body} Worked examples follow the summary box and every exercise set ends with revision questions for practice.`, 740)
+    b.text(String(printed + 1), { x: W / 2 - 10, y: 30, size: 9 })
+    b.newPage()
+    printed += 2
+  }
+
+  // Pages 7-10 — Appendix A: dense city/code list (printed 5-8)
+  const cities = ['Ahmedabad', 'Bengaluru', 'Bhopal', 'Bhubaneswar', 'Chandigarh', 'Chennai', 'Coimbatore', 'Dehradun', 'Delhi', 'Guwahati', 'Hyderabad', 'Indore', 'Jaipur', 'Jammu', 'Kanpur', 'Kochi', 'Kolkata', 'Lucknow', 'Madurai', 'Mumbai', 'Nagpur', 'Patna', 'Pune', 'Raipur', 'Rajkot', 'Ranchi', 'Shimla', 'Surat', 'Thiruvananthapuram', 'Tiruchirappalli', 'Vadodara', 'Varanasi', 'Vijayawada', 'Visakhapatnam']
+  b.text('Appendix A List of Examination Centres', { x: MARGIN, y: 780, bold: true, size: 14 })
+  b.text('Centre Code  City  State Zone', { x: MARGIN, y: 756, size: 10 })
+  let yy = 732
+  let code = 101
+  let cityIdx = 0
+  for (let row = 0; row < 46; row++) {
+    const city = cities[cityIdx % cities.length]
+    cityIdx++
+    b.text(`${code}  ${city}  Zone ${(code % 4) + 1}`, { x: MARGIN, y: yy, size: 10 })
+    yy -= 16
+    code++
+    if (yy < 60) {
+      b.text(String(printed), { x: W / 2 - 10, y: 30, size: 9 })
+      b.newPage()
+      yy = 780
+      b.text('Appendix A List of Examination Centres — continued', { x: MARGIN, y: yy, bold: true, size: 12 })
+      yy -= 26
+    }
+  }
+  b.text(String(printed), { x: W / 2 - 10, y: 30, size: 9 })
+  b.newPage()
+  printed += 4
+
+  // Pages 11-12 — Appendix B: institution register (printed 9-10)
+  b.text('Appendix B Register of Approved Institutions and Centres Directory', { x: MARGIN, y: 780, bold: true, size: 13 })
+  let code2 = 501
+  for (let row = 0; row < 40; row++) {
+    b.text(`INST-${code2}  National Institute ${code2 - 500}  Recognised`, { x: MARGIN, y: yy, size: 10 })
+    yy -= 16
+    code2++
+    if (yy < 60) {
+      b.text(String(printed), { x: W / 2 - 10, y: 30, size: 9 })
+      b.newPage()
+      yy = 780
+      b.text('Appendix B Register of Approved Institutions and Centres Directory — continued', { x: MARGIN, y: yy, bold: true, size: 12 })
+      yy -= 26
+    }
+  }
+  b.text(String(printed), { x: W / 2 - 10, y: 30, size: 9 })
+  b.newPage()
+  return b.build()
+}
+
 mkdirSync(OUT_DIR, { recursive: true })
 writeFileSync(path.join(OUT_DIR, 'textbook-toc.pdf'), makeTextbook())
 writeFileSync(path.join(OUT_DIR, 'lecture-notes.pdf'), makeNotes())
 writeFileSync(path.join(OUT_DIR, 'question-paper.pdf'), makeQuestionPaper())
+writeFileSync(path.join(OUT_DIR, 'list-appendix.pdf'), makeListAppendix())
 console.log('written to', OUT_DIR)

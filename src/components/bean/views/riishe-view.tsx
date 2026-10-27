@@ -869,7 +869,7 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                 : 'This document has no detectable chapters or contents page — topics are listed in document order.'}
             {' '}Page chips open the integrated reader at that exact page.
           </p>
-          <ul className="mt-4 space-y-4">
+          <ul className="mt-4 max-h-[40rem] space-y-4 overflow-y-auto pr-2">
             {tops.map(topic => (
               <TopicRow key={topic.id} topic={topic} childrenTopics={childrenOf(topic.id)} onOpenPage={onOpenPage} />
             ))}
@@ -1008,12 +1008,16 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <CoverageStat label="Pages extracted" value={cov.readablePages + cov.scannedPages} sub={`${cov.totalPages} total`} />
-              <CoverageStat label="Analysed pages" value={cov.analysedPages} sub={cov.unanalysedPages > 0 ? `${cov.unanalysedPages} pending` : 'all readable'} />
+              <CoverageStat label="Analysed pages" value={cov.analysedPages} sub={cov.unanalysedPages > 0 ? `${cov.unanalysedPages} pending` : cov.skippedPages > 0 ? `${cov.skippedPages} skipped` : 'all readable'} />
               <CoverageStat label="Need OCR" value={cov.scannedPages} sub={cov.scannedPages > 0 ? 'image-only' : 'none'} />
               <CoverageStat
                 label="Sections"
                 value={cov.unitsOk}
-                sub={cov.unitsFailed > 0 ? `${cov.unitsFailed} failed of ${cov.unitsTotal}` : `${cov.unitsTotal} analysed`}
+                sub={cov.unitsFailed > 0
+                  ? `${cov.unitsFailed} failed of ${cov.unitsTotal}`
+                  : cov.unitsSkipped > 0
+                    ? `${cov.unitsSkipped} skipped of ${cov.unitsTotal}`
+                    : `${cov.unitsTotal} analysed`}
               />
             </dl>
             {structure?.printedPageOffset != null && (
@@ -1027,6 +1031,31 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
         ) : null}
 
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.coverageNote}</p>
+
+        {/* Section-by-section accounting: what failed (retryable) and what was
+            skipped, always with the recorded reason — never a bare count. */}
+        {analysis.sectionOutcomes && analysis.sectionOutcomes.some(o => o.status !== 'OK') && (
+          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-2">
+            {analysis.sectionOutcomes.filter(o => o.status === 'FAILED').map(o => (
+              <div key={`f-${o.index}`} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
+                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+                  <span><span className="font-medium text-destructive/90">Not analysed (retryable): </span>{o.label}</span>
+                </p>
+                {o.error && <p className="ml-5 text-[11px] text-muted-foreground">{o.error}</p>}
+              </div>
+            ))}
+            {analysis.sectionOutcomes.filter(o => o.status === 'SKIPPED').map(o => (
+              <div key={`s-${o.index}`} className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-2">
+                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
+                  <span><span className="font-medium text-gold">Skipped with reason: </span>{o.label}</span>
+                </p>
+                {o.error && <p className="ml-5 text-[11px] leading-relaxed text-muted-foreground">{o.error}</p>}
+              </div>
+            ))}
+          </div>
+        )}
 
         {partial && cov && (
           <div className="mt-4 flex flex-wrap gap-2">

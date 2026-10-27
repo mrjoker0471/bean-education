@@ -108,3 +108,20 @@ export function isProviderError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return !/JSON|parse/i.test(msg)
 }
+
+/**
+ * The provider's safety filter refuses some legitimate study pages (dense
+ * reference lists of names/places/categories are a known trigger). Retrying
+ * the identical request can never succeed — callers must adapt (smaller
+ * chunks) or account the section honestly as skipped.
+ */
+export function isContentFilterError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /contentFilter|code["']?\s*[:=]?\s*["']?1301|敏感内容/i.test(msg)
+}
+
+/** Transient provider throttling — a bounded backoff-and-retry is legitimate. */
+export function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /\b429\b|too many requests/i.test(msg)
+}

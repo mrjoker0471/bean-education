@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { queueOnce } from '@/lib/riishe/jobs'
 import { processDocument } from '@/lib/riishe/pipeline'
 import { safeParse } from '@/lib/serialize'
-import type { DocumentAnalysis } from '@/lib/riishe/types'
+import { PIPELINE_VERSION, type DocumentAnalysis } from '@/lib/riishe/types'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     if (doc.status === 'READY' && !force) {
       const analysis = safeParse<DocumentAnalysis | null>(doc.analysisJson, null)
       const partial =
-        analysis?.coverage && analysis.coverage.complete === false && analysis.pipelineVersion === 2
+        analysis?.coverage && analysis.coverage.complete === false && analysis.pipelineVersion === PIPELINE_VERSION
       if (!partial) {
         return NextResponse.json({ error: 'This document is already fully analysed. Use re-analyse to start over.' }, { status: 409 })
       }

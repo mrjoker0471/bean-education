@@ -16,7 +16,7 @@ import { safeParse } from '@/lib/serialize'
 import { sectionPages, type ExtractedPage } from './extract'
 import { detectStructure } from './structure'
 import { normalizeTitle } from './dedupe'
-import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE } from './ai'
+import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isRateLimitError } from './ai'
 import {
   DEFAULT_DISTRIBUTION, CATEGORY_LABELS,
   type DocumentAnalysis, type GeneratedQuestion, type QuestionCategory, type RiisheTestStats,
@@ -26,6 +26,13 @@ const GEN_SECTION_CHARS = 4200
 const BATCH_SIZE = 10
 const MAX_BATCHES = 9 // generation batch budget (incl. top-ups)
 const MIN_PUBLISHABLE = 4
+const RATE_LIMIT_BACKOFF_MS = 15_000
+
+/** Provider outages that make further batches pointless this run. */
+function isProviderUnavailable(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /empty provider|temporar|timeout|unavailable|ECONN|ENOTFOUND|network/i.test(msg)
+}
 
 interface CandidateQuestion extends GeneratedQuestion {
   sectionIdx: number
@@ -83,7 +90,7 @@ interface GenSection {
  * on (from the verified analysis page references), padded with balanced
  * coverage so batches always have enough material.
  */
-function buildGenerationSections(
+export function buildGenerationSections(
   pages: ExtractedPage[],
   numPages: number,
   analysis: DocumentAnalysis | null,
@@ -370,6 +377,9 @@ export async function generateTestJob(testId: string): Promise<void> {
   let llmCalls = 0
   let batches = 0
   let providerFailed = false
+  /** true when batches were refused by rate limiting — the failure message must
+   *  say so instead of falsely claiming the document lacks content. */
+  let providerThrottled = false
 
   const cursor = { i: 0 }
 
@@ -378,10 +388,9 @@ export async function generateTestJob(testId: string): Promise<void> {
     batches++
     const secs = pickSections(sections, focus, cursor, category === 'MISCONCEPTION' ? 3 : 2)
     const avoid = candidates.slice(-30).map(c => c.text.slice(0, 90))
-    let raws: RawQuestion[] = []
-    try {
+    const callGenerate = async (): Promise<RawQuestion[]> => {
       llmCalls++
-      raws = await chatJson<RawQuestion[]>({
+      const raws = await chatJson<RawQuestion[]>({
         system: 'You are Riishe, a meticulous exam-question generator. Output only valid JSON.',
         user: generationPrompt({
           category, count,
@@ -391,11 +400,30 @@ export async function generateTestJob(testId: string): Promise<void> {
           questionPaper: analysis?.structure?.kind === 'QUESTION_PAPER',
         }),
       })
-      if (!Array.isArray(raws)) raws = []
+      return Array.isArray(raws) ? raws : []
+    }
+    let raws: RawQuestion[]
+    try {
+      raws = await callGenerate()
     } catch (err) {
-      console.error('[riishe generate] batch failed:', err)
-      if (/empty provider|temporar|timeout|unavailable/i.test(err instanceof Error ? err.message : '')) providerFailed = true
-      return
+      if (isRateLimitError(err)) {
+        // One bounded backoff per batch — sustained throttling still ends the
+        // run honestly (see the publish message), it is never hidden.
+        providerThrottled = true
+        console.warn('[riishe generate] rate limited — backing off 15s once')
+        await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS))
+        try {
+          raws = await callGenerate()
+        } catch (err2) {
+          providerFailed = providerFailed || isProviderUnavailable(err2)
+          console.error('[riishe generate] batch failed after rate-limit backoff:', err2)
+          return
+        }
+      } else {
+        if (isProviderUnavailable(err)) providerFailed = true
+        console.error('[riishe generate] batch failed:', err)
+        return
+      }
     }
 
     // Programmatic validation
@@ -471,13 +499,16 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
   // ── Publish ──
   const published = candidates.slice(0, requested)
   if (published.length < MIN_PUBLISHABLE) {
+    const throttleNote = providerThrottled
+      ? 'The AI provider kept rate-limiting generation, so no validated questions could be produced yet — this says nothing about the document itself. Your analysis is safe; please try generating again in a few minutes.'
+      : `Only ${published.length} question${published.length === 1 ? '' : 's'} passed validation — the document does not contain enough reliable, testable content for a full test. Try a more detailed document or a different topic.`
     await db.riisheTest.update({
       where: { id: testId },
       data: {
         status: 'FAILED',
         statusDetail: providerFailed
           ? `Question generation failed: ${AI_UNAVAILABLE_MESSAGE}`
-          : `Only ${published.length} question${published.length === 1 ? '' : 's'} passed validation — the document does not contain enough reliable, testable content for a full test. Try a more detailed document or a different topic.`,
+          : throttleNote,
         statsJson: JSON.stringify(statsSnapshot(candidates, llmCalls, batches)),
       },
     })
@@ -507,7 +538,9 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
 
   const rejected = llmCalls > 0 ? Math.max(0, batches * BATCH_SIZE - candidates.length) : 0
   const honestNote = published.length < requested
-    ? `${published.length} of the requested ${requested} questions validated — the material supports a test of this size.`
+    ? providerThrottled
+      ? `${published.length} of the requested ${requested} questions validated — the AI provider rate-limited some batches, so the test is smaller than requested. Try generating again later for more.`
+      : `${published.length} of the requested ${requested} questions validated — the material supports a test of this size.`
     : null
 
   await db.riisheTest.update({

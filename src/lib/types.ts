@@ -301,9 +301,12 @@ export interface CoverageMetricsDTO {
   scannedPages: number
   analysedPages: number
   unanalysedPages: number
+  /** readable pages in sections skipped with a recorded reason (terminal) */
+  skippedPages: number
   unitsTotal: number
   unitsOk: number
   unitsFailed: number
+  unitsSkipped: number
   complete: boolean
 }
 
@@ -313,7 +316,8 @@ export interface SectionOutcomeDTO {
   label: string
   fromPage: number
   toPage: number
-  status: 'OK' | 'FAILED'
+  status: 'OK' | 'FAILED' | 'SKIPPED'
+  /** FAILED: what went wrong (retryable). SKIPPED: why it was skipped (terminal). */
   error?: string
 }
 

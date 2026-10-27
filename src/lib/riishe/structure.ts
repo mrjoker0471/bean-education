@@ -112,33 +112,124 @@ const TOC_GAP_RE = /^(.{2,90}?)\s{3,}(\d{1,3})(?:\s*[-–—]\s*\d{1,3})?$/
 // Real contents tables often use a single space: "Chapter-1 Introduction 13-14"
 const TOC_TAIL_RE = /^(.{2,90}?)\s+(\d{1,3})(?:\s*[-–—]\s*\d{1,3})?$/
 const TOC_PAGE_HINT_RE = /^(index|contents?|table of contents|content page no\.?|appendices?)\s*$/i
+/** Running footer/header furniture: "Page |2", "- 12 -", "12" */
+const TOC_PAGE_LABEL_RE = /^page\s*[|:\-]?\s*\d+/i
+const ROW_NUMBER_PREFIX_RE = /^\d{1,2}\.\s/
 
 interface TocPageResult {
   page: number
   entries: TocEntry[]
 }
 
-function detectTocOnPage(page: ExtractedPage): TocEntry[] {
+/**
+ * Parse one contents page into entries.
+ *
+ * Real TOCs wrap long rows across several physical lines:
+ *   "6. VI Procedure to be adopted for compilation of NTA Score"
+ *   "for Multi Shifts Papers in CUET (UG) 2026 58-67"
+ *   "8. VIII Certificate regarding physical limitation in an Examinee"
+ *   "to Write 71"
+ * A naive per-line parse turns those continuations into bogus standalone
+ * sections ("for Multi Shifts Papers…", "to Write") and loses the real ones.
+ * So lines are walked in order with a PENDING title buffer:
+ *   • a line with a trailing page number completes an entry (pending text is
+ *     prepended; a pure-number "title" like "2026 74-94" is treated as the
+ *     wrapped page of the pending text);
+ *   • a plain title-looking line without a page number is held as pending;
+ *   • row-number restarts ("1. I List of …"), headers/footers (repeated lines),
+ *     page labels and contents-hint lines reset or skip the buffer.
+ * As a final safety net, an entry whose title begins lowercase is merged into
+ * the previous entry (it is the tail of a wrapped row that carried its own
+ * page number).
+ */
+function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[] {
   const lines = linesOf(page)
   if (lines.length < TOC_MIN_ENTRIES) return []
   const entries: TocEntry[] = []
-  for (const line of lines) {
-    const m = TOC_LEADER_RE.exec(line) ?? TOC_GAP_RE.exec(line) ?? TOC_TAIL_RE.exec(line)
-    if (!m) continue
-    const title = m[1].replace(/[\s.·⋅•‣⁃…]+$/g, '').trim()
-    const num = Number(m[2])
-    if (title.length < 2 || title.length > 90) continue
-    if (!WORD_RE.test(title)) continue
-    if (PURE_NUMBER_RE.test(title)) continue
+  let pending = ''
+  let hintSeen = false
+
+  const pushEntry = (rawTitle: string, num: number | null) => {
+    const title = cleanTitle(rawTitle)
+    if (title.length < 2 || !WORD_RE.test(title)) return
     entries.push({ title, page: Number.isFinite(num) ? num : null })
   }
+
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    if (TOC_PAGE_HINT_RE.test(line)) { hintSeen = true; pending = ''; continue }
+
+    const m = TOC_LEADER_RE.exec(line) ?? TOC_GAP_RE.exec(line) ?? TOC_TAIL_RE.exec(line)
+    if (m) {
+      const rawTitle = m[1].replace(/[\s.·⋅•‣⁃…]+$/g, '').trim()
+      const num = Number(m[2])
+      // A row-number restart ("1. I List of Central Universities 35") is a NEW
+      // row, never the continuation of the pending text above it.
+      const startsNewRow = ROW_NUMBER_PREFIX_RE.test(rawTitle) || NUMBERED_L2_RE.test(rawTitle)
+      if (PURE_NUMBER_RE.test(rawTitle)) {
+        // "2026 74-94" — the wrapped row's tail is part of the title and the
+        // number completes the pending entry ("… CUET (UG) – 2026  74-94").
+        if (pending) { pushEntry(`${pending} ${rawTitle}`, num); pending = '' }
+        continue
+      }
+      if (rawTitle.length < 2 || rawTitle.length > 90 || !WORD_RE.test(rawTitle)) continue
+      // Data rows of reference lists ("101  Ahmedabad  Zone  2") start with a
+      // multi-digit code and are NOT contents entries — they would flood the
+      // TOC with junk sections on list-heavy documents.
+      if (/^\d{2,}\s/.test(rawTitle)) continue
+      if (startsNewRow || !pending) {
+        if (pending) { pending = ''; }
+        // lowercase-start titles are wrapped tails of the previous entry
+        const prev = entries[entries.length - 1]
+        if (prev && /^[a-z]/.test(rawTitle)) {
+          prev.title = cleanTitle(`${prev.title} ${rawTitle}`).slice(0, 120)
+          if (num !== null && !Number.isNaN(num)) prev.page = num
+          continue
+        }
+        pushEntry(rawTitle, num)
+      } else {
+        pending = `${pending} ${rawTitle}`.slice(0, 240)
+        pushEntry(pending, num)
+        pending = ''
+      }
+      continue
+    }
+
+    // No page number on this line — hold as pending title text when it can
+    // plausibly be one (running headers repeat across pages and are excluded).
+    if (TOC_PAGE_LABEL_RE.test(line) || PURE_NUMBER_RE.test(line)) {
+      // A bare number after pending title text is the wrapped row's page
+      // ("9. IX / Certificate for person … / … in writing / 72").
+      if (PURE_NUMBER_RE.test(line) && pending && !TOC_PAGE_LABEL_RE.test(line)) {
+        pushEntry(pending, Number(line))
+        pending = ''
+      }
+      continue
+    }
+    if (furniture.has(normKey(line))) continue
+    if (line.length < 8 || line.length > 120) continue
+    if (!WORD_RE.test(line)) continue
+    if (entries.length === 0 && !hintSeen) continue // title/header before any entry
+    pending = pending ? `${pending} ${line}` : line
+  }
+
   // A page is a TOC page when either a clear majority of its lines are entries,
   // or it announces itself (Index / Contents / Appendices) and has several.
-  const announces = lines.slice(0, 6).some(l => TOC_PAGE_HINT_RE.test(l))
+  const announces = hintSeen || lines.slice(0, 6).some(l => TOC_PAGE_HINT_RE.test(l))
   const threshold = announces
     ? Math.max(TOC_MIN_ENTRIES, Math.ceil(lines.length * 0.25))
     : Math.max(TOC_MIN_ENTRIES, Math.ceil(lines.length * 0.5))
-  return entries.length >= threshold ? entries : []
+  if (entries.length < threshold) return []
+  // Real contents tables point FORWARD through the document; a page whose
+  // claimed numbers cycle (1,2,3,4,1,2…) is a data list, not a contents page.
+  const numbered = entries.filter(e => e.page !== null) as (TocEntry & { page: number })[]
+  if (numbered.length >= TOC_MIN_ENTRIES) {
+    let downs = 0
+    for (let i = 1; i < numbered.length; i++) if (numbered[i].page < numbered[i - 1].page - 2) downs++
+    if (downs / (numbered.length - 1) > 0.25) return []
+  }
+  return entries
 }
 
 /** Validate a TOC: entry pages must be plausible and broadly increasing. */
@@ -351,10 +442,28 @@ export function detectStructure(pages: ExtractedPage[], numPages: number, opts: 
   const readable = pages.filter(p => !p.scanned && p.text.length > 0)
   const printed = detectPrintedPages(pages)
 
+  // Running headers/footers repeat across pages; inside a contents table such
+  // lines must never be mistaken for a wrapped title row.
+  const furniture = new Set<string>()
+  {
+    const freq = new Map<string, Set<number>>()
+    for (const p of readable.slice(0, 15)) {
+      for (const l of linesOf(p)) {
+        if (l.length < 4 || l.length > 70) continue
+        const key = normKey(l)
+        if (!key) continue
+        const set = freq.get(key) ?? new Set<number>()
+        set.add(p.page)
+        freq.set(key, set)
+      }
+    }
+    for (const [key, pageSet] of freq) if (pageSet.size >= 2) furniture.add(key)
+  }
+
   // 1 ── TOC pages
   const tocPages: TocPageResult[] = []
   for (const p of readable.slice(0, 15)) {
-    const entries = detectTocOnPage(p)
+    const entries = detectTocOnPage(p, furniture)
     if (entries.length > 0) tocPages.push({ page: p.page, entries })
   }
   const allTocEntries = tocPages.flatMap(t => t.entries)

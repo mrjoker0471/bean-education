@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto'
 import { extractPdfPages, type ExtractedPage } from './extract'
 import { detectStructure, type AnalysisUnit } from './structure'
 import { canonicalizeTopics, normalizeTitle, type TopicInput } from './dedupe'
-import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE } from './ai'
+import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isContentFilterError, isRateLimitError } from './ai'
 import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics } from './types'
 
 const UNIT_CHARS = 6000 // per-model-call section budget
@@ -40,7 +40,7 @@ interface StoredAnalysis extends DocumentAnalysis {
 
 // ─── Merging helpers (deterministic) ─────────────────────────────────────────
 
-function collectTopicInputs(
+export function collectTopicInputs(
   parts: (SectionAnalysis | null)[],
   units: AnalysisUnit[],
   anchoredPages: Map<number, number | null>,
@@ -179,29 +179,36 @@ function buildCoverage(
   const unitPages = (u: AnalysisUnit) => pagesBetween(u.fromPage, u.toPage)
   const okUnits = units.filter((u, i) => outcomes[i]?.status === 'OK')
   const failedUnits = units.filter((u, i) => outcomes[i]?.status === 'FAILED')
-  const analysedPageSet = new Set<number>()
-  for (const u of okUnits) for (const p of unitPages(u)) analysedPageSet.add(p)
+  const skippedUnits = units.filter((u, i) => outcomes[i]?.status === 'SKIPPED')
+  const accountedPageSet = new Set<number>()
+  for (const u of okUnits) for (const p of unitPages(u)) accountedPageSet.add(p)
+  const skippedPageSet = new Set<number>()
+  for (const u of skippedUnits) for (const p of unitPages(u)) skippedPageSet.add(p)
   const readableSet = new Set(readablePages.map(p => p.page))
-  const unanalysed = [...readableSet].filter(p => !analysedPageSet.has(p)).length
+  const unanalysed = [...readableSet].filter(p => !accountedPageSet.has(p) && !skippedPageSet.has(p)).length
   return {
     totalPages: extraction.numPages,
     readablePages: readablePages.length,
     scannedPages: extraction.scannedPages,
-    analysedPages: analysedPageSet.size,
+    analysedPages: accountedPageSet.size,
     unanalysedPages: unanalysed,
+    skippedPages: [...readableSet].filter(p => skippedPageSet.has(p)).length,
     unitsTotal: units.length,
     unitsOk: okUnits.length,
     unitsFailed: failedUnits.length,
+    unitsSkipped: skippedUnits.length,
     complete: unanalysed === 0 && failedUnits.length === 0 && units.length > 0,
   }
 }
 
 function buildCoverageNote(cov: CoverageMetrics): string {
   const bits: string[] = []
-  if (cov.complete) {
-    bits.push(`All ${cov.readablePages} readable page${cov.readablePages === 1 ? '' : 's'} analysed across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}.`)
-  } else {
+  if (cov.unitsFailed > 0) {
     bits.push(`Analysed ${cov.analysedPages} of ${cov.readablePages} readable page${cov.readablePages === 1 ? '' : 's'} — ${cov.unitsFailed} section${cov.unitsFailed === 1 ? '' : 's'} failed and can be retried without losing the sections that succeeded.`)
+  } else if (cov.unitsSkipped > 0) {
+    bits.push(`All readable pages accounted for: ${cov.analysedPages} analysed across ${cov.unitsOk} section${cov.unitsOk === 1 ? '' : 's'}, ${cov.skippedPages} page${cov.skippedPages === 1 ? '' : 's'} in ${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} skipped with a recorded reason (see below).`)
+  } else {
+    bits.push(`All ${cov.readablePages} readable page${cov.readablePages === 1 ? '' : 's'} analysed across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}.`)
   }
   if (cov.scannedPages > 0) {
     bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} would need OCR, which is not available yet — they are excluded from the analysis.`)
@@ -357,13 +364,22 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     return
   }
 
-  // ── Partial retry: reuse stored successful parts, re-run only failures
+  // ── Partial retry: reuse stored successful parts, re-run only failures.
+  // Previously SKIPPED units are terminal (their refusal reason is recorded);
+  // carrying the decision over keeps retries convergent instead of re-asking
+  // the provider to refuse the same text again.
+  const skipReasons = new Map<number, string>()
   let storedParts: (SectionAnalysis | null)[] | null = null
   if (canPartialRetry && stored) {
     const prev = stored._parts ?? []
     const prevOutcomes = stored.sectionOutcomes ?? []
     if (prev.length === units.length && prevOutcomes.length === units.length) {
       storedParts = prev
+      for (let i = 0; i < prevOutcomes.length; i++) {
+        if (prevOutcomes[i]?.status === 'SKIPPED' && prevOutcomes[i]?.error) {
+          skipReasons.set(i, prevOutcomes[i].error as string)
+        }
+      }
     }
   }
 
@@ -373,50 +389,61 @@ export async function processDocument(documentId: string, opts?: { force?: boole
 
   let done = 0
   let failedCount = 0
+  let skippedCount = 0
   for (const unit of units) {
     if (parts[unit.index]) continue // preserved from the previous run
-    try {
-      const part = await analyseUnit(doc.title, unit, units.length)
-      parts[unit.index] = part
+    if (skipReasons.has(unit.index)) continue // terminal skip carried over
+    const res = await analyseSection(doc.title, unit, units.length)
+    if (res.part) {
+      parts[unit.index] = res.part
       done++
-    } catch (err) {
+    } else if (res.skippedReason) {
+      skippedCount++
+      skipReasons.set(unit.index, res.skippedReason)
+    } else {
       failedCount++
-      const rangeLabel = unit.title ? `"${unit.title}"` : `pages ${unit.fromPage}–${unit.toPage}`
-      console.error(`[riishe analyse unit ${unit.index + 1}/${units.length} ${rangeLabel}]`, err)
     }
-    if ((done + failedCount) % 3 === 0 || done + failedCount === units.length) {
+    const settled = done + failedCount + skippedCount
+    if (settled % 3 === 0 || settled === units.length) {
+      const extras = [
+        failedCount > 0 ? `${failedCount} failed` : null,
+        skippedCount > 0 ? `${skippedCount} skipped` : null,
+      ].filter(Boolean).join(', ')
       await db.studyDocument.update({
         where: { id: documentId },
         data: {
-          statusDetail: failedCount === 0
-            ? `Riishe is analysing the content — section ${done + failedCount} of ${units.length}…`
-            : `Riishe is analysing the content — section ${done + failedCount} of ${units.length} (${failedCount} failed so far)…`,
+          statusDetail: extras
+            ? `Riishe is analysing the content — section ${settled} of ${units.length} (${extras})…`
+            : `Riishe is analysing the content — section ${settled} of ${units.length}…`,
         },
       }).catch(() => {})
     }
   }
 
-  const outcomes: SectionOutcome[] = units.map((u, i) => ({
-    index: i,
-    title: u.title,
-    label: u.title ? `${u.title} (${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''})` : `pages ${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}`,
-    fromPage: u.fromPage,
-    toPage: u.toPage,
-    status: parts[i] ? 'OK' : 'FAILED',
-    error: parts[i] ? undefined : 'AI analysis failed for this section',
-  }))
+  const outcomes: SectionOutcome[] = units.map((u, i) => {
+    const range = `${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}`
+    const label = u.title ? `${u.title} (${range})` : `pages ${range}`
+    if (parts[i]) return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'OK' as const }
+    if (skipReasons.has(i)) return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'SKIPPED' as const, error: skipReasons.get(i) }
+    return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'FAILED' as const, error: 'AI analysis failed for this section' }
+  })
 
   if (parts.every(p => p === null)) {
-    // Nothing succeeded — honest, retryable failure (extraction is preserved)
-    await db.studyDocument.update({
-      where: { id: documentId },
-      data: {
-        status: 'FAILED',
-        statusDetail: `Extraction succeeded (${readablePages.length} readable pages) but AI analysis failed for all ${units.length} section${units.length === 1 ? '' : 's'}: ${AI_UNAVAILABLE_MESSAGE}`,
-        extractionJson: JSON.stringify(extraction.pages),
-      },
-    })
-    return
+    // Nothing succeeded — honest, retryable failure (extraction is preserved).
+    // A skip-only outcome (every unit skipped with reason) is still honest
+    // READY-partial, not FAILED: the extraction worked, the provider refused.
+    const allSkipped = skipReasons.size === units.length
+    if (!allSkipped) {
+      await db.studyDocument.update({
+        where: { id: documentId },
+        data: {
+          status: 'FAILED',
+          statusDetail: `Extraction succeeded (${readablePages.length} readable pages) but AI analysis failed for all ${units.length} section${units.length === 1 ? '' : 's'}: ${AI_UNAVAILABLE_MESSAGE}`,
+          extractionJson: JSON.stringify(extraction.pages),
+        },
+      })
+      return
+    }
   }
 
   // ── Stage 4: deterministic merge + verification + coverage
@@ -426,7 +453,7 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   }
 
   const topicInputs = collectTopicInputs(parts, units, new Map(), structure.tocPages)
-  const topics: AnalyzedTopic[] = canonicalizeTopics(topicInputs, { pageTextIndex, maxTopics: 80, maxSubtopicsPerTopic: 12 })
+  const topics: AnalyzedTopic[] = canonicalizeTopics(topicInputs, { pageTextIndex, maxTopics: 200, maxSubtopicsPerTopic: 12 })
 
   // Printed page labels: only when a consistent printed numbering was detected
   // (physical = printed + offset). Never invented — null otherwise.
@@ -479,14 +506,116 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     data: {
       status: 'READY',
       statusDetail: partial
-        ? `Ready (partial) — analysed ${cov.unitsOk}/${cov.unitsTotal} sections covering ${cov.analysedPages} of ${cov.readablePages} readable pages. Retry analysis to cover the rest.`
-        : `Ready — ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; all ${cov.readablePages} readable page${cov.readablePages === 1 ? '' : 's'} analysed.`,
+        ? `Ready (partial) — analysed ${cov.unitsOk}/${cov.unitsTotal} sections covering ${cov.analysedPages} of ${cov.readablePages} readable pages${cov.unitsSkipped > 0 ? `; ${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} skipped with reason` : ''}. ${cov.unitsFailed > 0 ? 'Retry analysis to cover the rest.' : ''}`.trim()
+        : `Ready — ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; all ${cov.readablePages} readable page${cov.readablePages === 1 ? '' : 's'} accounted for${cov.unitsSkipped > 0 ? ` (${cov.unitsSkipped} skipped with reason)` : ''}.`,
       analysisJson: JSON.stringify(merged),
     },
   })
 }
 
 // ─── Per-section analysis ─────────────────────────────────────────────────────
+
+type SectionResult =
+  | { part: SectionAnalysis; skippedReason?: undefined }
+  | { part: null; skippedReason: string }
+  | { part: null; skippedReason?: undefined }
+
+const RATE_LIMIT_BACKOFF_MS = 15_000
+
+/**
+ * Analyse one unit with provider-failure strategies that keep the pipeline
+ * honest AND convergent:
+ *   • 429 rate limiting → ONE bounded 15 s backoff, then give up (the section
+ *     stays FAILED and the existing partial-retry path covers it);
+ *   • provider content filter (some legitimate dense name/term lists trip it
+ *     and an identical retry can NEVER succeed) → split the unit into smaller
+ *     page-range sub-chunks and analyse each independently, merging what the
+ *     provider accepts; if every sub-chunk is refused, the unit is SKIPPED
+ *     with a recorded reason instead of looping as FAILED forever.
+ */
+async function analyseSection(docTitle: string, unit: AnalysisUnit, totalUnits: number): Promise<SectionResult> {
+  try {
+    return { part: await analyseUnit(docTitle, unit, totalUnits) }
+  } catch (err) {
+    if (isRateLimitError(err)) {
+      console.warn(`[riishe analyse unit ${unit.index + 1}/${totalUnits}] rate limited — backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s once`)
+      await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS))
+      try {
+        return { part: await analyseUnit(docTitle, unit, totalUnits) }
+      } catch (err2) {
+        if (!isContentFilterError(err2)) {
+          console.error(`[riishe analyse unit ${unit.index + 1}/${totalUnits} ${unit.title ?? `pages ${unit.fromPage}-${unit.toPage}`}]`, err2)
+          return { part: null }
+        }
+        err = err2
+      }
+    }
+    if (!isContentFilterError(err)) {
+      console.error(`[riishe analyse unit ${unit.index + 1}/${totalUnits} ${unit.title ?? `pages ${unit.fromPage}-${unit.toPage}`}]`, err)
+      return { part: null }
+    }
+  }
+
+  // Content-filter refusal → try smaller page-range sub-chunks of this unit.
+  const subChunks = splitUnitPages(unit)
+  if (subChunks.length <= 1) {
+    return {
+      part: null,
+      skippedReason: 'The AI provider\'s safety filter refused to process this section\'s text (dense lists of names or categories are a known trigger). Its pages are accounted as skipped, not analysed — no content was invented for them.',
+    }
+  }
+  console.warn(`[riishe analyse unit ${unit.index + 1}/${totalUnits}] content-filtered — retrying as ${subChunks.length} sub-chunks`)
+  const mergedParts: SectionAnalysis[] = []
+  for (const [i, chunk] of subChunks.entries()) {
+    try {
+      mergedParts.push(await analyseUnit(docTitle, chunk, totalUnits))
+    } catch (chunkErr) {
+      if (!isContentFilterError(chunkErr)) {
+        console.error(`[riishe analyse unit ${unit.index + 1}/${totalUnits} sub-chunk ${i + 1}/${subChunks.length}]`, chunkErr)
+      }
+      // filter-refused sub-chunks are dropped; remaining chunks still count
+    }
+  }
+  if (mergedParts.length === 0) {
+    return {
+      part: null,
+      skippedReason: `The AI provider's safety filter refused this section's text in full and in ${subChunks.length} smaller parts (dense lists of names or categories are a known trigger). Its pages are accounted as skipped, not analysed — no content was invented for them.`,
+    }
+  }
+  return { part: mergeSectionAnalyses(mergedParts) }
+}
+
+/** Split a unit into 2–4 page-range sub-chunks (halves, quarters for 8+ pages). */
+export function splitUnitPages(unit: AnalysisUnit): AnalysisUnit[] {
+  const pageCount = unit.toPage - unit.fromPage + 1
+  if (pageCount < 2) return [unit]
+  const parts = pageCount >= 8 ? 4 : 2
+  const size = Math.ceil(pageCount / parts)
+  const out: AnalysisUnit[] = []
+  for (let from = unit.fromPage; from <= unit.toPage; from += size) {
+    const to = Math.min(from + size - 1, unit.toPage)
+    const subText = unit.text
+      .split(/\n\n+/)
+      .filter(block => {
+        const m = /^\[page (\d+)\]/.exec(block)
+        return m ? Number(m[1]) >= from && Number(m[1]) <= to : true
+      })
+      .join('\n\n')
+    out.push({ ...unit, fromPage: from, toPage: to, text: subText, chars: subText.length })
+  }
+  return out.length > 0 ? out : [unit]
+}
+
+export function mergeSectionAnalyses(parts: SectionAnalysis[]): SectionAnalysis {
+  return {
+    topics: parts.flatMap(p => p.topics ?? []).slice(0, 12),
+    definitions: parts.flatMap(p => p.definitions ?? []).slice(0, 20),
+    keyFacts: parts.flatMap(p => p.keyFacts ?? []).slice(0, 20),
+    formulas: parts.flatMap(p => p.formulas ?? []).slice(0, 10),
+    misconceptions: parts.flatMap(p => p.misconceptions ?? []).slice(0, 10),
+    unreadable: parts.flatMap(p => p.unreadable ?? []).slice(0, 10),
+  }
+}
 
 function unitDescriptor(unit: AnalysisUnit): string {
   const range = unit.fromPage === unit.toPage ? `page ${unit.fromPage}` : `pages ${unit.fromPage}–${unit.toPage}`
@@ -555,7 +684,8 @@ function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics): string[] {
   if (a.formulas.length === 0) gaps.push('No formulas or rules were detected — calculation-based questions will not be generated.')
   if (a.unreadableSections.length > 0) gaps.push(`${a.unreadableSections.length} section${a.unreadableSections.length === 1 ? '' : 's'} were unreadable and excluded from the analysis.`)
   if (cov.scannedPages > 0) gaps.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' needs' : 's need'} OCR to be analysed — OCR is not available yet.`)
-  if (!cov.complete) gaps.push(`${cov.unanalysedPages} readable page${cov.unanalysedPages === 1 ? ' is' : 's are'} not yet covered (failed sections) — retry the analysis to include them.`)
+  if (cov.unitsFailed > 0) gaps.push(`${cov.unanalysedPages} readable page${cov.unanalysedPages === 1 ? ' is' : 's are'} not yet covered (failed sections) — retry the analysis to include them.`)
+  if (cov.unitsSkipped > 0) gaps.push(`${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} page${cov.skippedPages === 1 ? '' : 's'}) were skipped because the AI provider's safety filter refused their text — see the section breakdown for the exact reason.`)
   return gaps
 }
 

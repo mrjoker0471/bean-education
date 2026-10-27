@@ -191,20 +191,150 @@ check('unanchored topics carry pageVerified=false when no page supports them', (
   assert.deepEqual(out[0].pages, [9], 'falls back to unit range honestly')
 })
 
+check('fair cap: every level-1 topic survives, level-2 trimmed round-robin (never the whole tail)', () => {
+  const SUBJECTS = ['Algebra Foundations', 'Trigonometry Ratios', 'Kinematics Basics', 'Cell Division', 'Chemical Equilibrium', 'Optics Principles', 'Electrostatics Laws', 'Thermodynamics Rules', 'Genetics Patterns', 'Human Digestion', 'Plant Hormones', 'Wave Motion', 'Gravitation Theory', 'Periodic Trends', 'Acids and Bases', 'Nervous System', 'Endocrine Glands', 'Ecosystem Dynamics', 'Probability Theory', 'Statistics Methods', 'Number Theory', 'Mensuration Formulas', 'Light Reflection', 'Sound Propagation', 'Friction Forces', 'Magnetism Effects', 'Nuclear Physics', 'Organic Chemistry', 'Coordination Compounds', 'Vector Algebra']
+  const CONCEPTS = ['Definition Scope', 'Core Postulates', 'Key Derivations', 'Worked Examples', 'Common Exceptions']
+  const inputs = []
+  const pageTextIndex = new Map()
+  for (let s = 0; s < 30; s++) {
+    const parent = `Chapter ${s + 1} ${SUBJECTS[s]}`
+    inputs.push(T(parent, [], [s + 1], s, parent, s + 1, s + 1, true))
+    for (let c = 0; c < 5; c++) {
+      inputs.push(T(`${SUBJECTS[s]} ${CONCEPTS[c]}`, [], [s + 1], s, parent, s + 1, s + 1))
+    }
+    pageTextIndex.set(s + 1, `${SUBJECTS[s].toLowerCase()} concept text page ${s + 1}`)
+  }
+  const out = canonicalizeTopics(inputs, { pageTextIndex, maxTopics: 60 })
+  const l1 = out.filter(t => t.level === 1)
+  assert.equal(l1.length, 30, `all 30 L1 topics must survive, got ${l1.length}`)
+  assert.ok(out.length <= 60, `cap respected: ${out.length}`)
+  // children spread over the WHOLE document (round-robin), not amputated by page order
+  const parentsWithChildren = new Set(out.filter(t => t.level === 2).map(t => t.parentId))
+  assert.ok(parentsWithChildren.size === 30, `parents keeping children: ${parentsWithChildren.size}/30`)
+  // first and last chapters both keep children — the back of the document is intact
+  const lastParent = l1.find(t => t.name.startsWith('Chapter 30'))
+  assert.ok(out.some(t => t.level === 2 && t.parentId === lastParent.id), 'last chapter keeps a child')
+})
+
+check('re-analysis determinism: canonicalizeTopics is a pure function of its inputs', () => {
+  const inputs = [
+    T('Photosynthesis', ['light reactions'], [3], 0, null, 3, 4),
+    T('photosynthesis  overview', [], [4], 1, null, 3, 4),
+    T('Photosynthesis Overview', [], [3, 4], 2, null, 3, 4),
+  ]
+  const a = canonicalizeTopics(inputs, { pageTextIndex: idx, maxTopics: 2 })
+  const b = canonicalizeTopics(inputs, { pageTextIndex: idx, maxTopics: 2 })
+  assert.deepEqual(a, b)
+})
+
+console.log('── TOC wrapped-row joining (real-world wrap patterns) ──')
+function pageOf(lines, page) {
+  const text = lines.join('\n')
+  return { page, chars: text.length, text, scanned: false }
+}
+check('wrapped rows join; fragments never become sections', () => {
+  const toc = pageOf([
+    'CUET(UG) 2026- INFORMATION BULLETIN',
+    'Index',
+    'Chapter-1 Introduction 13-14',
+    'Chapter-2 Examination Scheme 15',
+    '6. VI Procedure to be adopted for compilation of NTA Score',
+    'for Multi Shifts Papers in CUET (UG) 2026 58-67',
+    '8. VIII Certificate regarding physical limitation in an Examinee',
+    'to Write 71',
+    '10. X Letter of Undertaking for using Own Scribe 73',
+  ], 1)
+  const body = pageOf(['Some chapter body text about examinations and scoring rules for the test.'], 2)
+  const s = detectStructure([toc, body], 2, { maxUnitChars: 6000 })
+  const titles = s.toc.map(e => e.title)
+  assert.ok(!titles.some(t => t.startsWith('for Multi')), `fragment leaked: ${JSON.stringify(titles)}`)
+  assert.ok(!titles.some(t => t === 'to Write'), `fragment leaked: ${JSON.stringify(titles)}`)
+  assert.ok(titles.some(t => t.includes('for Multi Shifts Papers')), JSON.stringify(titles))
+  assert.ok(titles.some(t => t.includes('Examinee to Write')), JSON.stringify(titles))
+  assert.ok(titles.some(t => t.includes('Letter of Undertaking')), JSON.stringify(titles))
+})
+check('pure-number wrap tail completes the pending title ("2026 74-94")', () => {
+  const toc = pageOf([
+    'Index',
+    'Appendix X Replica of the online Application Form of CUET (UG) –',
+    '2026 74-94',
+    'Appendix Y List of Centres 80',
+    'Appendix Z Fee Refund Procedure 84',
+    'Appendix W Cutting Marks Procedure 88',
+    'Appendix V Answer Sheet Review 92',
+  ], 1)
+  const body = pageOf(['Appendix body content with enough words to be a real page of the document.'], 2)
+  const s = detectStructure([toc, body], 2, { maxUnitChars: 6000 })
+  const e = s.toc.find(e => e.title.includes('Replica'))
+  assert.ok(e, `missing: ${JSON.stringify(s.toc)}`)
+  assert.ok(e.title.includes('2026'), e.title)
+  assert.equal(e.page, 74)
+})
+check('standalone wrapped page number completes a pending title ("72")', () => {
+  const toc = pageOf([
+    'Index',
+    '9. IX Certificate for person with specified disability covered',
+    'under the definition of Section 2 (s) of the RPwD Act,',
+    '2016 but not covered under the definition of Section',
+    '2(r) of the said Act i.e. persons having less than 40%',
+    'disability and having difficulty in writing',
+    '72',
+    '10. X Letter of Undertaking 73',
+    '11. XI Application Form Replica 74',
+    '12. XII Fee Receipt Copy 76',
+    '13. XIII Hall Ticket Sample 78',
+    '14. XIV Results Notification 80',
+  ], 1)
+  const body = pageOf(['Ordinary body text to make a second page of the document for validation.'], 2)
+  const s = detectStructure([toc, body], 2, { maxUnitChars: 6000 })
+  const e = s.toc.find(e => e.title.includes('Certificate for person'))
+  assert.ok(e, `missing: ${JSON.stringify(s.toc)}`)
+  assert.equal(e.page, 72)
+})
+check('dense data-list pages are NOT contents pages (code-prefixed rows)', () => {
+  const rows = []
+  const cities = ['Ahmedabad', 'Bengaluru', 'Chennai', 'Delhi', 'Hyderabad', 'Kolkata', 'Mumbai', 'Patna', 'Pune', 'Surat']
+  for (let i = 0; i < 40; i++) rows.push(`${101 + i}  ${cities[i % cities.length]}  Zone ${(i % 4) + 1}`)
+  const listPage = pageOf(['List of Examination Centres', 'Centre Code  City  Zone', ...rows], 2)
+  const toc = pageOf(['Index', 'Chapter 1 Alpha Topic ......... 3', 'Chapter 2 Beta Topic ......... 4', 'Chapter 3 Gamma Topic ......... 5', 'Chapter 4 Delta Topic ......... 6'], 1)
+  const bodies = [3, 4, 5, 6].map(p => pageOf([`Chapter body text page ${p} with enough words to be a real readable page here.`], p))
+  const s = detectStructure([toc, ...bodies, listPage], 6, { maxUnitChars: 6000 })
+  const junk = s.toc.filter(e => /^\d{2,}\s/.test(e.title))
+  assert.equal(junk.length, 0, `data rows leaked into TOC: ${JSON.stringify(junk.slice(0, 3))}`)
+  assert.ok(s.toc.length >= 4, `real entries kept: ${s.toc.length}`)
+})
+
 console.log('── verifyPages ──')
 check('keeps only in-range pages whose text contains the title tokens', () => {
-  const r = verifyPages('Glycolysis', [5, 99], { fromPage: 5, toPage: 5 }, idx, null)
+  const r = verifyPages('Glycolysis', [5, 99], [{ fromPage: 5, toPage: 5 }], idx, null)
   assert.deepEqual(r.pages, [5])
   assert.equal(r.verified, true)
 })
 check('drops out-of-range claims even when the topic exists elsewhere', () => {
-  const r = verifyPages('Glycolysis', [99], { fromPage: 3, toPage: 4 }, idx, null)
+  const r = verifyPages('Glycolysis', [99], [{ fromPage: 3, toPage: 4 }], idx, null)
   assert.deepEqual(r.pages, [])
   assert.equal(r.verified, false)
 })
 check('anchored page is always kept', () => {
-  const r = verifyPages('The Heart', [4], { fromPage: 4, toPage: 4 }, new Map([[4, 'x y z']]), 4)
+  const r = verifyPages('The Heart', [4], [{ fromPage: 4, toPage: 4 }], new Map([[4, 'x y z']]), 4)
   assert.deepEqual(r.pages, [4])
+  assert.equal(r.verified, true)
+})
+check('a topic merged from several chunks of one long section keeps its FULL page span', () => {
+  const idxMulti = new Map([
+    [40, 'list of examination cities for cuet begins here ahmedabad bengaluru'],
+    [41, 'more cities chennai delhi exam cities continue'],
+    [44, 'cities continued guwahati hyderabad'],
+    [47, 'cities end visakhapatnam'],
+  ])
+  const r = verifyPages(
+    'III List of Examination Cities for CUET (UG) - 2026',
+    [40, 41, 42, 43, 44, 45, 46, 47],
+    [{ fromPage: 40, toPage: 43 }, { fromPage: 44, toPage: 47 }],
+    idxMulti,
+    40,
+  )
+  assert.deepEqual(r.pages, [40, 41, 44, 47], `got ${JSON.stringify(r.pages)}`)
   assert.equal(r.verified, true)
 })
 
