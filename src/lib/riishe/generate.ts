@@ -13,7 +13,9 @@
 
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
-import { sectionPages } from './extract'
+import { sectionPages, type ExtractedPage } from './extract'
+import { detectStructure } from './structure'
+import { normalizeTitle } from './dedupe'
 import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE } from './ai'
 import {
   DEFAULT_DISTRIBUTION, CATEGORY_LABELS,
@@ -21,7 +23,6 @@ import {
 } from './types'
 
 const GEN_SECTION_CHARS = 4200
-const MAX_SECTIONS = 14
 const BATCH_SIZE = 10
 const MAX_BATCHES = 9 // generation batch budget (incl. top-ups)
 const MIN_PUBLISHABLE = 4
@@ -67,6 +68,110 @@ function evidenceInText(evidence: string, text: string): boolean {
 
 // ─── Retrieval: which sections feed each batch? ────────────────────────────────
 
+interface GenSection {
+  label: string
+  text: string
+  fromPage: number
+  toPage: number
+}
+
+/**
+ * Build the generation section pool from the WHOLE document using the same
+ * deterministic structure detection the analysis pipeline uses (so retrieval
+ * can never be silently limited to the first few pages). When the student
+ * picked focus topics, the pool leads with the ACTUAL pages those topics sit
+ * on (from the verified analysis page references), padded with balanced
+ * coverage so batches always have enough material.
+ */
+function buildGenerationSections(
+  pages: ExtractedPage[],
+  numPages: number,
+  analysis: DocumentAnalysis | null,
+  focus: string[],
+): GenSection[] {
+  const readable = pages.filter(p => !p.scanned && p.text.length > 0)
+  const pageByNumber = new Map(readable.map(p => [p.page, p] as const))
+  const textOf = (from: number, to: number) =>
+    readable
+      .filter(p => p.page >= from && p.page <= to)
+      .map(p => `[page ${p.page}]\n${p.text}`)
+      .join('\n\n')
+
+  const fromUnits = (): GenSection[] => {
+    const structure = detectStructure(pages, numPages, { maxUnitChars: GEN_SECTION_CHARS })
+    if (structure.units.length === 0) return []
+    return structure.units.map(u => ({
+      label: u.title ? `${u.title} — pages ${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}` : u.fromPage === u.toPage ? `page ${u.fromPage}` : `pages ${u.fromPage}–${u.toPage}`,
+      text: textOf(u.fromPage, u.toPage),
+      fromPage: u.fromPage,
+      toPage: u.toPage,
+    }))
+  }
+
+  const fallbackSections = (): GenSection[] =>
+    sectionPages(pages, { maxChars: GEN_SECTION_CHARS, maxSections: 400 }).map(s => ({
+      label: s.label,
+      text: s.text,
+      fromPage: s.fromPage,
+      toPage: s.toPage,
+    }))
+
+  let sections = fromUnits()
+  if (sections.length === 0) sections = fallbackSections()
+  if (sections.length === 0) return []
+
+  if (focus.length > 0 && analysis?.topics?.length) {
+    const normFocus = new Set(focus.map(f => normalizeTitle(f)))
+    const matched = analysis.topics.filter(t =>
+      normFocus.has(normalizeTitle(t.name)) ||
+      (t.aliases ?? []).some(a => normFocus.has(normalizeTitle(a))),
+    )
+    // include children of matched sections so the focus covers the sub-topics too
+    const byParent = new Map(analysis.topics.map(t => [t.id ?? '', t] as const))
+    for (const t of analysis.topics) {
+      if (t.parentId && byParent.get(t.parentId) && matched.some(m => m.id === t.parentId)) matched.push(t)
+    }
+    const pageSet = new Set<number>()
+    for (const t of matched) for (const p of t.pages) if (pageByNumber.has(p)) pageSet.add(p)
+    if (pageSet.size > 0) {
+      // expand by one page for context, then group into contiguous runs
+      for (const p of [...pageSet]) {
+        if (pageByNumber.has(p - 1)) pageSet.add(p - 1)
+        if (pageByNumber.has(p + 1)) pageSet.add(p + 1)
+      }
+      const sorted = [...pageSet].sort((a, b) => a - b)
+      const runs: { from: number; to: number }[] = []
+      for (const p of sorted) {
+        const last = runs[runs.length - 1]
+        if (last && p <= last.to + 1) last.to = p
+        else runs.push({ from: p, to: p })
+      }
+      const focusSections: GenSection[] = runs
+        .map(r => ({
+          label: r.from === r.to ? `page ${r.from}` : `pages ${r.from}–${r.to}`,
+          text: textOf(r.from, r.to).slice(0, GEN_SECTION_CHARS * 2),
+          fromPage: r.from,
+          toPage: r.to,
+        }))
+        .filter(s => s.text.length > 0)
+      const totalChars = focusSections.reduce((s, x) => s + x.text.length, 0)
+      if (focusSections.length > 0 && totalChars >= 1500) {
+        // top up with balanced coverage if the focus area is thin
+        const out = [...focusSections]
+        let chars = totalChars
+        for (const sec of sections) {
+          if (chars >= 6000) break
+          if (out.some(o => o.fromPage <= sec.toPage && sec.fromPage <= o.toPage)) continue
+          out.push(sec)
+          chars += sec.text.length
+        }
+        return out
+      }
+    }
+  }
+  return sections
+}
+
 function scoreSection(sectionText: string, focus: string[]): number {
   if (focus.length === 0) return 0
   const hay = normalize(sectionText)
@@ -82,11 +187,11 @@ function scoreSection(sectionText: string, focus: string[]): number {
 }
 
 function pickSections(
-  sections: { index: number; text: string; label: string; fromPage: number; toPage: number }[],
+  sections: GenSection[],
   focus: string[],
   cursor: { i: number },
   count: number,
-): typeof sections {
+): GenSection[] {
   if (focus.length > 0) {
     const ranked = [...sections].sort((a, b) => scoreSection(b.text, focus) - scoreSection(a.text, focus))
     const top = ranked.slice(0, count)
@@ -118,6 +223,7 @@ function generationPrompt(opts: {
   focus: string[]
   avoid: string[]
   examLabel: string | null
+  questionPaper?: boolean
 }): string {
   const docText = opts.sections
     .map(s => `--- SOURCE EXCERPT (${s.label}) ---\n${s.text}`)
@@ -135,6 +241,7 @@ STRICT GROUNDING RULES:
 - "topic" = the specific subtopic this question tests.
 - Language: clear English, exam-style stems, no ambiguity, no trick wording that punishes careful readers.
 - Vary stems; do not reword the same question twice.
+${opts.questionPaper ? '\nNOTE: this source is a question paper / marks scheme. Use its questions to inform the STYLE and difficulty of your questions only — factual support still comes from the content the paper itself contains (its questions, options, instructions and data). Never treat a question\'s wording as evidence for a fact.' : ''}
 ${opts.focus.length ? `\nThe student asked to focus on: ${opts.focus.join('; ')}. Skip content unrelated to these topics.` : ''}
 ${opts.avoid.length ? `\nDo NOT duplicate or reword these existing question stems:\n${opts.avoid.map(a => `- ${a}`).join('\n')}` : ''}
 
@@ -223,11 +330,12 @@ export async function generateTestJob(testId: string): Promise<void> {
     data: { status: 'GENERATING', statusDetail: 'Selecting relevant sections…', updatedAt: new Date() },
   })
 
-  const pages = safeParse(doc.extractionJson, [] as { page: number; chars: number; text: string; scanned: boolean }[])
+  const pages = safeParse(doc.extractionJson, [] as ExtractedPage[])
   const analysis = safeParse<DocumentAnalysis | null>(doc.analysisJson, null)
   const focus = safeParse<string[]>(test.focusTopicsJson ?? '[]', []).filter(Boolean)
 
-  const sections = sectionPages(pages, { maxChars: GEN_SECTION_CHARS, maxSections: MAX_SECTIONS })
+  // Whole-document, structure-aware retrieval (never limited to the first pages)
+  const sections = buildGenerationSections(pages, doc.pageCount ?? pages.length, analysis, focus)
   if (sections.length === 0) {
     await db.riisheTest.update({
       where: { id: testId },
@@ -280,6 +388,7 @@ export async function generateTestJob(testId: string): Promise<void> {
           sections: secs.map(s => ({ label: s.label, text: s.text })),
           focus, avoid,
           examLabel: doc.examLabel,
+          questionPaper: analysis?.structure?.kind === 'QUESTION_PAPER',
         }),
       })
       if (!Array.isArray(raws)) raws = []

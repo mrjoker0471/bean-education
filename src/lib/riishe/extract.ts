@@ -41,19 +41,30 @@ export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResul
   for (let p = 1; p <= numPages; p++) {
     const page = await doc.getPage(p)
     const tc = await page.getTextContent()
-    // pdf.js text items are positioned fragments; join with spaces and collapse
-    let text = tc.items
-      .map((it): string => ('str' in it ? (it.str ?? '') : ''))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    // pdf.js text items are positioned fragments. Rebuild REAL lines using the
+    // hasEOL flag so headings, TOC entries and page numbers survive as lines —
+    // this is what makes deterministic structure detection possible later.
+    const lines: string[] = []
+    let line = ''
+    for (const it of tc.items) {
+      if (!('str' in it)) continue
+      line += it.str ?? ''
+      if (it.hasEOL) {
+        const l = line.replace(/\s+/g, ' ').trim()
+        if (l) lines.push(l)
+        line = ''
+      }
+    }
+    const tail = line.replace(/\s+/g, ' ').trim()
+    if (tail) lines.push(tail)
+    let text = lines.join('\n').trim()
     const chars = text.length
     const scanned = chars < SCANNED_PAGE_THRESHOLD
     if (!scanned) {
       if (!titleGuess) {
         // Heuristic: the first substantial line of page 1 is usually the title
-        const firstLine = text.split(/\s{2,}|\.\s/)[0] ?? text
-        titleGuess = firstLine.slice(0, 120) || null
+        const firstLine = lines[0] ?? ''
+        titleGuess = firstLine.replace(/\s+/g, ' ').slice(0, 120) || null
       }
     } else {
       text = ''

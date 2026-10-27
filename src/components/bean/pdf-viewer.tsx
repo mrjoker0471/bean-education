@@ -156,6 +156,9 @@ function PdfReader({ meta, onRetry, srcOverride, backOverride }: {
     downloadUrl: string
     progressKey: string
     openOriginalUrl: string | null
+    /** Open directly at this physical page (deep link from analysis page chips).
+     * Takes priority over saved reading progress. */
+    startPage?: number
   }
   backOverride?: { label: string; go: () => void }
 }) {
@@ -254,8 +257,15 @@ function PdfReader({ meta, onRetry, srcOverride, backOverride }: {
         // Restore this guest's reading progress for THIS document.
         const progressKey = srcOverride?.progressKey ?? resource.id
         const saved = guestId ? loadReadingProgress(guestId, progressKey) : null
+        // A page deep-link (analysis chip) beats saved progress.
+        const deepLink = srcOverride?.startPage && srcOverride.startPage >= 1 && srcOverride.startPage <= pdfDoc.numPages
+          ? srcOverride.startPage
+          : null
         let resumePage = 1
-        if (saved && saved.lastPage > 1 && saved.lastPage <= pdfDoc.numPages) {
+        if (deepLink) {
+          resumePage = deepLink
+          pendingScrollRef.current = resumePage
+        } else if (saved && saved.lastPage > 1 && saved.lastPage <= pdfDoc.numPages) {
           resumePage = saved.lastPage
           pendingScrollRef.current = resumePage
           maxPageRef.current = Math.max(1, Math.min(saved.maxPage || resumePage, pdfDoc.numPages))
@@ -1250,11 +1260,13 @@ function PageView({
 // owner-only material file stream instead of the official-registry proxy.
 // Opens as the familiar full-viewport overlay; Back returns to the workspace.
 // ═════════════════════════════════════════════════════════════════════════════
-export function MaterialPdfReader({ documentId, title, guestId, onBack }: {
+export function MaterialPdfReader({ documentId, title, guestId, onBack, startPage }: {
   documentId: string
   title: string
   guestId: string
   onBack: () => void
+  /** Deep link: open the reader at this physical page. */
+  startPage?: number
 }) {
   const meta: ResourceMetaDTO = {
     resource: {
@@ -1293,6 +1305,7 @@ export function MaterialPdfReader({ documentId, title, guestId, onBack }: {
         downloadUrl: api.materialFileUrl(documentId, true, guestId),
         progressKey: `mat_${documentId}`,
         openOriginalUrl: null,
+        startPage,
       }}
       backOverride={{ label: 'Back to workspace', go: onBack }}
     />

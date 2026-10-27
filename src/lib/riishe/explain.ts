@@ -13,6 +13,23 @@ import type { RiisheExplanationPayload } from './types'
 const BATCH = 5
 const EXPLAIN_HOURLY_LIMIT = 6
 
+/** Loose containment check (punctuation/whitespace insensitive) — shared logic
+ * with the generation validator so "verbatim" means the same thing everywhere. */
+function evidenceInText(evidence: string, text: string): boolean {
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const ev = norm(evidence)
+  if (ev.length < 12) return false
+  const hay = norm(text)
+  if (hay.includes(ev)) return true
+  // Sliding window: evidence may reflow across line breaks
+  const words = ev.split(' ')
+  if (words.length >= 4) {
+    const half = Math.floor(words.length / 2)
+    return hay.includes(words.slice(0, half).join(' ')) || hay.includes(words.slice(half).join(' '))
+  }
+  return false
+}
+
 interface ExplainInput {
   questionId: string
   text: string
@@ -73,8 +90,11 @@ export async function explainAttemptJob(attemptId: string, guestId: string): Pro
 
   // Build a compact retrieval window: the evidence pages of the wrong questions
   const relevantPages = new Set<number>()
+  const pageRefsByQuestion = new Map<string, number[]>()
   for (const q of wrong) {
-    for (const p of safeParse<number[]>(q.pageRefsJson ?? '[]', [])) relevantPages.add(p)
+    const refs = safeParse<number[]>(q.pageRefsJson ?? '[]', []).filter(n => Number.isFinite(n))
+    pageRefsByQuestion.set(q.id, refs)
+    for (const p of refs) relevantPages.add(p)
   }
   const pages = safeParse(doc.extractionJson ?? '[]', [] as { page: number; text: string; chars: number }[])
   const windowText = pages
@@ -122,15 +142,47 @@ Recorded evidence: "${(q.evidence ?? '').slice(0, 250)}"`).join('\n\n')}`,
           const e = list[j]
           const q = batch[j]
           if (!e || typeof e !== 'object') continue
+          let excerpt = String(e.excerpt ?? '').slice(0, 500)
+          let pageRefs = (Array.isArray(e.pageRefs) ? e.pageRefs : []).map(Number).filter(n => Number.isFinite(n)).slice(0, 8)
+          let grounding: 'document' | 'external' = e.grounding === 'external' ? 'external' : 'document'
+
+          // Programmatic verification: a "document"-grounded explanation must
+          // quote text that actually exists in the document window, and cite
+          // only pages that were actually fed. Anything else is downgraded to
+          // external — a fabricated quote must never be shown as source-backed.
+          if (grounding === 'document') {
+            const inWindow = excerpt && excerpt.length >= 12 && evidenceInText(excerpt, windowText)
+            const knownEvidence = excerpt && q.evidence && evidenceInText(excerpt, q.evidence)
+            const pagesOk = pageRefs.length === 0 || pageRefs.some(p => relevantPages.has(p))
+            if (!(inWindow || knownEvidence) || !pagesOk) {
+              // Fall back to the question's own validated evidence excerpt
+              if (q.evidence && q.evidence.length >= 12 && evidenceInText(q.evidence, windowText)) {
+                excerpt = q.evidence.slice(0, 500)
+                pageRefs = pageRefsByQuestion.get(q.id) ?? []
+                grounding = 'document'
+              } else {
+                grounding = 'external'
+                excerpt = ''
+                pageRefs = []
+              }
+            }
+          } else {
+            // Even external explanations must not display invented quotes
+            if (excerpt && !evidenceInText(excerpt, windowText) && !(q.evidence && evidenceInText(excerpt, q.evidence))) {
+              excerpt = ''
+              pageRefs = []
+            }
+          }
+
           const payloadClean: RiisheExplanationPayload = {
             whyWrong: String(e.whyWrong ?? '').slice(0, 1200),
             correctReasoning: String(e.correctReasoning ?? '').slice(0, 1600),
-            excerpt: String(e.excerpt ?? '').slice(0, 500),
-            pageRefs: (Array.isArray(e.pageRefs) ? e.pageRefs : []).map(Number).filter(n => Number.isFinite(n)).slice(0, 8),
+            excerpt,
+            pageRefs,
             concept: String(e.concept ?? q.topic ?? '').slice(0, 200),
             misconception: e.misconception ? String(e.misconception).slice(0, 400) : null,
             revisionTopic: String(e.revisionTopic ?? q.topic ?? '').slice(0, 200),
-            grounding: e.grounding === 'external' ? 'external' : 'document',
+            grounding,
           }
           await db.riisheExplanation.upsert({
             where: { attemptId_questionId: { attemptId, questionId: q.id } },

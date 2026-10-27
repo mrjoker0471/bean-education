@@ -134,7 +134,24 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
 
 function safeAnalysis(json: string | null): DocumentAnalysis | null {
   if (!json) return null
-  try { return JSON.parse(json) as DocumentAnalysis } catch { return null }
+  try { return normalizeAnalysis(JSON.parse(json) as DocumentAnalysis) } catch { return null }
+}
+
+/** Bring older stored analyses up to the current DTO shape so the client can
+ * rely on the hierarchical topic fields (old flat analyses get defaults). */
+function normalizeAnalysis(a: DocumentAnalysis): DocumentAnalysis {
+  const topics = (a.topics ?? []).map((t, i) => ({
+    ...t,
+    id: t.id ?? `t${i + 1}`,
+    level: (t.level === 2 ? 2 : 1) as 1 | 2,
+    parentId: t.parentId ?? null,
+    aliases: t.aliases ?? [],
+    pageVerified: t.pageVerified ?? true,
+  }))
+  // repair parent links that point at dropped/missing ids
+  const ids = new Set(topics.map(t => t.id))
+  for (const t of topics) if (t.parentId && !ids.has(t.parentId)) t.parentId = null
+  return { ...a, topics }
 }
 function safeArr(json: string | null): string[] {
   if (!json) return []

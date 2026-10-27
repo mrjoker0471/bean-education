@@ -282,10 +282,54 @@ export interface BeanSettings {
 
 export type MaterialStatus = 'QUEUED' | 'EXTRACTING' | 'ANALYSING' | 'READY' | 'NEEDS_OCR' | 'FAILED'
 
+export interface AnalyzedTopicDTO {
+  name: string
+  subtopics: string[]
+  pages: number[]
+  /** v2 fields — always present after server-side normalization */
+  id: string
+  level: 1 | 2
+  parentId: string | null
+  aliases: string[]
+  printedPages?: string[]
+  pageVerified: boolean
+}
+
+export interface CoverageMetricsDTO {
+  totalPages: number
+  readablePages: number
+  scannedPages: number
+  analysedPages: number
+  unanalysedPages: number
+  unitsTotal: number
+  unitsOk: number
+  unitsFailed: number
+  complete: boolean
+}
+
+export interface SectionOutcomeDTO {
+  index: number
+  title: string | null
+  label: string
+  fromPage: number
+  toPage: number
+  status: 'OK' | 'FAILED'
+  error?: string
+}
+
+export interface DocStructureInfoDTO {
+  kind: 'TOC_GUIDED' | 'HEADING_GUIDED' | 'QUESTION_PAPER' | 'UNSTRUCTURED'
+  tocValidated: boolean
+  tocEntries: number
+  headingCount: number
+  printedPageOffset: number | null
+  printedRomanFrontMatter: boolean
+}
+
 export interface DocumentAnalysisDTO {
   title: string
   summary: string
-  topics: { name: string; subtopics: string[]; pages: number[] }[]
+  topics: AnalyzedTopicDTO[]
   definitions: { term: string; meaning: string; page: number }[]
   keyFacts: string[]
   formulas: string[]
@@ -294,6 +338,10 @@ export interface DocumentAnalysisDTO {
   unreadableSections: string[]
   studyGaps: string[]
   coverageNote: string
+  pipelineVersion?: number
+  coverage?: CoverageMetricsDTO
+  sectionOutcomes?: SectionOutcomeDTO[]
+  structure?: DocStructureInfoDTO
 }
 
 export interface RiisheTestSummaryDTO {

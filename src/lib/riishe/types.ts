@@ -1,9 +1,62 @@
 // ─── Riishe backend types (mirrored for the client in src/lib/types.ts) ──────
 
+export const PIPELINE_VERSION = 2
+
 export interface AnalyzedTopic {
+  /** Canonical title — the variant that best matches the document's own wording */
   name: string
   subtopics: string[]
+  /** Physical PDF pages (1-based), verified against the extracted page text */
   pages: number[]
+  // ── v2 fields (pipelineVersion ≥ 2) ──
+  /** Stable id within the analysis (t1, t2 …) for parent links */
+  id?: string
+  /** 1 = major section of the document, 2 = subtopic/concept under a section */
+  level?: 1 | 2
+  /** id of the containing level-1 topic, when the document has that structure */
+  parentId?: string | null
+  /** Duplicate variants merged into this canonical topic (wording differences) */
+  aliases?: string[]
+  /** Printed page labels (e.g. "13") when the document's printed numbering was reliably detected */
+  printedPages?: string[]
+  /** false when no claimed page could be verified against the page text */
+  pageVerified?: boolean
+}
+
+export interface CoverageMetrics {
+  totalPages: number
+  readablePages: number
+  /** image-only pages OCR would be needed for */
+  scannedPages: number
+  /** readable pages inside units that were analysed successfully */
+  analysedPages: number
+  /** readable pages not covered by any successful unit (failed or pending) */
+  unanalysedPages: number
+  unitsTotal: number
+  unitsOk: number
+  unitsFailed: number
+  /** true only when every readable page sits in a successful unit */
+  complete: boolean
+}
+
+export interface SectionOutcome {
+  index: number
+  title: string | null
+  label: string
+  fromPage: number
+  toPage: number
+  status: 'OK' | 'FAILED'
+  error?: string
+}
+
+export interface DocStructureInfo {
+  kind: 'TOC_GUIDED' | 'HEADING_GUIDED' | 'QUESTION_PAPER' | 'UNSTRUCTURED'
+  tocValidated: boolean
+  tocEntries: number
+  headingCount: number
+  /** physical = printed + offset (null when no consistent numbering found) */
+  printedPageOffset: number | null
+  printedRomanFrontMatter: boolean
 }
 
 export interface DocumentAnalysis {
@@ -18,6 +71,11 @@ export interface DocumentAnalysis {
   unreadableSections: string[]
   studyGaps: string[]
   coverageNote: string
+  // ── v2 fields ──
+  pipelineVersion?: number
+  coverage?: CoverageMetrics
+  sectionOutcomes?: SectionOutcome[]
+  structure?: DocStructureInfo
 }
 
 // ─── Question generation ───────────────────────────────────────────────────────

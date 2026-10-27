@@ -5,10 +5,11 @@
 // WORKSPACE (#/riishe/[docId]): one document — Material / Analysis / Tests tabs.
 // All data comes from the backend pipeline; every state shown is honest.
 
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type {
+  AnalyzedTopicDTO,
   DocumentAnalysisDTO,
   MaterialDetailDTO,
   MaterialListItemDTO,
@@ -89,27 +90,6 @@ function formatDate(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-/** [1,2,3,7] → "pages 1–3, 7" · [5] → "page 5" */
-function formatPageRefs(pages: number[]): string {
-  const sorted = [...new Set(pages)].filter(Number.isFinite).sort((a, b) => a - b)
-  if (sorted.length === 0) return ''
-  const parts: string[] = []
-  let start = sorted[0]
-  let prev = sorted[0]
-  for (let i = 1; i <= sorted.length; i++) {
-    const cur = sorted[i]
-    if (cur === prev + 1) {
-      prev = cur
-      continue
-    }
-    parts.push(start === prev ? `${start}` : `${start}–${prev}`)
-    start = cur
-    prev = cur
-  }
-  const joined = parts.join(', ')
-  return parts.length === 1 && !joined.includes('–') ? `page ${joined}` : `pages ${joined}`
 }
 
 /** Same scaling the backend uses for the distribution preview. */
@@ -450,6 +430,12 @@ function RiisheWorkspace({ docId }: { docId: string }) {
   const [renameValue, setRenameValue] = useState('')
   const [renaming, setRenaming] = useState(false)
 
+  // Integrated reader overlay — lifted to the workspace so page chips in the
+  // Analysis tab can deep-link to the exact page, and "Open in reader" in the
+  // Material tab opens without one.
+  const [reader, setReader] = useState<{ startPage?: number } | null>(null)
+  const openReaderAt = (page?: number) => setReader({ startPage: page })
+
   const refresh = () => setReloadTick(t => t + 1)
 
   // ── Not found ──
@@ -549,6 +535,23 @@ function RiisheWorkspace({ docId }: { docId: string }) {
       })
       .catch((e: unknown) => {
         toast({ title: 'Could not start reprocessing', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+      })
+  }
+
+  const doReanalyse = (force: boolean) => {
+    api
+      .reanalyseMaterial(doc.id, guestId, force)
+      .then(() => {
+        toast({
+          title: force ? 'Re-analysis started' : 'Retry started',
+          description: force
+            ? 'Riishe will re-read and re-analyse the whole document.'
+            : 'Riishe will retry the sections that failed — completed sections are kept.',
+        })
+        refresh()
+      })
+      .catch((e: unknown) => {
+        toast({ title: 'Could not start re-analysis', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
       })
   }
 
@@ -653,7 +656,7 @@ function RiisheWorkspace({ docId }: { docId: string }) {
 
         <TabsContent value="material" className="mt-4">
           {doc.status === 'READY' ? (
-            <MaterialReadyPanel doc={doc} guestId={guestId} />
+            <MaterialReadyPanel doc={doc} onOpenReader={openReaderAt} />
           ) : (
             <MaterialPendingPanel doc={doc} />
           )}
@@ -661,7 +664,7 @@ function RiisheWorkspace({ docId }: { docId: string }) {
 
         {hasAnalysis && doc.analysis && (
           <TabsContent value="analysis" className="mt-4">
-            <AnalysisPanel analysis={doc.analysis} />
+            <AnalysisPanel analysis={doc.analysis} onOpenPage={openReaderAt} onReanalyse={doReanalyse} />
           </TabsContent>
         )}
 
@@ -669,6 +672,17 @@ function RiisheWorkspace({ docId }: { docId: string }) {
           <TestsPanel doc={doc} guestId={guestId} onDocRefresh={refresh} />
         </TabsContent>
       </Tabs>
+
+      {/* Integrated reader overlay (Material tab trigger + Analysis page deep-links) */}
+      {reader && (
+        <MaterialPdfReader
+          documentId={doc.id}
+          title={doc.title}
+          guestId={guestId}
+          startPage={reader.startPage}
+          onBack={() => setReader(null)}
+        />
+      )}
 
       {/* Rename dialog */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
@@ -711,11 +725,9 @@ function RiisheWorkspace({ docId }: { docId: string }) {
   )
 }
 
-// ─── Material tab: READY → document panel + integrated reader (full-viewport overlay) ───
+// ─── Material tab: READY → document panel (+ integrated reader, lifted overlay) ───
 
-function MaterialReadyPanel({ doc, guestId }: { doc: MaterialDetailDTO; guestId: string }) {
-  const [readerOpen, setReaderOpen] = useState(false)
-  const navigate = useAppStore(s => s.navigate)
+function MaterialReadyPanel({ doc, onOpenReader }: { doc: MaterialDetailDTO; onOpenReader: (page?: number) => void }) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-start gap-4">
@@ -743,34 +755,33 @@ function MaterialReadyPanel({ doc, guestId }: { doc: MaterialDetailDTO; guestId:
         </p>
         <Button
           className="mt-4 bg-gold text-primary-foreground hover:bg-gold-hover"
-          onClick={() => setReaderOpen(true)}
+          onClick={() => onOpenReader()}
         >
           <BookOpen className="mr-2 h-4 w-4" aria-hidden /> Open in reader
         </Button>
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <Button asChild className="bg-gold text-primary-foreground hover:bg-gold-hover">
-          <a
-            href={api.materialFileUrl(doc.id, true, guestId)}
-            download={doc.originalName}
-            aria-label={`Download ${doc.title} as PDF`}
-          >
-            <Download className="mr-2 h-4 w-4" aria-hidden /> Download PDF
-          </a>
-        </Button>
+        <DownloadButton doc={doc} />
         <p className="text-xs text-muted-foreground">Served from your own session — only you can open this file.</p>
       </div>
-
-      {readerOpen && (
-        <MaterialPdfReader
-          documentId={doc.id}
-          title={doc.title}
-          guestId={guestId}
-          onBack={() => setReaderOpen(false)}
-        />
-      )}
     </div>
+  )
+}
+
+function DownloadButton({ doc }: { doc: MaterialDetailDTO }) {
+  const guestId = useAppStore(s => s.guestId)
+  if (!guestId) return null
+  return (
+    <Button asChild className="bg-gold text-primary-foreground hover:bg-gold-hover">
+      <a
+        href={api.materialFileUrl(doc.id, true, guestId)}
+        download={doc.originalName}
+        aria-label={`Download ${doc.title} as PDF`}
+      >
+        <Download className="mr-2 h-4 w-4" aria-hidden /> Download PDF
+      </a>
+    </Button>
   )
 }
 
@@ -812,9 +823,23 @@ function MaterialPendingPanel({ doc }: { doc: MaterialDetailDTO }) {
 
 // ═══ Analysis tab ═══
 
-function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
+function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
+  analysis: DocumentAnalysisDTO
+  onOpenPage: (page: number) => void
+  onReanalyse: (force: boolean) => void
+}) {
+  const cov = analysis.coverage
+  const structure = analysis.structure
+  const partial = cov ? !cov.complete : false
+
+  // Hierarchy: level-1 sections carry their level-2 children; children whose
+  // parent vanished (or old flat analyses) render at top level.
+  const tops = analysis.topics.filter(t => t.level !== 2 || !t.parentId || !analysis.topics.some(p => p.id === t.parentId))
+  const childrenOf = (id: string) => analysis.topics.filter(t => t.level === 2 && t.parentId === id)
+
   return (
-    <div className="space-y-6">
+    <StructureContext.Provider value={structure}>
+      <div className="space-y-6">
       {/* Golden rule */}
       <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3">
         <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
@@ -830,33 +855,23 @@ function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.summary}</p>
       </section>
 
-      {/* Topics */}
-      {analysis.topics.length > 0 && (
+      {/* Topics — the document's own hierarchy */}
+      {tops.length > 0 && (
         <section aria-label="Topics" className="rounded-xl border border-border bg-card p-5 sm:p-6">
           <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
             <ListChecks className="h-4 w-4 text-gold" aria-hidden /> Topics
           </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {structure?.tocValidated
+              ? `Structure detected from the document's own table of contents (${structure.tocEntries} entries validated against the body).`
+              : structure && structure.kind !== 'UNSTRUCTURED'
+                ? `Structure detected from ${structure.headingCount} headings in the document itself.`
+                : 'This document has no detectable chapters or contents page — topics are listed in document order.'}
+            {' '}Page chips open the integrated reader at that exact page.
+          </p>
           <ul className="mt-4 space-y-4">
-            {analysis.topics.map(topic => (
-              <li key={topic.name} className="rounded-lg border border-border bg-elevated p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-foreground">{topic.name}</p>
-                  {topic.pages.length > 0 && (
-                    <Badge variant="outline" className="border-border text-xs text-muted-foreground">
-                      {formatPageRefs(topic.pages)}
-                    </Badge>
-                  )}
-                </div>
-                {topic.subtopics.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {topic.subtopics.map(sub => (
-                      <Badge key={sub} variant="outline" className="border-border text-muted-foreground">
-                        {sub}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </li>
+            {tops.map(topic => (
+              <TopicRow key={topic.id} topic={topic} childrenTopics={childrenOf(topic.id)} onOpenPage={onOpenPage} />
             ))}
           </ul>
         </section>
@@ -868,7 +883,7 @@ function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
           <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
             <CheckCircle2 className="h-4 w-4 text-gold" aria-hidden /> Key facts
           </h2>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-4 max-h-96 space-y-2 overflow-y-auto pr-2">
             {analysis.keyFacts.map((fact, i) => (
               <li key={i} className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground">
                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
@@ -885,14 +900,21 @@ function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
           <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
             <Lightbulb className="h-4 w-4 text-gold" aria-hidden /> Definitions
           </h2>
-          <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <dl className="mt-4 grid max-h-96 grid-cols-1 gap-3 overflow-y-auto pr-2 sm:grid-cols-2">
             {analysis.definitions.map((def, i) => (
               <div key={i} className="rounded-lg border border-border bg-elevated p-4">
                 <dt className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-foreground">{def.term}</span>
-                  <Badge variant="outline" className="shrink-0 border-gold/30 text-xs text-gold">
-                    {formatPageRefs([def.page])}
-                  </Badge>
+                  {def.page >= 1 && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenPage(def.page)}
+                      className="shrink-0 rounded-full border border-gold/30 px-2 py-0.5 text-xs text-gold transition-colors hover:bg-gold/10"
+                      aria-label={`Open page ${def.page} in the reader`}
+                    >
+                      <PageChipLabel page={def.page} structure={structure} />
+                    </button>
+                  )}
                 </dt>
                 <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{def.meaning}</dd>
               </div>
@@ -941,10 +963,15 @@ function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
                   <span>
                     <span className="font-medium text-success">Correction: </span>
                     {m.correction}
-                    {m.page != null && (
-                      <Badge variant="outline" className="ml-2 border-border text-xs text-muted-foreground">
-                        {formatPageRefs([m.page])}
-                      </Badge>
+                    {m.page != null && m.page >= 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPage(m.page as number)}
+                        className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold"
+                        aria-label={`Open page ${m.page} in the reader`}
+                      >
+                        <PageChipLabel page={m.page} structure={structure} />
+                      </button>
                     )}
                   </span>
                 </p>
@@ -954,12 +981,72 @@ function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
         </section>
       )}
 
-      {/* Coverage note + honest gaps */}
+      {/* Coverage — real accounting, never "complete" when it isn't */}
       <section aria-label="Coverage and gaps" className="rounded-xl border border-border bg-card p-5 sm:p-6">
         <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
           <Info className="h-4 w-4 text-gold" aria-hidden /> Coverage &amp; gaps
         </h2>
+
+        {cov ? (
+          <>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className={
+                  cov.complete
+                    ? 'border-success/40 text-success'
+                    : 'border-gold/50 bg-gold/10 text-gold'
+                }
+              >
+                {cov.complete ? 'Full document analysed' : 'Partially analysed'}
+              </Badge>
+              {structure?.kind && (
+                <Badge variant="outline" className="border-border text-muted-foreground">
+                  {STRUCTURE_KIND_LABEL[structure.kind]}
+                </Badge>
+              )}
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <CoverageStat label="Pages extracted" value={cov.readablePages + cov.scannedPages} sub={`${cov.totalPages} total`} />
+              <CoverageStat label="Analysed pages" value={cov.analysedPages} sub={cov.unanalysedPages > 0 ? `${cov.unanalysedPages} pending` : 'all readable'} />
+              <CoverageStat label="Need OCR" value={cov.scannedPages} sub={cov.scannedPages > 0 ? 'image-only' : 'none'} />
+              <CoverageStat
+                label="Sections"
+                value={cov.unitsOk}
+                sub={cov.unitsFailed > 0 ? `${cov.unitsFailed} failed of ${cov.unitsTotal}` : `${cov.unitsTotal} analysed`}
+              />
+            </dl>
+            {structure?.printedPageOffset != null && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                This document prints its own page numbers — PDF page {structure.printedPageOffset + 1} is printed page 1
+                (offset {structure.printedPageOffset}). Chips show both when known.
+                {structure.printedRomanFrontMatter ? ' Front matter uses roman numerals.' : ''}
+              </p>
+            )}
+          </>
+        ) : null}
+
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.coverageNote}</p>
+
+        {partial && cov && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              className="bg-gold text-primary-foreground hover:bg-gold-hover"
+              onClick={() => onReanalyse(false)}
+            >
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry failed sections
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-border text-muted-foreground hover:bg-elevated"
+              onClick={() => onReanalyse(true)}
+            >
+              Re-analyse from scratch
+            </Button>
+          </div>
+        )}
 
         {analysis.studyGaps.length > 0 && (
           <>
@@ -994,6 +1081,116 @@ function AnalysisPanel({ analysis }: { analysis: DocumentAnalysisDTO }) {
           </>
         )}
       </section>
+    </div>
+    </StructureContext.Provider>
+  )
+}
+
+const STRUCTURE_KIND_LABEL: Record<NonNullable<DocumentAnalysisDTO['structure']>['kind'], string> = {
+  TOC_GUIDED: 'Contents-page structure',
+  HEADING_GUIDED: 'Heading structure',
+  QUESTION_PAPER: 'Question paper',
+  UNSTRUCTURED: 'Free-form document',
+}
+
+/** A topic row: level-1 sections render their level-2 children nested. */
+function TopicRow({ topic, childrenTopics, onOpenPage }: {
+  topic: AnalyzedTopicDTO
+  childrenTopics: AnalyzedTopicDTO[]
+  onOpenPage: (page: number) => void
+}) {
+  const structure = useContext(StructureContext)
+  return (
+    <li className="rounded-lg border border-border bg-elevated p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{topic.name}</p>
+          {topic.aliases.length > 0 && (
+            <p className="mt-0.5 text-xs text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
+          )}
+        </div>
+        <PageChips pages={topic.pages} structure={structure} onOpenPage={onOpenPage} />
+      </div>
+      {topic.subtopics.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {topic.subtopics.map(sub => (
+            <Badge key={sub} variant="outline" className="border-border text-muted-foreground">
+              {sub}
+            </Badge>
+          ))}
+        </div>
+      )}
+      {childrenTopics.length > 0 && (
+        <ul className="mt-3 space-y-2 border-l border-gold/25 pl-3">
+          {childrenTopics.map(child => (
+            <li key={child.id} className="rounded border border-border/60 bg-card/60 p-2.5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground/90">{child.name}</p>
+                  {child.aliases.length > 0 && (
+                    <p className="mt-0.5 text-[11px] text-muted-foreground/70">also found as: {child.aliases.join(' · ')}</p>
+                  )}
+                </div>
+                <PageChips pages={child.pages} structure={structure} onOpenPage={onOpenPage} compact />
+              </div>
+              {child.subtopics.length > 0 && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">{child.subtopics.join(' · ')}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+// Structure info context — avoids re-plumbing props through every row.
+const StructureContext = createContext<DocumentAnalysisDTO['structure'] | undefined>(undefined)
+
+function PageChipLabel({ page, structure }: { page: number; structure?: DocumentAnalysisDTO['structure'] }) {
+  const off = structure?.printedPageOffset
+  const printed = off != null ? page - off : null
+  if (printed != null && printed >= 1) return <>PDF p. {page} · printed p. {printed}</>
+  return <>p. {page}</>
+}
+
+function PageChips({ pages, structure, onOpenPage, compact }: {
+  pages: number[]
+  structure?: DocumentAnalysisDTO['structure']
+  onOpenPage: (page: number) => void
+  compact?: boolean
+}) {
+  const sorted = [...new Set(pages)].filter(Number.isFinite).filter(p => p >= 1).sort((a, b) => a - b)
+  if (sorted.length === 0) return null
+  const shown = compact ? sorted.slice(0, 6) : sorted.slice(0, 10)
+  const hidden = sorted.length - shown.length
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      {shown.map(p => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onOpenPage(p)}
+          title={`Open page ${p} in the reader`}
+          aria-label={`Open page ${p} in the reader`}
+          className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-gold/50 hover:bg-gold/10 hover:text-gold"
+        >
+          <PageChipLabel page={p} structure={structure} />
+        </button>
+      ))}
+      {hidden > 0 && (
+        <span className="text-xs text-muted-foreground/70">+{hidden} more</span>
+      )}
+    </div>
+  )
+}
+
+function CoverageStat({ label, value, sub }: { label: string; value: number; sub?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-elevated p-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 font-display text-lg font-semibold text-foreground">{value}</dd>
+      {sub && <p className="text-[11px] text-muted-foreground/80">{sub}</p>}
     </div>
   )
 }

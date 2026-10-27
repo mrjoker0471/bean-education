@@ -164,6 +164,14 @@ export const api = {
       body: JSON.stringify({ guestId }),
     }),
 
+  /** Re-analyse a READY document: force=true discards the current analysis,
+   * force=false retries only failed/incomplete sections. */
+  reanalyseMaterial: (id: string, guestId: string, force: boolean) =>
+    jsonFetch<{ ok: boolean }>(`/api/materials/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+      body: JSON.stringify({ guestId, force }),
+    }),
+
   /** Same-origin streamed upload file (owner-only; Range-capable for pdf.js). */
   materialFileUrl: (id: string, download?: boolean, guestId?: string) => {
     const p = new URLSearchParams()
