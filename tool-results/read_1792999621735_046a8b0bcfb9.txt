@@ -1,0 +1,902 @@
+     1→'use client'
+     2→
+     3→// Riishe AI workspace — upload → analyse → test, applied to your own materials.
+     4→// HUB (#/riishe): the three-step flow, READY materials, weak areas, BEAN handoff.
+     5→// WORKSPACE (#/riishe/[docId]): one document — Material / Analysis / Tests tabs.
+     6→// All data comes from the backend pipeline; every state shown is honest.
+     7→
+     8→import { useEffect, useState } from 'react'
+     9→import { api } from '@/lib/api'
+    10→import { useAppStore } from '@/lib/store'
+    11→import type {
+    12→  DocumentAnalysisDTO,
+    13→  DocumentCoverageDTO,
+    14→  MaterialDetailDTO,
+    15→  MaterialListItemDTO,
+    16→  MaterialStatus,
+    17→  RiisheTestDetailDTO,
+    18→  RiisheWeakTopicDTO,
+    19→} from '@/lib/types'
+    20→import { MaterialStatusBadge } from '@/components/bean/views/materials-view'
+    21→import { MaterialPdfReader } from '@/components/bean/pdf-viewer'
+    22→import { EmptyState } from '@/components/bean/empty-state'
+    23→import {
+    24→  AlertDialog,
+    25→  AlertDialogAction,
+    26→  AlertDialogCancel,
+    27→  AlertDialogContent,
+    28→  AlertDialogDescription,
+    29→  AlertDialogFooter,
+    30→  AlertDialogHeader,
+    31→  AlertDialogTitle,
+    32→  AlertDialogTrigger,
+    33→} from '@/components/ui/alert-dialog'
+    34→import { Badge } from '@/components/ui/badge'
+    35→import { Button } from '@/components/ui/button'
+    36→import {
+    37→  Dialog,
+    38→  DialogContent,
+    39→  DialogDescription,
+    40→  DialogFooter,
+    41→  DialogHeader,
+    42→  DialogTitle,
+    43→} from '@/components/ui/dialog'
+    44→import { Input } from '@/components/ui/input'
+    45→import { Label } from '@/components/ui/label'
+    46→import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+    47→import { Separator } from '@/components/ui/separator'
+    48→import { Skeleton } from '@/components/ui/skeleton'
+    49→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    50→import { toast } from '@/hooks/use-toast'
+    51→import { cn } from '@/lib/utils'
+    52→import {
+    53→  AlertTriangle,
+    54→  ArrowLeft,
+    55→  BookOpen,
+    56→  CheckCircle2,
+    57→  ClipboardList,
+    58→  Download,
+    59→  FileText,
+    60→  FileWarning,
+    61→  Info,
+    62→  Lightbulb,
+    63→  ListChecks,
+    64→  Loader2,
+    65→  Pencil,
+    66→  Play,
+    67→  RotateCcw,
+    68→  ScanSearch,
+    69→  Sigma,
+    70→  Sparkles,
+    71→  Trash2,
+    72→  TrendingDown,
+    73→  Upload,
+    74→  XCircle,
+    75→} from 'lucide-react'
+    76→
+    77→const PROCESSING_STATUSES: MaterialStatus[] = ['QUEUED', 'EXTRACTING', 'ANALYSING']
+    78→const isProcessing = (s: MaterialStatus) => PROCESSING_STATUSES.includes(s)
+    79→
+    80→const CATEGORY_LABEL: Record<string, string> = {
+    81→  FOUNDATION: 'Foundation',
+    82→  APPLICATION: 'Application',
+    83→  STATEMENT: 'Statement-based',
+    84→  MULTISTEP: 'Multi-step',
+    85→  MISCONCEPTION: 'Misconception check',
+    86→}
+    87→
+    88→/**
+    89→ * Clickable page-reference chips — every citation in the analysis, questions
+    90→ * and explanations opens the integrated reader at exactly that page.
+    91→ */
+    92→function PageRefChips({ pages, onOpenPage, compact }: { pages: number[]; onOpenPage: (p: number) => void; compact?: boolean }) {
+    93→  const sorted = [...new Set(pages)].filter(p => Number.isFinite(p) && p >= 1).sort((a, b) => a - b)
+    94→  if (sorted.length === 0) return null
+    95→  return (
+    96→    <span className={cn('inline-flex flex-wrap items-center gap-1.5', compact && 'gap-1')}>
+    97→      {sorted.map(p => (
+    98→        <button
+    99→          key={p}
+   100→          type="button"
+   101→          onClick={() => onOpenPage(p)}
+   102→          title={`Open the document at page ${p}`}
+   103→          aria-label={`Open the document at page ${p}`}
+   104→          className="inline-flex min-h-6 items-center gap-1 rounded-full border border-gold/40 bg-card px-2 py-0.5 text-[11px] font-medium text-gold transition-colors hover:bg-gold/10"
+   105→        >
+   106→          <BookOpen className="h-3 w-3" aria-hidden /> page {p}
+   107→        </button>
+   108→      ))}
+   109→    </span>
+   110→  )
+   111→}
+   112→
+   113→// ─── Shared formatting helpers ───
+   114→
+   115→function formatBytes(n: number): string {
+   116→  if (!Number.isFinite(n) || n <= 0) return '0 B'
+   117→  if (n < 1024) return `${n} B`
+   118→  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
+   119→  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+   120→}
+   121→
+   122→function formatDate(iso: string): string {
+   123→  const d = new Date(iso)
+   124→  if (Number.isNaN(d.getTime())) return iso
+   125→  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+   126→}
+   127→
+   128→/** [1,2,3,7] → "pages 1–3, 7" · [5] → "page 5" */
+   129→function formatPageRefs(pages: number[]): string {
+   130→  const sorted = [...new Set(pages)].filter(Number.isFinite).sort((a, b) => a - b)
+   131→  if (sorted.length === 0) return ''
+   132→  const parts: string[] = []
+   133→  let start = sorted[0]
+   134→  let prev = sorted[0]
+   135→  for (let i = 1; i <= sorted.length; i++) {
+   136→    const cur = sorted[i]
+   137→    if (cur === prev + 1) {
+   138→      prev = cur
+   139→      continue
+   140→    }
+   141→    parts.push(start === prev ? `${start}` : `${start}–${prev}`)
+   142→    start = cur
+   143→    prev = cur
+   144→  }
+   145→  const joined = parts.join(', ')
+   146→  return parts.length === 1 && !joined.includes('–') ? `page ${joined}` : `pages ${joined}`
+   147→}
+   148→
+   149→/** Same scaling the backend uses for the distribution preview. */
+   150→function distributionLine(count: number): string {
+   151→  const scale = count / 50
+   152→  const d = {
+   153→    f: Math.max(1, Math.round(10 * scale)),
+   154→    a: Math.max(1, Math.round(15 * scale)),
+   155→    s: Math.max(1, Math.round(10 * scale)),
+   156→    m: Math.max(1, Math.round(10 * scale)),
+   157→    x: Math.max(1, Math.round(5 * scale)),
+   158→  }
+   159→  return `${d.f} foundational · ${d.a} application · ${d.s} statement · ${d.m} multi-step · ${d.x} misconception`
+   160→}
+   161→
+   162→// ═══ Router ═══
+   163→
+   164→export function RiisheView({ docId }: { docId?: string }) {
+   165→  if (!docId) return <RiisheHub />
+   166→  return <RiisheWorkspace docId={docId} />
+   167→}
+   168→
+   169→// ═══════════════════════════ HUB ═══════════════════════════
+   170→
+   171→function RiisheHub() {
+   172→  const guestId = useAppStore(s => s.guestId)
+   173→  const navigate = useAppStore(s => s.navigate)
+   174→
+   175→  const [materialsLoaded, setMaterialsLoaded] = useState<{ key: string; data: MaterialListItemDTO[] } | null>(null)
+   176→  const [materialsError, setMaterialsError] = useState<string | null>(null)
+   177→  const [reloadTick, setReloadTick] = useState(0)
+   178→
+   179→  const [weakLoaded, setWeakLoaded] = useState<{ key: string; data: RiisheWeakTopicDTO[] } | null>(null)
+   180→
+   181→  const loadKey = guestId ? `${guestId}|${reloadTick}` : 'no-session'
+   182→
+   183→  useEffect(() => {
+   184→    if (!guestId) return
+   185→    let alive = true
+   186→    api
+   187→      .materials(guestId)
+   188→      .then(d => {
+   189→        if (!alive) return
+   190→        setMaterialsLoaded({ key: loadKey, data: d.materials })
+   191→        setMaterialsError(null)
+   192→      })
+   193→      .catch((e: unknown) => {
+   194→        if (!alive) return
+   195→        setMaterialsError(e instanceof Error ? e.message : 'Could not load your materials.')
+   196→      })
+   197→    return () => {
+   198→      alive = false
+   199→    }
+   200→  }, [guestId, loadKey])
+   201→
+   202→  useEffect(() => {
+   203→    if (!guestId) return
+   204→    let alive = true
+   205→    api
+   206→      .riisheWeakTopics(guestId)
+   207→      .then(d => {
+   208→        if (alive) setWeakLoaded({ key: loadKey, data: d.weakTopics })
+   209→      })
+   210→      .catch(() => {
+   211→        if (alive) setWeakLoaded({ key: loadKey, data: [] }) // honest empty — never fake data
+   212→      })
+   213→    return () => {
+   214→      alive = false
+   215→    }
+   216→  }, [guestId, loadKey])
+   217→
+   218→  const materialsReady = materialsLoaded && materialsLoaded.key === loadKey ? materialsLoaded.data : null
+   219→  const readyMaterials = (materialsReady ?? []).filter(m => m.status === 'READY')
+   220→  const processingCount = (materialsReady ?? []).filter(m => isProcessing(m.status)).length
+   221→  const weakTopics = weakLoaded && weakLoaded.key === loadKey ? weakLoaded.data : null
+   222→  const firstWeakWithDoc = weakTopics?.find(t => !!t.documentId) ?? null
+   223→
+   224→  return (
+   225→    <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+   226→      <header>
+   227→        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">AI study workspace</p>
+   228→        <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">Riishe AI</h1>
+   229→        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+   230→          Turn your own PDFs into practice. Upload a material, let Riishe analyse its topics, definitions and
+   231→          misconceptions, then take a validated test built strictly from that content.
+   232→        </p>
+   233→      </header>
+   234→
+   235→      {/* Three-step flow */}
+   236→      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+   237→        <StepCard n="1" icon={Upload} title="Upload" text="Add any PDF study material — a chapter, class notes or an official document." />
+   238→        <StepCard n="2" icon={ScanSearch} title="Analyse" text="Riishe extracts the text page by page and maps topics, key facts, formulas and common misconceptions." />
+   239→        <StepCard n="3" icon={ClipboardList} title="Test" text="Generate up to 50 validated questions from the material — timed or untimed, with grounded explanations." />
+   240→      </div>
+   241→
+   242→      {/* Primary actions */}
+   243→      <div className="mt-6 flex flex-wrap gap-3">
+   244→        <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'materials' })}>
+   245→          <Upload className="mr-2 h-4 w-4" aria-hidden /> Upload new material
+   246→        </Button>
+   247→        <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'bean' })}>
+   248→          <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Open BEAN Intelligence
+   249→        </Button>
+   250→      </div>
+   251→
+   252→      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-5">
+   253→        {/* READY materials */}
+   254→        <section aria-label="Analysed materials" className="rounded-xl border border-border bg-card p-5 sm:p-6 lg:col-span-3">
+   255→          <div className="flex flex-wrap items-center justify-between gap-3">
+   256→            <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   257→              <BookOpen className="h-4 w-4 text-gold" aria-hidden /> Analysed materials
+   258→            </h2>
+   259→            {readyMaterials.length > 0 && (
+   260→              <Badge variant="outline" className="border-border text-muted-foreground">
+   261→                {readyMaterials.length} ready
+   262→              </Badge>
+   263→            )}
+   264→          </div>
+   265→
+   266→          {!materialsReady && !materialsError && (
+   267→            <div className="mt-5 space-y-3" aria-hidden>
+   268→              <Skeleton className="h-14 bg-elevated" />
+   269→              <Skeleton className="h-14 bg-elevated" />
+   270→            </div>
+   271→          )}
+   272→
+   273→          {materialsError && (
+   274→            <div className="mt-5 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3" role="alert">
+   275→              <p className="text-sm text-destructive">{materialsError}</p>
+   276→              <Button
+   277→                variant="outline"
+   278→                size="sm"
+   279→                className="mt-3 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+   280→                onClick={() => setReloadTick(t => t + 1)}
+   281→              >
+   282→                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Try again
+   283→              </Button>
+   284→            </div>
+   285→          )}
+   286→
+   287→          {materialsReady && readyMaterials.length === 0 && (
+   288→            <p className="mt-5 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+   289→              No analysed materials yet — upload a PDF to get started. Materials still processing appear here once
+   290→              they are ready.
+   291→            </p>
+   292→          )}
+   293→
+   294→          {readyMaterials.length > 0 && (
+   295→            <ul className="mt-5 space-y-3">
+   296→              {readyMaterials.map(doc => (
+   297→                <li
+   298→                  key={doc.id}
+   299→                  className="flex flex-col gap-3 rounded-lg border border-border bg-elevated p-4 sm:flex-row sm:items-center sm:justify-between"
+   300→                >
+   301→                  <div className="min-w-0">
+   302→                    <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
+   303→                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+   304→                      {doc.pageCount != null ? `${doc.pageCount} pages · ` : ''}
+   305→                      {formatBytes(doc.fileSize)} · {doc.tests.filter(t => t.status === 'READY').length} test
+   306→                      {doc.tests.filter(t => t.status === 'READY').length === 1 ? '' : 's'} ready
+   307→                    </p>
+   308→                  </div>
+   309→                  <Button
+   310→                    size="sm"
+   311→                    variant="outline"
+   312→                    className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
+   313→                    onClick={() => navigate({ view: 'riishe', docId: doc.id })}
+   314→                    aria-label={`Open ${doc.title} in the Riishe workspace`}
+   315→                  >
+   316→                    Open
+   317→                  </Button>
+   318→                </li>
+   319→              ))}
+   320→            </ul>
+   321→          )}
+   322→
+   323→          {processingCount > 0 && (
+   324→            <p className="mt-4 text-xs text-muted-foreground">
+   325→              {processingCount} material{processingCount === 1 ? ' is' : 's are'} still processing —
+   326→              follow live status in My Materials.
+   327→            </p>
+   328→          )}
+   329→        </section>
+   330→
+   331→        <div className="space-y-6 lg:col-span-2">
+   332→          {/* Weak areas */}
+   333→          <section aria-label="Weak areas" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   334→            <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   335→              <TrendingDown className="h-4 w-4 text-gold" aria-hidden /> Weak areas
+   336→            </h2>
+   337→            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   338→              Topics from your Riishe tests where accuracy fell below 60% across at least three attempted questions.
+   339→            </p>
+   340→
+   341→            {!weakTopics && (
+   342→              <div className="mt-5 space-y-3" aria-hidden>
+   343→                <Skeleton className="h-12 bg-elevated" />
+   344→                <Skeleton className="h-12 bg-elevated" />
+   345→              </div>
+   346→            )}
+   347→
+   348→            {weakTopics && weakTopics.length === 0 && (
+   349→              <p className="mt-5 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+   350→                No weak areas yet — take a Riishe test first.
+   351→              </p>
+   352→            )}
+   353→
+   354→            {weakTopics && weakTopics.length > 0 && (
+   355→              <>
+   356→                <ul className="mt-5 space-y-3">
+   357→                  {weakTopics.slice(0, 5).map(t => (
+   358→                    <li key={t.topic} className="rounded-lg border border-border bg-elevated p-3">
+   359→                      <div className="flex items-center justify-between gap-3">
+   360→                        <p className="min-w-0 truncate text-sm font-medium text-foreground">{t.topic}</p>
+   361→                        <Badge variant="outline" className="shrink-0 border-destructive/40 bg-destructive/10 text-destructive">
+   362→                          {t.accuracy}%
+   363→                        </Badge>
+   364→                      </div>
+   365→                      <p className="mt-1 truncate text-xs text-muted-foreground">
+   366→                        {t.correct}/{t.attempted} correct
+   367→                        {t.documentTitle ? ` · ${t.documentTitle}` : ''}
+   368→                      </p>
+   369→                    </li>
+   370→                  ))}
+   371→                </ul>
+   372→                {firstWeakWithDoc?.documentId && (
+   373→                  <Button
+   374→                    className="mt-4 w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto"
+   375→                    onClick={() => navigate({ view: 'riishe', docId: firstWeakWithDoc.documentId as string })}
+   376→                  >
+   377→                    <Play className="mr-2 h-4 w-4" aria-hidden /> Practice weak areas
+   378→                  </Button>
+   379→                )}
+   380→              </>
+   381→            )}
+   382→          </section>
+   383→
+   384→          {/* BEAN Intelligence (preserved handoff) */}
+   385→          <section aria-label="BEAN Intelligence" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   386→            <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   387→              <Sparkles className="h-4 w-4 text-gold" aria-hidden /> BEAN Intelligence
+   388→            </h2>
+   389→            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   390→              The AI tutor knows your exam context. Ask it to explain a concept from your material or plan what to
+   391→              revise next.
+   392→            </p>
+   393→            <Button
+   394→              variant="outline"
+   395→              className="mt-4 w-full border-gold/40 text-gold hover:bg-gold/10 sm:w-auto"
+   396→              onClick={() => navigate({ view: 'bean' })}
+   397→            >
+   398→              Chat with BEAN
+   399→            </Button>
+   400→          </section>
+   401→        </div>
+   402→      </div>
+   403→    </div>
+   404→  )
+   405→}
+   406→
+   407→function StepCard({ n, icon: Icon, title, text }: { n: string; icon: typeof Upload; title: string; text: string }) {
+   408→  return (
+   409→    <div className="rounded-xl border border-border bg-card p-5">
+   410→      <div className="flex items-center justify-between">
+   411→        <span className="font-display text-3xl font-bold text-gold">{n}</span>
+   412→        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+   413→      </div>
+   414→      <h3 className="mt-3 font-display text-base font-semibold text-foreground">{title}</h3>
+   415→      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{text}</p>
+   416→    </div>
+   417→  )
+   418→}
+   419→
+   420→// ═══════════════════════ WORKSPACE ═══════════════════════
+   421→
+   422→type WorkspaceTab = 'material' | 'analysis' | 'tests'
+   423→
+   424→function RiisheWorkspace({ docId }: { docId: string }) {
+   425→  const guestId = useAppStore(s => s.guestId)
+   426→  const navigate = useAppStore(s => s.navigate)
+   427→
+   428→  const [reloadTick, setReloadTick] = useState(0)
+   429→  const [loaded, setLoaded] = useState<{ key: string; data: MaterialDetailDTO } | null>(null)
+   430→  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
+   431→
+   432→  const loadKey = guestId ? `${guestId}|${docId}|${reloadTick}` : 'no-session'
+   433→
+   434→  useEffect(() => {
+   435→    if (!guestId) return
+   436→    let alive = true
+   437→    api
+   438→      .material(docId, guestId)
+   439→      .then(d => {
+   440→        if (!alive) return
+   441→        setLoaded({ key: loadKey, data: d })
+   442→        setFailure(null)
+   443→      })
+   444→      .catch((e: unknown) => {
+   445→        if (!alive) return
+   446→        setFailure({ key: loadKey, message: e instanceof Error ? e.message : 'Could not load this material.' })
+   447→      })
+   448→    return () => {
+   449→      alive = false
+   450→    }
+   451→  }, [guestId, docId, loadKey])
+   452→
+   453→  const doc = loaded && loaded.key === loadKey ? loaded.data : null
+   454→  const error = failure && failure.key === loadKey ? failure.message : null
+   455→  const loading = !doc && !error
+   456→  const notFound = !!error && /not found/i.test(error)
+   457→
+   458→  // Poll the material every 5s ONLY while it (or one of its tests) is in flight.
+   459→  const shouldPoll =
+   460→    !!doc && (isProcessing(doc.status) || doc.tests.some(t => t.status === 'QUEUED' || t.status === 'GENERATING'))
+   461→  useEffect(() => {
+   462→    if (!shouldPoll || !guestId || !docId) return
+   463→    const timer = setInterval(() => {
+   464→      api
+   465→        .material(docId, guestId)
+   466→        .then(d => setLoaded({ key: loadKey, data: d }))
+   467→        .catch(() => {
+   468→          /* keep the last honest state; the next tick retries */
+   469→        })
+   470→    }, 5000)
+   471→    return () => clearInterval(timer)
+   472→  }, [shouldPoll, guestId, docId, loadKey])
+   473→
+   474→  // Default tab: land on Tests when the document already has a READY test to take.
+   475→  const [tab, setTab] = useState<WorkspaceTab>('material')
+   476→  const docKey = loaded?.key ?? null
+   477→  const [appliedKey, setAppliedKey] = useState<string | null>(null)
+   478→  if (doc && docKey && docKey !== appliedKey) {
+   479→    setAppliedKey(docKey)
+   480→    setTab(doc.status === 'READY' && doc.tests.some(t => t.status === 'READY') ? 'tests' : 'material')
+   481→  }
+   482→
+   483→  const [renameOpen, setRenameOpen] = useState(false)
+   484→  const [renameValue, setRenameValue] = useState('')
+   485→  const [renaming, setRenaming] = useState(false)
+   486→
+   487→  // Integrated reader — hosted at workspace level so page references anywhere
+   488→  // (analysis, explanations, material panel) can deep-link into it.
+   489→  const [readerPage, setReaderPage] = useState<number | null>(null)
+   490→  const openReaderAt = (page?: number) => setReaderPage(page ?? 1)
+   491→  const closeReader = () => setReaderPage(null)
+   492→
+   493→  const refresh = () => setReloadTick(t => t + 1)
+   494→
+   495→  // ── Not found ──
+   496→  if (notFound) {
+   497→    return (
+   498→      <div className="mx-auto w-full max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
+   499→        <EmptyState
+   500→          icon={FileWarning}
+   501→          title="Material not found"
+   502→          description="This material does not exist in your library — it may have been removed from this device, or the link is stale."
+   503→          actionLabel="Back to My Materials"
+   504→          onAction={() => navigate({ view: 'materials' })}
+   505→        />
+   506→      </div>
+   507→    )
+   508→  }
+   509→
+   510→  // ── Load error ──
+   511→  if (!loading && error && doc === null) {
+   512→    return (
+   513→      <div className="mx-auto w-full max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
+   514→        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+   515→          <p className="font-display text-lg font-semibold text-destructive">Could not load this material</p>
+   516→          <p className="mt-2 text-sm text-destructive/90">{error}</p>
+   517→          <div className="mt-5 flex flex-wrap gap-3">
+   518→            <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={refresh}>
+   519→              <RotateCcw className="mr-1.5 h-4 w-4" /> Try again
+   520→            </Button>
+   521→            <Button
+   522→              variant="outline"
+   523→              className="border-border text-muted-foreground hover:bg-elevated"
+   524→              onClick={() => navigate({ view: 'materials' })}
+   525→            >
+   526→              Back to My Materials
+   527→            </Button>
+   528→          </div>
+   529→        </div>
+   530→      </div>
+   531→    )
+   532→  }
+   533→
+   534→  // ── Loading ──
+   535→  if (loading || !doc) {
+   536→    return (
+   537→      <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8" aria-hidden>
+   538→        <Skeleton className="h-8 w-40 bg-elevated" />
+   539→        <Skeleton className="mt-4 h-10 w-2/3 bg-elevated" />
+   540→        <Skeleton className="mt-3 h-6 w-1/2 bg-elevated" />
+   541→        <Skeleton className="mt-8 h-10 bg-elevated" />
+   542→        <Skeleton className="mt-4 h-96 bg-elevated" />
+   543→      </div>
+   544→    )
+   545→  }
+   546→
+   547→  const hasAnalysis = doc.status === 'READY' && !!doc.analysis
+   548→  const metaLabels = [doc.examLabel, doc.subjectLabel, doc.topicLabel].filter((v): v is string => !!v)
+   549→
+   550→  const doRename = () => {
+   551→    const next = renameValue.trim()
+   552→    if (!next || renaming) return
+   553→    setRenaming(true)
+   554→    api
+   555→      .renameMaterial(doc.id, guestId, { title: next })
+   556→      .then(() => {
+   557→        // Update locally — no full reload, so the active tab is preserved.
+   558→        setLoaded(prev => (prev && prev.key === loadKey ? { key: prev.key, data: { ...prev.data, title: next } } : prev))
+   559→        toast({ title: 'Renamed', description: `This material is now “${next}”.` })
+   560→        setRenameOpen(false)
+   561→      })
+   562→      .catch((e: unknown) => {
+   563→        toast({ title: 'Could not rename', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   564→      })
+   565→      .finally(() => setRenaming(false))
+   566→  }
+   567→
+   568→  const doRemove = () => {
+   569→    api
+   570→      .deleteMaterial(doc.id, guestId)
+   571→      .then(() => {
+   572→        toast({
+   573→          title: 'Material removed',
+   574→          description: 'The uploaded file, its analysis and every test generated from it were deleted.',
+   575→        })
+   576→        navigate({ view: 'materials' })
+   577→      })
+   578→      .catch((e: unknown) => {
+   579→        toast({ title: 'Could not remove material', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   580→      })
+   581→  }
+   582→
+   583→  const doRetry = () => {
+   584→    api
+   585→      .retryMaterial(doc.id, guestId)
+   586→      .then(() => {
+   587→        toast({ title: 'Reprocessing started', description: 'Riishe is reading the document again.' })
+   588→        refresh()
+   589→      })
+   590→      .catch((e: unknown) => {
+   591→        toast({ title: 'Could not start reprocessing', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   592→      })
+   593→  }
+   594→
+   595→  return (
+   596→    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+   597→      {/* Header */}
+   598→      <header>
+   599→        <Button
+   600→          variant="ghost"
+   601→          size="sm"
+   602→          className="-ml-2 text-muted-foreground hover:text-gold"
+   603→          onClick={() => navigate({ view: 'materials' })}
+   604→        >
+   605→          <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden /> My Materials
+   606→        </Button>
+   607→        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+   608→          <div className="min-w-0">
+   609→            <h1 className="truncate font-display text-2xl font-bold text-foreground sm:text-3xl" title={doc.title}>
+   610→              {doc.title}
+   611→            </h1>
+   612→            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+   613→              <MaterialStatusBadge status={doc.status} />
+   614→              {doc.status === 'READY' && doc.analysisState === 'PARTIAL' && (
+   615→                <Badge
+   616→                  variant="outline"
+   617→                  className="border-gold/40 bg-gold/10 text-gold"
+   618→                  title="Not every readable page reached the analysis — see the coverage panel in the Analysis tab."
+   619→                >
+   620→                  Partial analysis{doc.coverage ? ` · ${doc.coverage.analysisPct}%` : ''}
+   621→                </Badge>
+   622→              )}
+   623→              {doc.status === 'READY' && doc.analysisState === 'COMPLETE' && (
+   624→                <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
+   625→                  Full analysis
+   626→                </Badge>
+   627→              )}
+   628→              <span className="truncate">
+   629→                PDF · {formatBytes(doc.fileSize)}
+   630→                {doc.pageCount != null ? ` · ${doc.pageCount} pages` : ''}
+   631→              </span>
+   632→              {metaLabels.map(label => (
+   633→                <Badge key={label} variant="outline" className="border-gold/30 text-gold/90">
+   634→                  {label}
+   635→                </Badge>
+   636→              ))}
+   637→            </div>
+   638→          </div>
+   639→          <div className="flex shrink-0 flex-wrap items-center gap-2">
+   640→            {doc.status === 'READY' && (
+   641→              <Button
+   642→                variant="outline"
+   643→                size="sm"
+   644→                className="border-gold/40 text-gold hover:bg-gold/10"
+   645→                onClick={() => {
+   646→                  setRenameValue(doc.title)
+   647→                  setRenameOpen(true)
+   648→                }}
+   649→              >
+   650→                <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Rename
+   651→              </Button>
+   652→            )}
+   653→            {doc.status === 'FAILED' && (
+   654→              <Button variant="outline" size="sm" className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={doRetry}>
+   655→                <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry processing
+   656→              </Button>
+   657→            )}
+   658→            <AlertDialog>
+   659→              <AlertDialogTrigger asChild>
+   660→                <Button
+   661→                  variant="ghost"
+   662→                  size="sm"
+   663→                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+   664→                  aria-label={`Remove ${doc.title}`}
+   665→                >
+   666→                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Remove
+   667→                </Button>
+   668→              </AlertDialogTrigger>
+   669→              <AlertDialogContent className="bg-card">
+   670→                <AlertDialogHeader>
+   671→                  <AlertDialogTitle className="font-display">Remove this material?</AlertDialogTitle>
+   672→                  <AlertDialogDescription>
+   673→                    This permanently deletes “{doc.title}” — the uploaded file, its analysis, and every test
+   674→                    generated from it. This cannot be undone.
+   675→                  </AlertDialogDescription>
+   676→                </AlertDialogHeader>
+   677→                <AlertDialogFooter>
+   678→                  <AlertDialogCancel>Keep it</AlertDialogCancel>
+   679→                  <AlertDialogAction
+   680→                    className="bg-destructive text-primary-foreground hover:bg-destructive/90"
+   681→                    onClick={doRemove}
+   682→                  >
+   683→                    Remove material
+   684→                  </AlertDialogAction>
+   685→                </AlertDialogFooter>
+   686→              </AlertDialogContent>
+   687→            </AlertDialog>
+   688→          </div>
+   689→        </div>
+   690→      </header>
+   691→
+   692→      {/* Tabs */}
+   693→      <Tabs value={tab} onValueChange={v => setTab(v as WorkspaceTab)} className="mt-6">
+   694→        <TabsList className="flex w-full overflow-x-auto sm:w-fit" aria-label="Workspace sections">
+   695→          <TabsTrigger value="material" className="flex-1 whitespace-nowrap px-4 sm:flex-none sm:px-5">
+   696→            Material
+   697→          </TabsTrigger>
+   698→          {hasAnalysis && (
+   699→            <TabsTrigger value="analysis" className="flex-1 whitespace-nowrap px-4 sm:flex-none sm:px-5">
+   700→              Analysis
+   701→            </TabsTrigger>
+   702→          )}
+   703→          <TabsTrigger value="tests" className="flex-1 whitespace-nowrap px-4 sm:flex-none sm:px-5">
+   704→            Tests
+   705→          </TabsTrigger>
+   706→        </TabsList>
+   707→
+   708→        <TabsContent value="material" className="mt-4">
+   709→          {doc.status === 'READY' ? (
+   710→            <MaterialReadyPanel doc={doc} guestId={guestId} onOpenReader={openReaderAt} />
+   711→          ) : (
+   712→            <MaterialPendingPanel doc={doc} />
+   713→          )}
+   714→        </TabsContent>
+   715→
+   716→        {hasAnalysis && doc.analysis && (
+   717→          <TabsContent value="analysis" className="mt-4">
+   718→            <AnalysisPanel analysis={doc.analysis} coverage={doc.coverage} contentHash={doc.contentHash} onOpenPage={openReaderAt} />
+   719→          </TabsContent>
+   720→        )}
+   721→
+   722→        <TabsContent value="tests" className="mt-4">
+   723→          <TestsPanel doc={doc} guestId={guestId} onDocRefresh={refresh} onOpenPage={openReaderAt} />
+   724→        </TabsContent>
+   725→      </Tabs>
+   726→
+   727→      {/* Integrated reader overlay — Back returns to the workspace tab */}
+   728→      {readerPage !== null && (
+   729→        <MaterialPdfReader
+   730→          documentId={doc.id}
+   731→          title={doc.title}
+   732→          guestId={guestId}
+   733→          initialPage={readerPage}
+   734→          onBack={closeReader}
+   735→        />
+   736→      )}
+   737→
+   738→      {/* Rename dialog */}
+   739→      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+   740→        <DialogContent className="bg-card sm:max-w-md">
+   741→          <DialogHeader>
+   742→            <DialogTitle className="font-display">Rename material</DialogTitle>
+   743→            <DialogDescription>Give this document a name you will recognise in your library.</DialogDescription>
+   744→          </DialogHeader>
+   745→          <div>
+   746→            <Label htmlFor="riishe-workspace-rename" className="text-xs text-muted-foreground">
+   747→              Title
+   748→            </Label>
+   749→            <Input
+   750→              id="riishe-workspace-rename"
+   751→              value={renameValue}
+   752→              onChange={e => setRenameValue(e.target.value)}
+   753→              maxLength={160}
+   754→              className="mt-1.5"
+   755→              onKeyDown={e => {
+   756→                if (e.key === 'Enter') doRename()
+   757→              }}
+   758→            />
+   759→          </div>
+   760→          <DialogFooter>
+   761→            <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setRenameOpen(false)}>
+   762→              Cancel
+   763→            </Button>
+   764→            <Button
+   765→              className="bg-gold text-primary-foreground hover:bg-gold-hover"
+   766→              disabled={!renameValue.trim() || renaming}
+   767→              onClick={doRename}
+   768→            >
+   769→              {renaming && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+   770→              Save name
+   771→            </Button>
+   772→          </DialogFooter>
+   773→        </DialogContent>
+   774→      </Dialog>
+   775→    </div>
+   776→  )
+   777→}
+   778→
+   779→// ─── Material tab: READY → document panel + integrated reader (full-viewport overlay) ───
+   780→
+   781→function MaterialReadyPanel({ doc, guestId, onOpenReader }: { doc: MaterialDetailDTO; guestId: string; onOpenReader: (page?: number) => void }) {
+   782→  return (
+   783→    <div className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   784→      <div className="flex items-start gap-4">
+   785→        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-gold/30 bg-gold/10">
+   786→          <FileText className="h-5 w-5 text-gold" aria-hidden />
+   787→        </div>
+   788→        <div className="min-w-0">
+   789→          <h2 className="font-display text-lg font-semibold text-foreground">{doc.title}</h2>
+   790→          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+   791→            {doc.originalName} · PDF · {formatBytes(doc.fileSize)}
+   792→            {doc.pageCount != null ? ` · ${doc.pageCount} pages` : ''}
+   793→          </p>
+   794→        </div>
+   795→      </div>
+   796→
+   797→      {/*
+   798→        Reader trigger — opens the integrated full-viewport reader (pdf.js) over
+   799→        the workspace; Back returns here. Same reader used for official PDFs.
+   800→      */}
+   801→      <div className="mt-5 flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-elevated/50 px-4 py-10 text-center">
+   802→        <BookOpen className="h-6 w-6 text-muted-foreground" aria-hidden />
+   803→        <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+   804→          Read your document inside BEAN EXAMS — the integrated reader has page navigation, zoom, rotation,
+   805→          text search and full-screen mode, and remembers where you stopped.
+   806→        </p>
+   807→        <Button
+   808→          className="mt-4 bg-gold text-primary-foreground hover:bg-gold-hover"
+   809→          onClick={() => onOpenReader()}
+   810→        >
+   811→          <BookOpen className="mr-2 h-4 w-4" aria-hidden /> Open in reader
+   812→        </Button>
+   813→      </div>
+   814→
+   815→      <div className="mt-5 flex flex-wrap items-center gap-3">
+   816→        <Button asChild className="bg-gold text-primary-foreground hover:bg-gold-hover">
+   817→          <a
+   818→            href={api.materialFileUrl(doc.id, true, guestId)}
+   819→            download={doc.originalName}
+   820→            aria-label={`Download ${doc.title} as PDF`}
+   821→          >
+   822→            <Download className="mr-2 h-4 w-4" aria-hidden /> Download PDF
+   823→          </a>
+   824→        </Button>
+   825→        <p className="text-xs text-muted-foreground">Served from your own session — only you can open this file.</p>
+   826→      </div>
+   827→    </div>
+   828→  )
+   829→}
+   830→
+   831→// ─── Material tab: honest status card while not READY ───
+   832→
+   833→function MaterialPendingPanel({ doc }: { doc: MaterialDetailDTO }) {
+   834→  const fallback: Record<MaterialStatus, string> = {
+   835→    QUEUED: 'This document is waiting in the processing queue.',
+   836→    EXTRACTING: 'Riishe is extracting the page text right now.',
+   837→    ANALYSING: 'Riishe is analysing topics, definitions and structure.',
+   838→    READY: '',
+   839→    NEEDS_OCR:
+   840→      'These pages look like scanned images — no readable text was found and OCR is unavailable, so the document cannot be analysed.',
+   841→    FAILED: 'Processing failed. You can retry it from here or from My Materials.',
+   842→  }
+   843→  return (
+   844→    <div className="rounded-xl border border-border bg-card p-6 sm:p-8" role="status">
+   845→      <div className="mx-auto max-w-md text-center">
+   846→        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-gold/30 bg-gold/10">
+   847→          {doc.status === 'FAILED' ? (
+   848→            <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
+   849→          ) : (
+   850→            <Loader2 className={cn('h-5 w-5 text-gold', isProcessing(doc.status) && 'animate-spin')} aria-hidden />
+   851→          )}
+   852→        </div>
+   853→        <h2 className="mt-4 font-display text-lg font-semibold text-foreground">
+   854→          {doc.status === 'FAILED' ? 'Processing failed' : doc.status === 'NEEDS_OCR' ? 'Needs OCR' : 'Analysis in progress'}
+   855→        </h2>
+   856→        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   857→          {doc.statusDetail ?? fallback[doc.status]}
+   858→        </p>
+   859→        {isProcessing(doc.status) && (
+   860→          <p className="mt-2 text-xs text-muted-foreground">This page updates automatically while processing runs.</p>
+   861→        )}
+   862→      </div>
+   863→    </div>
+   864→  )
+   865→}
+   866→
+   867→// ═══ Analysis tab ═══
+   868→
+   869→/** Honest processing-coverage card — real numbers, never a status badge alone. */
+   870→function CoverageCard({
+   871→  coverage,
+   872→  contentHash,
+   873→}: {
+   874→  coverage: DocumentCoverageDTO | null
+   875→  contentHash?: string
+   876→}) {
+   877→  if (!coverage) return null
+   878→  const rows: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }[] = [
+   879→    { label: 'PDF pages', value: String(coverage.totalPages) },
+   880→    { label: 'Text extracted', value: `${coverage.extractedPages}`, tone: 'ok' },
+   881→    ...(coverage.noTextPages > 0
+   882→      ? [{ label: 'Image-only (no text)', value: `${coverage.noTextPages}`, tone: 'warn' as const }]
+   883→      : []),
+   884→    ...(coverage.failedPages > 0
+   885→      ? [{ label: 'Extraction failed', value: `${coverage.failedPages}`, tone: 'bad' as const }]
+   886→      : []),
+   887→    ...(coverage.unprocessedPages > 0
+   888→      ? [{ label: 'Beyond size cap (not read)', value: `${coverage.unprocessedPages}`, tone: 'warn' as const }]
+   889→      : []),
+   890→    { label: 'Readable pages', value: String(coverage.readablePages) },
+   891→    { label: 'Pages analysed by Riishe', value: `${coverage.analysedPages} (${coverage.analysisPct}%)`, tone: coverage.analysisState === 'COMPLETE' ? 'ok' : 'warn' },
+   892→  ]
+   893→  const toneClass = (t?: string) =>
+   894→    t === 'ok' ? 'text-success' : t === 'warn' ? 'text-gold' : t === 'bad' ? 'text-destructive' : 'text-foreground'
+   895→
+   896→  return (
+   897→    <section aria-label="Processing coverage" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   898→      <div className="flex flex-wrap items-center justify-between gap-3">
+   899→        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   900→          <ScanSearch className="h-4 w-4 text-gold" aria-hidden /> Processing coverage
+
+[showing lines 1-900 of 1768; use offset=901 with limit to continue reading]

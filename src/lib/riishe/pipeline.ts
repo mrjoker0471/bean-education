@@ -15,10 +15,10 @@ import { safeParse } from '@/lib/serialize'
 import { readFile, unlink } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { extractPdfPages, type ExtractedPage } from './extract'
-import { detectStructure, type AnalysisUnit } from './structure'
+import { detectStructure, extractNumberToken, stripEntryTitle, type AnalysisUnit } from './structure'
 import { canonicalizeTopics, normalizeTitle, type TopicInput } from './dedupe'
 import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isContentFilterError, isRateLimitError } from './ai'
-import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics } from './types'
+import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics, type StructureTocEntry } from './types'
 
 const UNIT_CHARS = 6000 // per-model-call section budget
 
@@ -40,17 +40,41 @@ interface StoredAnalysis extends DocumentAnalysis {
 
 // ─── Merging helpers (deterministic) ─────────────────────────────────────────
 
+/** Contents-table facts looked up by section title, attached to anchored topics. */
+interface TocInfo {
+  number: string | null
+  printedPage: number | null
+  matchPage: number | null
+  matched: boolean
+}
+
+export function buildTocInfoMap(tocLayer: StructureTocEntry[]): Map<string, TocInfo> {
+  const map = new Map<string, TocInfo>()
+  for (const e of tocLayer) {
+    const key = normalizeTitle(stripEntryTitle(e.title))
+    if (key && !map.has(key)) {
+      map.set(key, { number: e.number, printedPage: e.printedPage, matchPage: e.matchPage, matched: e.matched })
+    }
+  }
+  return map
+}
+
 export function collectTopicInputs(
   parts: (SectionAnalysis | null)[],
   units: AnalysisUnit[],
   anchoredPages: Map<number, number | null>,
   tocPages: number[] = [],
+  tocInfo: Map<string, TocInfo> = new Map(),
 ): TopicInput[] {
   const inputs: TopicInput[] = []
+  void anchoredPages
   // Heading-anchored topics: each headed section contributes its own heading
   // as a topic — that is the document's real organisation, not model opinion.
+  // The topic keeps the document's exact wording, numbering and (when the
+  // document has a contents table) the entry's own match record.
   for (const u of units) {
     if (u.kind === 'SECTION' && u.title) {
+      const info = tocInfo.get(normalizeTitle(u.title))
       inputs.push({
         name: u.title,
         subtopics: [],
@@ -60,33 +84,42 @@ export function collectTopicInputs(
         unitFromPage: u.fromPage,
         unitToPage: u.toPage,
         anchored: true,
+        origin: 'SOURCE_HEADING',
+        titleSource: info ? 'toc' : 'body',
+        numbering: extractNumberToken(u.title),
+        tocPrintedPage: info?.printedPage ?? null,
+        tocMatchPage: info?.matchPage ?? null,
+        structureVerified: info ? info.matched : true,
       })
     }
   }
+  const tocPageSet = new Set(tocPages)
   for (const u of units) {
     const part = parts[u.index]
     if (!part) continue
-    // A front-matter unit that contains the document's contents pages yields
-    // only INDEX ECHOES ("Eligibility Criteria" from the contents line) —
-    // those are a map of the document, not its content. Skip them; the real
-    // chapters contribute their own anchored topics.
-    const isIndexEcho = u.kind === 'FRONT' && tocPages.some(tp => tp >= u.fromPage && tp <= u.toPage)
-    if (isIndexEcho) continue
+    // Topics the model claims ONLY on the document's own contents pages are
+    // INDEX ECHOES ("Eligibility Criteria" from the contents line) — a map of
+    // the document, not its content. Page-level check: real front-matter
+    // content around the contents table (vision/mission pages) is still kept.
+    const isFront = u.kind === 'FRONT'
     for (const t of part.topics ?? []) {
       const name = String(t?.name ?? '').trim()
       if (!name) continue
+      const claimed = (t.pages ?? []).filter(Number.isFinite)
+      if (isFront && claimed.length > 0 && claimed.every(p => tocPageSet.has(p))) continue
       inputs.push({
         name,
         subtopics: (t.subtopics ?? []).map(s => String(s)).filter(Boolean),
-        pages: (t.pages ?? []).filter(Number.isFinite),
+        pages: claimed,
         unitIndex: u.index,
         unitTitle: u.title,
         unitFromPage: u.fromPage,
         unitToPage: u.toPage,
+        origin: 'AI_INFERRED',
+        titleSource: 'inferred',
       })
     }
   }
-  void anchoredPages
   return inputs
 }
 
@@ -452,16 +485,26 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     if (!p.scanned && p.text) pageTextIndex.set(p.page, p.text.toLowerCase().replace(/[^a-z0-9]+/g, ' '))
   }
 
-  const topicInputs = collectTopicInputs(parts, units, new Map(), structure.tocPages)
+  const topicInputs = collectTopicInputs(parts, units, new Map(), structure.tocPages, buildTocInfoMap(structure.tocLayer))
   const topics: AnalyzedTopic[] = canonicalizeTopics(topicInputs, { pageTextIndex, maxTopics: 200, maxSubtopicsPerTopic: 12 })
 
-  // Printed page labels: only when a consistent printed numbering was detected
-  // (physical = printed + offset). Never invented — null otherwise.
-  if (structure.printed.offset !== null) {
+  // Printed page labels: per-page labels actually READ from the page edges
+  // take precedence (evidence, never derived); the detected offset is the
+  // fallback for pages whose label was not printed. Nothing is invented.
+  {
+    const edgeLabels = structure.printed.labels ?? {}
     const off = structure.printed.offset
     for (const t of topics) {
-      const labels = t.pages.map(p => p - off).filter(n => n >= 1).map(String)
-      if (labels.length === t.pages.length && labels.length > 0) t.printedPages = labels
+      if (t.pages.length === 0) continue
+      const direct = t.pages.map(p => edgeLabels[p]).filter((s): s is string => !!s)
+      if (direct.length === t.pages.length) {
+        t.printedPages = direct
+        continue
+      }
+      if (off !== null) {
+        const labels = t.pages.map(p => p - off).filter(n => n >= 1).map(String)
+        if (labels.length === t.pages.length) t.printedPages = labels
+      }
     }
   }
 
@@ -494,6 +537,15 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       headingCount: structure.headings.length,
       printedPageOffset: structure.printed.offset,
       printedRomanFrontMatter: structure.printed.romanFrontMatter,
+      // the ORIGINAL-STRUCTURE layer: the document's own contents entries with
+      // body-match status, its body headings, and the printed page labels that
+      // were actually read — recorded, never silently dropped
+      toc: structure.tocLayer.slice(0, 200),
+      headings: structure.headings.slice(0, 120).map(h => ({ title: h.title, page: h.page, level: h.level, fromToc: h.fromToc })),
+      tocMatched: structure.tocLayer.filter(e => e.matched).length,
+      tocUnmatched: structure.tocLayer.filter(e => !e.matched).length,
+      printedLabels: structure.printed.labels,
+      tocPages: structure.tocPages,
     },
     _parts: parts, // retained so a partial retry keeps every successful section
   }
@@ -642,7 +694,8 @@ Return JSON with this exact shape:
 
 Rules:
 - "topics": the concrete topics/concepts this text actually covers, using the document's own headings and terminology (3-8 at most; fewer is fine). Topic names must be SHORT noun phrases (≤ 8 words) — never full sentences. Do NOT invent topics, do NOT echo the section title unless the text genuinely develops it, and do NOT promote every heading you see.
-- "subtopics": concepts or key terms under each topic found in this text.
+- REFERENCE LISTS (abbreviations, glossaries, indexes, rosters, fee/centre/name tables): return exactly ONE topic named after the section's own heading or the list's own title, with the ACTUAL entries from the list as its subtopics (up to 12, verbatim, most study-relevant). NEVER invent thematic groupings the document did not write (e.g. "Government Bodies", "Educational Abbreviations" for an abbreviations list).
+- "subtopics": concepts or key terms under each topic, found in this text — they are verified against the pages and invented or garbled ones are dropped.
 - "pages" must cite page numbers from the [page N] markers in the text — never other numbers.
 - If this text is from a question paper, answer key or marks scheme, extract the subject areas the questions test (not the questions themselves) and note it in keyFacts.
 - "unreadable": list page labels whose text is garbled, truncated or incomprehensible ([] if none).

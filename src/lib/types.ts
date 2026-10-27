@@ -282,6 +282,9 @@ export interface BeanSettings {
 
 export type MaterialStatus = 'QUEUED' | 'EXTRACTING' | 'ANALYSING' | 'READY' | 'NEEDS_OCR' | 'FAILED'
 
+/** What a topic's title represents in the source document. */
+export type TopicOriginDTO = 'SOURCE_HEADING' | 'AI_INFERRED'
+
 export interface AnalyzedTopicDTO {
   name: string
   subtopics: string[]
@@ -293,6 +296,13 @@ export interface AnalyzedTopicDTO {
   aliases: string[]
   printedPages?: string[]
   pageVerified: boolean
+  /** v4 — three-layer separation: the document's own headings vs Riishe's study topics */
+  origin?: TopicOriginDTO
+  titleSource?: 'toc' | 'body' | 'inferred'
+  numbering?: string | null
+  tocPrintedPage?: number | null
+  tocMatchPage?: number | null
+  structureVerified?: boolean
 }
 
 export interface CoverageMetricsDTO {
@@ -321,6 +331,25 @@ export interface SectionOutcomeDTO {
   error?: string
 }
 
+/** One entry of the document's own table of contents (original wording kept). */
+export interface StructureTocEntryDTO {
+  title: string
+  number: string | null
+  printedPage: number | null
+  physicalPage: number | null
+  level: 1 | 2
+  matched: boolean
+  matchPage: number | null
+  note?: string
+}
+
+export interface StructureHeadingDTO {
+  title: string
+  page: number
+  level: 1 | 2
+  fromToc: boolean
+}
+
 export interface DocStructureInfoDTO {
   kind: 'TOC_GUIDED' | 'HEADING_GUIDED' | 'QUESTION_PAPER' | 'UNSTRUCTURED'
   tocValidated: boolean
@@ -328,6 +357,13 @@ export interface DocStructureInfoDTO {
   headingCount: number
   printedPageOffset: number | null
   printedRomanFrontMatter: boolean
+  /** v4 — the original-structure layer */
+  toc?: StructureTocEntryDTO[]
+  headings?: StructureHeadingDTO[]
+  tocMatched?: number
+  tocUnmatched?: number
+  printedLabels?: Record<string, string>
+  tocPages?: number[]
 }
 
 export interface DocumentAnalysisDTO {

@@ -5,18 +5,21 @@
 // WORKSPACE (#/riishe/[docId]): one document — Material / Analysis / Tests tabs.
 // All data comes from the backend pipeline; every state shown is honest.
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type {
   AnalyzedTopicDTO,
+  DocStructureInfoDTO,
   DocumentAnalysisDTO,
   MaterialDetailDTO,
   MaterialListItemDTO,
   MaterialStatus,
   RiisheTestDetailDTO,
   RiisheWeakTopicDTO,
+  SectionOutcomeDTO,
 } from '@/lib/types'
+import { PageRefChips, formatPageRefs } from '@/components/bean/riishe-bits'
 import { MaterialStatusBadge } from '@/components/bean/views/materials-view'
 import { MaterialPdfReader } from '@/components/bean/pdf-viewer'
 import { EmptyState } from '@/components/bean/empty-state'
@@ -33,6 +36,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -54,13 +58,14 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   ClipboardList,
   Download,
   FileText,
   FileWarning,
   Info,
   Lightbulb,
-  ListChecks,
+  ListTree,
   Loader2,
   Pencil,
   Play,
@@ -822,6 +827,25 @@ function MaterialPendingPanel({ doc }: { doc: MaterialDetailDTO }) {
 }
 
 // ═══ Analysis tab ═══
+//
+// Three honestly-labelled layers, always in this order:
+//   A — DOCUMENT STRUCTURE: the document's own headings (origin
+//       SOURCE_HEADING), word for word, with numbering and page ranges.
+//   B — AI STUDY TOPICS: what Riishe inferred inside those sections (origin
+//       AI_INFERRED) — always badged, never mixed into layer A.
+//   C — RIISHE'S STUDY NOTES: key facts, definitions, formulas and
+//       misconceptions written by Riishe — not part of the original text.
+// A coverage & honesty panel at the end accounts for every page and section.
+
+/** "SOURCE_HEADING" | "AI_INFERRED" — what a topic title represents. */
+type TopicOrigin = NonNullable<AnalyzedTopicDTO['origin']>
+
+/** Old (v3) analyses carry no `origin` — the backend default maps level-2
+ *  topics to AI_INFERRED and level-1 topics to SOURCE_HEADING. Mirror that
+ *  here so the previous analysis shape still renders sensibly. */
+function topicOrigin(topic: AnalyzedTopicDTO): TopicOrigin {
+  return topic.origin ?? (topic.level === 2 ? 'AI_INFERRED' : 'SOURCE_HEADING')
+}
 
 function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
   analysis: DocumentAnalysisDTO
@@ -830,16 +854,53 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
 }) {
   const cov = analysis.coverage
   const structure = analysis.structure
-  const partial = cov ? !cov.complete : false
+  const printedOffset = structure?.printedPageOffset ?? null
 
-  // Hierarchy: level-1 sections carry their level-2 children; children whose
-  // parent vanished (or old flat analyses) render at top level.
-  const tops = analysis.topics.filter(t => t.level !== 2 || !t.parentId || !analysis.topics.some(p => p.id === t.parentId))
-  const childrenOf = (id: string) => analysis.topics.filter(t => t.level === 2 && t.parentId === id)
+  // Layer partition — defensive for analyses without `origin` (see topicOrigin).
+  const structureTopics = analysis.topics.filter(t => topicOrigin(t) === 'SOURCE_HEADING')
+  const inferredTopics = analysis.topics.filter(t => topicOrigin(t) === 'AI_INFERRED')
+
+  // Layer B grouping: inferred topics sit under their parent section's own
+  // heading; level-1 inferred topics (heading-less documents) and orphans
+  // render as a plain list. Groups follow document order.
+  const topicById = new Map(analysis.topics.map(t => [t.id, t]))
+  const childrenByParent = new Map<string, AnalyzedTopicDTO[]>()
+  const looseInferred: AnalyzedTopicDTO[] = []
+  for (const t of inferredTopics) {
+    const parent = t.parentId ? topicById.get(t.parentId) : undefined
+    if (parent && topicOrigin(parent) === 'SOURCE_HEADING') {
+      const list = childrenByParent.get(parent.id)
+      if (list) list.push(t)
+      else childrenByParent.set(parent.id, [t])
+    } else {
+      looseInferred.push(t)
+    }
+  }
+  const inferredGroups = structureTopics
+    .map(parent => ({ parent, children: childrenByParent.get(parent.id) ?? [] }))
+    .filter(g => g.children.length > 0)
+
+  const structureNote = structure?.tocValidated
+    ? `Structure read from the document's own contents table — ${structure.tocEntries} entr${structure.tocEntries === 1 ? 'y' : 'ies'} validated against the body. Titles below are the document's own section titles, kept word for word.`
+    : structure && structure.kind !== 'UNSTRUCTURED'
+      ? `Structure read from ${structure.headingCount} heading${structure.headingCount === 1 ? '' : 's'} in the document itself. Titles below are the document's own section titles, kept word for word.`
+      : 'No contents page or section headings were detected in the document itself.'
+
+  const tocUnmatched =
+    structure?.tocUnmatched ?? (structure?.toc ? structure.toc.filter(e => !e.matched).length : 0)
+
+  const failedOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'FAILED') ?? []
+  const skippedOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'SKIPPED') ?? []
+  const incomplete = !!cov && !cov.complete
+
+  const hasNotes =
+    analysis.keyFacts.length > 0 ||
+    analysis.definitions.length > 0 ||
+    analysis.formulas.length > 0 ||
+    analysis.misconceptions.length > 0
 
   return (
-    <StructureContext.Provider value={structure}>
-      <div className="space-y-6">
+    <div className="space-y-6">
       {/* Golden rule */}
       <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3">
         <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
@@ -855,27 +916,96 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.summary}</p>
       </section>
 
-      {/* Topics — the document's own hierarchy */}
-      {tops.length > 0 && (
-        <section aria-label="Topics" className="rounded-xl border border-border bg-card p-5 sm:p-6">
-          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
-            <ListChecks className="h-4 w-4 text-gold" aria-hidden /> Topics
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {structure?.tocValidated
-              ? `Structure detected from the document's own table of contents (${structure.tocEntries} entries validated against the body).`
-              : structure && structure.kind !== 'UNSTRUCTURED'
-                ? `Structure detected from ${structure.headingCount} headings in the document itself.`
-                : 'This document has no detectable chapters or contents page — topics are listed in document order.'}
-            {' '}Page chips open the integrated reader at that exact page.
+      {/* Layer A — the document's own organisation */}
+      <section aria-label="Document structure" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+          <ListTree className="h-4 w-4 text-gold" aria-hidden /> Document structure
+        </h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{structureNote}</p>
+
+        {structureTopics.length > 0 ? (
+          <>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Page chips open the integrated reader at that exact page.
+            </p>
+            <ul className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-2">
+              {structureTopics.map((topic, i) => (
+                <SourceHeadingRow
+                  key={topic.id}
+                  topic={topic}
+                  index={i + 1}
+                  structure={structure}
+                  onOpenPage={onOpenPage}
+                />
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="mt-4 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+            No section headings were identified in the document — its own organisation could not be mapped.
           </p>
-          <ul className="mt-4 max-h-[40rem] space-y-4 overflow-y-auto pr-2">
-            {tops.map(topic => (
-              <TopicRow key={topic.id} topic={topic} childrenTopics={childrenOf(topic.id)} onOpenPage={onOpenPage} />
+        )}
+
+        {/* The "TOC vs body" honesty surface — collapsed by default so a long
+            contents table never dominates the layer. */}
+        {structure?.toc && structure.toc.length > 0 && <TocDisclosure structure={structure} />}
+      </section>
+
+      {/* Layer B — what Riishe identified (never mixed with the layer above) */}
+      <section aria-label="AI study topics" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+          <Sparkles className="h-4 w-4 text-gold" aria-hidden /> AI study topics
+        </h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Study topics Riishe identified inside the document. These are inferred by Riishe — the document itself does
+          not contain them as headings.
+        </p>
+
+        {inferredTopics.length === 0 ? (
+          <p className="mt-4 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+            No additional study topics were inferred for this document.
+          </p>
+        ) : (
+          <div className="mt-4 max-h-[32rem] space-y-4 overflow-y-auto pr-2">
+            {inferredGroups.map(g => (
+              <div key={g.parent.id}>
+                <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                  <BookOpen className="h-3 w-3 shrink-0 text-muted-foreground/70" aria-hidden />
+                  <span className="min-w-0 truncate font-medium text-foreground/80" title={g.parent.name}>
+                    {g.parent.name}
+                  </span>
+                  <span className="text-muted-foreground/70">— inferred inside this section</span>
+                </p>
+                <ul className="mt-2 space-y-2 border-l border-gold/25 pl-3">
+                  {g.children.map(child => (
+                    <InferredTopicRow key={child.id} topic={child} onOpenPage={onOpenPage} printedOffset={printedOffset} />
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
-        </section>
-      )}
+            {looseInferred.length > 0 && (
+              <ul className="space-y-2">
+                {looseInferred.map(t => (
+                  <InferredTopicRow key={t.id} topic={t} onOpenPage={onOpenPage} printedOffset={printedOffset} />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Layer C — Riishe's study notes (clearly separated from the document's
+          own structure above) */}
+      {hasNotes && (
+        <div className="space-y-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              Riishe's study notes
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Written by Riishe from this material — none of it is part of the original document.
+            </p>
+          </div>
 
       {/* Key facts */}
       {analysis.keyFacts.length > 0 && (
@@ -906,14 +1036,11 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                 <dt className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-foreground">{def.term}</span>
                   {def.page >= 1 && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenPage(def.page)}
-                      className="shrink-0 rounded-full border border-gold/30 px-2 py-0.5 text-xs text-gold transition-colors hover:bg-gold/10"
-                      aria-label={`Open page ${def.page} in the reader`}
-                    >
-                      <PageChipLabel page={def.page} structure={structure} />
-                    </button>
+                    <PageRefChips
+                      pages={[def.page]}
+                      onOpenPage={onOpenPage}
+                      printedOffset={structure?.printedPageOffset ?? null}
+                    />
                   )}
                 </dt>
                 <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{def.meaning}</dd>
@@ -964,14 +1091,11 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                     <span className="font-medium text-success">Correction: </span>
                     {m.correction}
                     {m.page != null && m.page >= 1 && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenPage(m.page as number)}
-                        className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold"
-                        aria-label={`Open page ${m.page} in the reader`}
-                      >
-                        <PageChipLabel page={m.page} structure={structure} />
-                      </button>
+                      <PageRefChips
+                        pages={[m.page]}
+                        onOpenPage={onOpenPage}
+                        printedOffset={structure?.printedPageOffset ?? null}
+                      />
                     )}
                   </span>
                 </p>
@@ -981,10 +1105,13 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
         </section>
       )}
 
-      {/* Coverage — real accounting, never "complete" when it isn't */}
-      <section aria-label="Coverage and gaps" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+        </div>
+      )}
+
+      {/* Coverage & honesty — real accounting, never "complete" when it isn't */}
+      <section aria-label="Coverage and honesty" className="rounded-xl border border-border bg-card p-5 sm:p-6">
         <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
-          <Info className="h-4 w-4 text-gold" aria-hidden /> Coverage &amp; gaps
+          <Info className="h-4 w-4 text-gold" aria-hidden /> Coverage &amp; honesty
         </h2>
 
         {cov ? (
@@ -1007,19 +1134,42 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
               )}
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <CoverageStat label="Pages extracted" value={cov.readablePages + cov.scannedPages} sub={`${cov.totalPages} total`} />
-              <CoverageStat label="Analysed pages" value={cov.analysedPages} sub={cov.unanalysedPages > 0 ? `${cov.unanalysedPages} pending` : cov.skippedPages > 0 ? `${cov.skippedPages} skipped` : 'all readable'} />
-              <CoverageStat label="Need OCR" value={cov.scannedPages} sub={cov.scannedPages > 0 ? 'image-only' : 'none'} />
+              <CoverageStat label="Pages extracted" value={cov.readablePages} sub={`${cov.totalPages} pages total`} />
+              <CoverageStat
+                label="Analysed pages"
+                value={cov.analysedPages}
+                sub={
+                  [
+                    cov.unanalysedPages > 0 ? `${cov.unanalysedPages} pending` : null,
+                    cov.skippedPages > 0 ? `${cov.skippedPages} skipped` : null,
+                  ]
+                    .filter((s): s is string => !!s)
+                    .join(' · ') || 'all readable'
+                }
+              />
+              <CoverageStat
+                label="Scanned pages"
+                value={cov.scannedPages}
+                sub={cov.scannedPages > 0 ? 'need OCR, excluded' : 'none'}
+              />
               <CoverageStat
                 label="Sections"
                 value={cov.unitsOk}
-                sub={cov.unitsFailed > 0
-                  ? `${cov.unitsFailed} failed of ${cov.unitsTotal}`
-                  : cov.unitsSkipped > 0
-                    ? `${cov.unitsSkipped} skipped of ${cov.unitsTotal}`
-                    : `${cov.unitsTotal} analysed`}
+                sub={
+                  cov.unitsFailed > 0 || cov.unitsSkipped > 0
+                    ? `${[cov.unitsFailed > 0 ? `${cov.unitsFailed} failed` : null, cov.unitsSkipped > 0 ? `${cov.unitsSkipped} skipped` : null]
+                        .filter((s): s is string => !!s)
+                        .join(' · ')} of ${cov.unitsTotal}`
+                    : `${cov.unitsTotal} analysed`
+                }
               />
             </dl>
+            {cov.skippedPages > 0 && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {cov.skippedPages} readable page{cov.skippedPages === 1 ? ' sits' : 's sit'} in{' '}
+                {cov.unitsSkipped} skipped section{cov.unitsSkipped === 1 ? '' : 's'} — readable, but never analysed.
+              </p>
+            )}
             {structure?.printedPageOffset != null && (
               <p className="mt-3 text-xs text-muted-foreground">
                 This document prints its own page numbers — PDF page {structure.printedPageOffset + 1} is printed page 1
@@ -1027,54 +1177,65 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                 {structure.printedRomanFrontMatter ? ' Front matter uses roman numerals.' : ''}
               </p>
             )}
+            {tocUnmatched > 0 && (
+              <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
+                <span>
+                  {tocUnmatched} contents entr{tocUnmatched === 1 ? 'y' : 'ies'} could not be matched to the document
+                  body — see the contents table above.
+                </span>
+              </p>
+            )}
           </>
         ) : null}
 
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.coverageNote}</p>
 
-        {/* Section-by-section accounting: what failed (retryable) and what was
-            skipped, always with the recorded reason — never a bare count. */}
-        {analysis.sectionOutcomes && analysis.sectionOutcomes.some(o => o.status !== 'OK') && (
-          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-2">
-            {analysis.sectionOutcomes.filter(o => o.status === 'FAILED').map(o => (
-              <div key={`f-${o.index}`} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
-                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
-                  <span><span className="font-medium text-destructive/90">Not analysed (retryable): </span>{o.label}</span>
-                </p>
-                {o.error && <p className="ml-5 text-[11px] text-muted-foreground">{o.error}</p>}
-              </div>
-            ))}
-            {analysis.sectionOutcomes.filter(o => o.status === 'SKIPPED').map(o => (
-              <div key={`s-${o.index}`} className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-2">
-                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
-                  <span><span className="font-medium text-gold">Skipped with reason: </span>{o.label}</span>
-                </p>
-                {o.error && <p className="ml-5 text-[11px] leading-relaxed text-muted-foreground">{o.error}</p>}
-              </div>
-            ))}
+        {/* Amber honesty panel: the analysis is incomplete — every failed
+            (retryable) and skipped (terminal) section, with its reason. */}
+        {incomplete && (
+          <div className="mt-4 rounded-lg border border-gold/40 bg-gold/5 p-4" role="status">
+            <p className="flex items-center gap-2 text-sm font-semibold text-gold">
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden /> Analysis is incomplete
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {[
+                failedOutcomes.length > 0
+                  ? `${failedOutcomes.length} section${failedOutcomes.length === 1 ? '' : 's'} failed`
+                  : null,
+                skippedOutcomes.length > 0
+                  ? `${skippedOutcomes.length} skipped with a recorded reason`
+                  : null,
+              ]
+                .filter((s): s is string => !!s)
+                .join(' · ') || 'Some sections were not analysed'}
+              . The counts above cover only what was actually analysed — retrying keeps every completed section.
+            </p>
+            <SectionOutcomeRows failed={failedOutcomes} skipped={skippedOutcomes} />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                className="bg-gold text-primary-foreground hover:bg-gold-hover"
+                onClick={() => onReanalyse(false)}
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry failed sections
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-border text-muted-foreground hover:bg-elevated"
+                onClick={() => onReanalyse(true)}
+              >
+                Re-analyse from scratch
+              </Button>
+            </div>
           </div>
         )}
 
-        {partial && cov && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              className="bg-gold text-primary-foreground hover:bg-gold-hover"
-              onClick={() => onReanalyse(false)}
-            >
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry failed sections
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-border text-muted-foreground hover:bg-elevated"
-              onClick={() => onReanalyse(true)}
-            >
-              Re-analyse from scratch
-            </Button>
-          </div>
+        {/* Quieter accounting when the analysis counts as complete but some
+            sections were skipped with a recorded reason. */}
+        {!incomplete && (failedOutcomes.length > 0 || skippedOutcomes.length > 0) && (
+          <SectionOutcomeRows failed={failedOutcomes} skipped={skippedOutcomes} />
         )}
 
         {analysis.studyGaps.length > 0 && (
@@ -1111,7 +1272,6 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
         )}
       </section>
     </div>
-    </StructureContext.Provider>
   )
 }
 
@@ -1122,24 +1282,61 @@ const STRUCTURE_KIND_LABEL: Record<NonNullable<DocumentAnalysisDTO['structure']>
   UNSTRUCTURED: 'Free-form document',
 }
 
-/** A topic row: level-1 sections render their level-2 children nested. */
-function TopicRow({ topic, childrenTopics, onOpenPage }: {
+/** At most `max` distinct sorted pages; the rest are summarised as "+N more". */
+function capPages(pages: number[], max: number): { pages: number[]; hidden: number; rest: number[] } {
+  const sorted = [...new Set(pages)].filter(p => Number.isFinite(p) && p >= 1).sort((a, b) => a - b)
+  return { pages: sorted.slice(0, max), hidden: Math.max(0, sorted.length - max), rest: sorted.slice(max) }
+}
+
+// ─── Layer A: the document's own section headings ───
+
+/**
+ * One SOURCE_HEADING topic — the document's own section. The exact original
+ * wording is rendered verbatim (never rewritten); `numbering` is shown as a
+ * small mono/gold chip when the document prints one. No origin badge here:
+ * these rows ARE the document.
+ */
+function SourceHeadingRow({ topic, index, structure, onOpenPage }: {
   topic: AnalyzedTopicDTO
-  childrenTopics: AnalyzedTopicDTO[]
+  index: number
+  structure?: DocStructureInfoDTO
   onOpenPage: (page: number) => void
 }) {
-  const structure = useContext(StructureContext)
+  const capped = capPages(topic.pages, 10)
   return (
     <li className="rounded-lg border border-border bg-elevated p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{topic.name}</p>
-          {topic.aliases.length > 0 && (
-            <p className="mt-0.5 text-xs text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="w-5 shrink-0 text-right font-mono text-xs text-muted-foreground/50" aria-hidden>
+            {index}
+          </span>
+          {topic.numbering && (
+            <Badge variant="outline" className="shrink-0 border-gold/30 font-mono text-[11px] text-gold/90">
+              {topic.numbering}
+            </Badge>
+          )}
+          <p className="min-w-0 text-sm font-semibold text-foreground" title={topic.name}>
+            {topic.name}
+          </p>
+          <StructureUnverifiedBadge topic={topic} structure={structure} />
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {capped.pages.length > 0 && (
+            <PageRefChips pages={capped.pages} onOpenPage={onOpenPage} printedOffset={structure?.printedPageOffset ?? null} compact />
+          )}
+          {capped.hidden > 0 && (
+            <span
+              className="text-[11px] text-muted-foreground/70"
+              title={`Also ${formatPageRefs(capped.rest)}`}
+            >
+              +{capped.hidden} more
+            </span>
           )}
         </div>
-        <PageChips pages={topic.pages} structure={structure} onOpenPage={onOpenPage} />
       </div>
+      {topic.aliases.length > 0 && (
+        <p className="mt-1 text-xs text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
+      )}
       {topic.subtopics.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {topic.subtopics.map(sub => (
@@ -1149,67 +1346,215 @@ function TopicRow({ topic, childrenTopics, onOpenPage }: {
           ))}
         </div>
       )}
-      {childrenTopics.length > 0 && (
-        <ul className="mt-3 space-y-2 border-l border-gold/25 pl-3">
-          {childrenTopics.map(child => (
-            <li key={child.id} className="rounded border border-border/60 bg-card/60 p-2.5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-foreground/90">{child.name}</p>
-                  {child.aliases.length > 0 && (
-                    <p className="mt-0.5 text-[11px] text-muted-foreground/70">also found as: {child.aliases.join(' · ')}</p>
-                  )}
-                </div>
-                <PageChips pages={child.pages} structure={structure} onOpenPage={onOpenPage} compact />
-              </div>
-              {child.subtopics.length > 0 && (
-                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">{child.subtopics.join(' · ')}</p>
+    </li>
+  )
+}
+
+/** Leading numbering token, mirrored from the backend's contents-table parser
+ *  so topic ↔ contents-entry matching still works when one side keeps the
+ *  number and the other does not. */
+const NUMBER_PREFIX_RE =
+  /^(?:(?:chapter|appendix|annexure|annex|unit|part|section|paper|lesson|module)\s*[-–—:]?\s*(?:[0-9]{1,3}|[ivxlcdm]{1,7}|[a-z])|\d{1,2}(?:\.\d{1,2})?|[ivxlcdm]{1,7})\b[\s.:—–-]*/i
+
+function normalizeTitleLoose(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/** Honest "unverified" marker: with a validated contents table, a section is
+ *  unverified when the pipeline could not confirm it in the body (or no
+ *  contents entry matched it). Tooltip carries the recorded note when known. */
+function StructureUnverifiedBadge({ topic, structure }: {
+  topic: AnalyzedTopicDTO
+  structure?: DocStructureInfoDTO
+}) {
+  if (!structure?.tocValidated) return null
+  if (topic.structureVerified !== false && topic.tocMatchPage != null) return null
+  return (
+    <span
+      title={structureNoteForTopic(topic, structure)}
+      className="inline-flex shrink-0 cursor-help items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+    >
+      <Info className="h-3 w-3" aria-hidden /> unverified
+    </span>
+  )
+}
+
+function structureNoteForTopic(topic: AnalyzedTopicDTO, structure: DocStructureInfoDTO): string {
+  const name = normalizeTitleLoose(topic.name)
+  const bare = name.replace(NUMBER_PREFIX_RE, '')
+  const entry = (structure.toc ?? []).find(e => {
+    const title = normalizeTitleLoose(e.title)
+    return title === name || (title.replace(NUMBER_PREFIX_RE, '') === bare && bare.length > 0)
+  })
+  if (entry?.note) return entry.note
+  return topic.structureVerified === false
+    ? 'Listed in the contents table, but the section could not be confirmed at the expected place in the document body.'
+    : 'This heading was read from the document body; no matching entry was found in the contents table, so it was not cross-checked.'
+}
+
+// ─── Layer A: the original contents table, honestly reconciled with the body ───
+
+/**
+ * Collapsed-by-default disclosure of the document's own contents entries —
+ * original wording kept, each entry checked against where it actually appears
+ * in the body. This is the "TOC vs body" honesty surface.
+ */
+function TocDisclosure({ structure }: { structure: DocStructureInfoDTO }) {
+  const entries = structure.toc ?? []
+  if (entries.length === 0) return null
+  const matched = structure.tocMatched ?? entries.filter(e => e.matched).length
+  const unmatched = structure.tocUnmatched ?? entries.filter(e => !e.matched).length
+  return (
+    <Collapsible className="group mt-4">
+      <CollapsibleTrigger
+        className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-border bg-elevated px-4 py-2.5 text-left transition-colors hover:border-gold/40"
+        aria-label={`Toggle the document's contents table (${entries.length} entries)`}
+      >
+        <ChevronDown
+          className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+          aria-hidden
+        />
+        <span className="text-sm font-medium text-foreground">
+          Contents table ({entries.length} {entries.length === 1 ? 'entry' : 'entries'})
+        </span>
+        <span className="ml-auto flex items-center gap-2 text-xs">
+          <span className="text-success">{matched} matched</span>
+          {unmatched > 0 && <span className="text-gold">{unmatched} not matched</span>}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto rounded-lg border border-border/60 bg-elevated/50 p-2">
+          {entries.map((e, i) => (
+            <li
+              key={`${i}-${e.title}`}
+              className={cn('flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded border border-border/50 bg-card px-2.5 py-1.5', e.level === 2 && 'ml-4')}
+            >
+              {e.number && (
+                <span className="shrink-0 rounded border border-gold/30 px-1.5 py-0.5 font-mono text-[10px] text-gold/90">
+                  {e.number}
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground/90" title={e.title}>
+                {e.title}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {e.printedPage != null ? `printed p. ${e.printedPage}` : 'no printed page'}
+                {e.matchPage != null ? ` → PDF p. ${e.matchPage}` : ''}
+              </span>
+              {e.matched ? (
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Matched in the document body" />
+              ) : (
+                <span
+                  className="shrink-0"
+                  title={e.note ?? 'This contents entry could not be located in the document body.'}
+                >
+                  <AlertTriangle
+                    className="h-3.5 w-3.5 text-gold"
+                    aria-label="Could not be matched in the document body"
+                  />
+                </span>
               )}
             </li>
           ))}
         </ul>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          The document's own contents list, exactly as printed, checked against where each entry actually appears in
+          the body. Original wording is kept — nothing is rewritten.
+        </p>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+// ─── Layer B: what Riishe inferred ───
+
+/**
+ * One AI_INFERRED study topic — always badged so it can never be mistaken for
+ * the document's own headings. Subtopics render as small chips, page refs as
+ * the shared page chips.
+ */
+function InferredTopicRow({ topic, onOpenPage, printedOffset }: {
+  topic: AnalyzedTopicDTO
+  onOpenPage: (page: number) => void
+  printedOffset?: number | null
+}) {
+  const capped = capPages(topic.pages, 6)
+  return (
+    <li className="rounded border border-border/60 bg-card/60 p-2.5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <Badge variant="outline" className="mt-0.5 shrink-0 gap-1 border-border text-muted-foreground">
+            <Sparkles className="h-3 w-3" aria-hidden /> Inferred
+          </Badge>
+          <p className="min-w-0 text-xs font-medium text-foreground/90" title={topic.name}>
+            {topic.name}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {capped.pages.length > 0 && (
+            <PageRefChips pages={capped.pages} onOpenPage={onOpenPage} printedOffset={printedOffset} compact />
+          )}
+          {capped.hidden > 0 && (
+            <span
+              className="text-[11px] text-muted-foreground/70"
+              title={`Also ${formatPageRefs(capped.rest)}`}
+            >
+              +{capped.hidden} more
+            </span>
+          )}
+        </div>
+      </div>
+      {topic.aliases.length > 0 && (
+        <p className="mt-1 text-[11px] text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
+      )}
+      {topic.subtopics.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {topic.subtopics.map(sub => (
+            <Badge key={sub} variant="outline" className="border-border text-muted-foreground">
+              {sub}
+            </Badge>
+          ))}
+        </div>
       )}
     </li>
   )
 }
 
-// Structure info context — avoids re-plumbing props through every row.
-const StructureContext = createContext<DocumentAnalysisDTO['structure'] | undefined>(undefined)
+// ─── Coverage: section-by-section accounting ───
 
-function PageChipLabel({ page, structure }: { page: number; structure?: DocumentAnalysisDTO['structure'] }) {
-  const off = structure?.printedPageOffset
-  const printed = off != null ? page - off : null
-  if (printed != null && printed >= 1) return <>PDF p. {page} · printed p. {printed}</>
-  return <>p. {page}</>
-}
-
-function PageChips({ pages, structure, onOpenPage, compact }: {
-  pages: number[]
-  structure?: DocumentAnalysisDTO['structure']
-  onOpenPage: (page: number) => void
-  compact?: boolean
+/** Every failed (retryable) and skipped (terminal) section, always with the
+ *  recorded reason — never a bare count. */
+function SectionOutcomeRows({ failed, skipped }: {
+  failed: SectionOutcomeDTO[]
+  skipped: SectionOutcomeDTO[]
 }) {
-  const sorted = [...new Set(pages)].filter(Number.isFinite).filter(p => p >= 1).sort((a, b) => a - b)
-  if (sorted.length === 0) return null
-  const shown = compact ? sorted.slice(0, 6) : sorted.slice(0, 10)
-  const hidden = sorted.length - shown.length
+  if (failed.length === 0 && skipped.length === 0) return null
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
-      {shown.map(p => (
-        <button
-          key={p}
-          type="button"
-          onClick={() => onOpenPage(p)}
-          title={`Open page ${p} in the reader`}
-          aria-label={`Open page ${p} in the reader`}
-          className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-gold/50 hover:bg-gold/10 hover:text-gold"
-        >
-          <PageChipLabel page={p} structure={structure} />
-        </button>
+    <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+      {failed.map(o => (
+        <div key={`f-${o.index}`} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
+            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+            <span>
+              <span className="font-medium text-destructive/90">Not analysed (retryable): </span>
+              {o.label}
+            </span>
+          </p>
+          {o.error && <p className="ml-5 text-[11px] text-muted-foreground">{o.error}</p>}
+        </div>
       ))}
-      {hidden > 0 && (
-        <span className="text-xs text-muted-foreground/70">+{hidden} more</span>
-      )}
+      {skipped.map(o => (
+        <div key={`s-${o.index}`} className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-2">
+          <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
+            <span>
+              <span className="font-medium text-gold">Skipped with reason: </span>
+              {o.label}
+            </span>
+          </p>
+          {o.error && <p className="ml-5 text-[11px] leading-relaxed text-muted-foreground">{o.error}</p>}
+        </div>
+      ))}
     </div>
   )
 }

@@ -294,24 +294,3 @@ Work Log:
 
 Stage Summary:
 - Riishe is live end-to-end: upload → real extraction & analysis → validated 50-question generation with honest quality gates → server-authoritative timed/untimed exam with autosave/resume → grounded mistake explanations with retry → weak-topic revision loop. Ownership enforced everywhere; scanned/thin/broken files get honest outcomes; BEAN Intelligence, the three-layer system, catalogue and all prior functionality preserved. lint 0 errors; tsc clean; committed as 10be2dc.
-
----
-Task ID: 11 (Task I — Riishe Universal Document Structure & Analysis Fix)
-Agent: main (Z.ai Code)
-Task: Fix root causes in Riishe's document extraction, section detection, topic hierarchy, dedupe, page mapping and analysis coverage — generically, with no document-specific hardcoding. Verify with real tests and report honestly.
-
-Work Log:
-- Repo survey: found the previous session's uncommitted v3 pipeline work in the working tree (PIPELINE_VERSION=3): fair topic cap in dedupe.ts (level-1 topics always survive, level-2 trimmed round-robin), full multi-unit page spans, wrapped-TOC-row joining in structure.ts, content-filter sub-chunk/skip accounting in pipeline.ts + ai.ts (isContentFilterError/isRateLimitError), honest throttling notes in generate.ts, SKIPPED/FAILED section-outcome UI in riishe-view.tsx, retry route keyed to PIPELINE_VERSION. Verified no syntax/type errors (a suspected corruption in structure.ts line 604 was a display artifact of bracket-containing lines).
-- Ran existing unit suite scripts/tmp/structure-tests.ts: 28/28 passed (normalisation, TOC validation, hierarchy, dedupe vs distinct concepts, determinism, wrapped-row joining, page verification, fair cap).
-- Fixed scripts/tmp/pipeline-e2e.ts: stale pipelineVersion===2 assertion now uses PIPELINE_VERSION import; broken cleanup loop now removes stored files too; provider-throttle-resilient analyse() (bounded 90s wait rounds, honest logging).
-- Cleaned orphan e2e uploads from db/uploads (7 files) — only the real CUET doc remains.
-- Deterministic verification of the REAL 96-page CUET bulletin (scripts/tmp/verify-analysis.ts): 7/7 passed — 201 topic-page refs checked (76% literal-token verified + 25/25 level-1 anchor pages verified), printed labels consistent (offset 1), zero duplicate topics, 10 alias-carrying merges, hierarchy consistent (25 L1 + 92 L2), coverage ledger adds up (94 analysed + 0 skipped + 0 unanalysed = 94 readable of 96 total, 2 scanned → OCR note).
-- New dry-run suite scripts/tmp/dry-run.ts (no AI): 22/22 passed across 4 document shapes (TOC textbook, no-TOC lecture notes, question paper, wrapped-TOC+appendix guide) — units cover every readable page exactly once, char budget respected, no dup topics, unit titles never dropped, sub-chunk split covers every page, printed labels never ≤0 and never claimed for front matter.
-- Browser E2E (agent-browser, owner guest): workspace loads; Analysis tab shows TOC-derived structure line, L1/L2 hierarchy, dual page labels "PDF p. N · printed p. M"; page chip deep-link opens the integrated reader at exactly Page 13 of 96 (verified by screenshot); coverage ledger renders (96/94/2/37); Tests tab lists document-derived focus chips; mobile 390px zero horizontal overflow; footer flush with page bottom, pushed naturally on long pages.
-- Honest partial-coverage UI verified via a locally-injected synthetic doc (no AI): red "Not analysed (retryable)" box with reason, gold "Skipped with reason" box with full recorded reason, coverage ledger "2 pending", Retry failed sections + Re-analyse from scratch buttons — then deleted with zero residue.
-- Committed v3 pipeline work + tracked all regression test scripts in git (commits 9f2661d, 2b61fa5, c720a78).
-- BLOCKER: AI provider returned 429 (Too many requests) continuously from ~06:45 to ~07:40 — the previous session's 37-section CUET analysis + recovery loops appear to have exhausted a rolling quota window. Pipeline E2E (4 shapes through real AI) and grounded-generation E2E (scripts/tmp/generation-e2e.ts, prepared and schema-verified: start route returns attemptId only, questions come from /api/attempts/[id] without correctIndex) are READY but pending provider recovery; probing periodically.
-
-Stage Summary:
-- Deterministic spine of Task I is implemented, committed, and verified by 57 passing checks across 3 suites; real-document analysis on the 96-page CUET bulletin is complete (37/37 sections, coverage ledger honest, no duplicates). Browser-verified: hierarchy UI, dual page labels, chip→reader deep-link on the right page, honest partial-coverage accounting UI, responsive layout, sticky footer.
-- Pending provider recovery: pipeline E2E with live AI across 4 doc shapes; grounded generation → exam → explanations E2E; then final report.

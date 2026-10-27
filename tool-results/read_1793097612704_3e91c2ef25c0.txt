@@ -1,0 +1,866 @@
+     1→'use client'
+     2→
+     3→// Shared Riishe UI pieces: page-reference chips, formatting helpers, the
+     4→// pre-test summary card and the configurable generation panel. Used by the
+     5→// document workspace, the Practice builder and the Topics browser so every
+     6→// surface behaves identically.
+     7→
+     8→import { useEffect, useMemo, useState } from 'react'
+     9→import { api } from '@/lib/api'
+    10→import type { QuestionCategoryDTO, RiisheTestDetailDTO } from '@/lib/types'
+    11→import { Badge } from '@/components/ui/badge'
+    12→import { Button } from '@/components/ui/button'
+    13→import { Input } from '@/components/ui/input'
+    14→import { Label } from '@/components/ui/label'
+    15→import { Skeleton } from '@/components/ui/skeleton'
+    16→import { cn } from '@/lib/utils'
+    17→import {
+    18→  AlertTriangle,
+    19→  BookOpen,
+    20→  CheckCircle2,
+    21→  ClipboardList,
+    22→  Info,
+    23→  Loader2,
+    24→  Play,
+    25→  RotateCcw,
+    26→  Sparkles,
+    27→} from 'lucide-react'
+    28→
+    29→export const CATEGORY_LABEL: Record<string, string> = {
+    30→  FOUNDATION: 'Foundation',
+    31→  APPLICATION: 'Application',
+    32→  STATEMENT: 'Statement-based',
+    33→  MULTISTEP: 'Multi-step',
+    34→  MISCONCEPTION: 'Misconception check',
+    35→}
+    36→
+    37→export const DIFFICULTY_LABEL: Record<string, string> = {
+    38→  MIXED: 'Mixed',
+    39→  FOUNDATIONAL: 'Foundational',
+    40→  INTERMEDIATE: 'Intermediate',
+    41→  ADVANCED: 'Advanced',
+    42→}
+    43→
+    44→// ─── Formatting helpers ───
+    45→
+    46→export function formatBytes(n: number): string {
+    47→  if (!Number.isFinite(n) || n <= 0) return '0 B'
+    48→  if (n < 1024) return `${n} B`
+    49→  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
+    50→  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+    51→}
+    52→
+    53→export function formatDate(iso: string): string {
+    54→  const d = new Date(iso)
+    55→  if (Number.isNaN(d.getTime())) return iso
+    56→  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    57→}
+    58→
+    59→/** [1,2,3,7] → "pages 1–3, 7" · [5] → "page 5" */
+    60→export function formatPageRefs(pages: number[]): string {
+    61→  const sorted = [...new Set(pages)].filter(Number.isFinite).sort((a, b) => a - b)
+    62→  if (sorted.length === 0) return ''
+    63→  const parts: string[] = []
+    64→  let start = sorted[0]
+    65→  let prev = sorted[0]
+    66→  for (let i = 1; i <= sorted.length; i++) {
+    67→    const cur = sorted[i]
+    68→    if (cur === prev + 1) {
+    69→      prev = cur
+    70→      continue
+    71→    }
+    72→    parts.push(start === prev ? `${start}` : `${start}–${prev}`)
+    73→    start = cur
+    74→    prev = cur
+    75→  }
+    76→  const joined = parts.join(', ')
+    77→  return parts.length === 1 && !joined.includes('–') ? `page ${joined}` : `pages ${joined}`
+    78→}
+    79→
+    80→const DEFAULT_WEIGHTS: Record<QuestionCategoryDTO, number> = {
+    81→  FOUNDATION: 10,
+    82→  APPLICATION: 15,
+    83→  STATEMENT: 10,
+    84→  MULTISTEP: 10,
+    85→  MISCONCEPTION: 5,
+    86→}
+    87→
+    88→/** Same scaling the backend uses for the distribution preview. */
+    89→export function distributionLine(count: number, active: QuestionCategoryDTO[]): string {
+    90→  const weightSum = active.reduce((s, c) => s + DEFAULT_WEIGHTS[c], 0)
+    91→  const parts = active.map(c => `${Math.max(1, Math.round((DEFAULT_WEIGHTS[c] / weightSum) * count))} ${CATEGORY_LABEL[c].toLowerCase()}`)
+    92→  return parts.join(' · ')
+    93→}
+    94→
+    95→// ─── Page references ───
+    96→
+    97→/**
+    98→ * Clickable page-reference chips — every citation in analyses, provenance
+    99→ * lists and explanations opens the reader at exactly that page. The host
+   100→ * decides where "that page" lives (local reader overlay or a deep link into
+   101→ * the source document's workspace).
+   102→ */
+   103→export function PageRefChips({
+   104→  pages,
+   105→  onOpenPage,
+   106→  compact,
+   107→}: {
+   108→  pages: number[]
+   109→  onOpenPage: (page: number, docId?: string) => void
+   110→  compact?: boolean
+   111→}) {
+   112→  const sorted = [...new Set(pages)].filter(p => Number.isFinite(p) && p >= 1).sort((a, b) => a - b)
+   113→  if (sorted.length === 0) return null
+   114→  return (
+   115→    <span className={cn('inline-flex flex-wrap items-center gap-1.5', compact && 'gap-1')}>
+   116→      {sorted.map(p => (
+   117→        <button
+   118→          key={p}
+   119→          type="button"
+   120→          onClick={() => onOpenPage(p)}
+   121→          title={`Open the document at page ${p}`}
+   122→          aria-label={`Open the document at page ${p}`}
+   123→          className="inline-flex min-h-6 items-center gap-1 rounded-full border border-gold/40 bg-card px-2 py-0.5 text-[11px] font-medium text-gold transition-colors hover:bg-gold/10"
+   124→        >
+   125→          <BookOpen className="h-3 w-3" aria-hidden /> page {p}
+   126→        </button>
+   127→      ))}
+   128→    </span>
+   129→  )
+   130→}
+   131→
+   132→// ─── Test lifecycle hook: poll a Riishe test until it settles ───
+   133→
+   134→export function useRiisheTestPoll(testId: string | null, guestId: string) {
+   135→  const [loaded, setLoaded] = useState<{ key: string; data: RiisheTestDetailDTO } | null>(null)
+   136→  const [error, setError] = useState<string | null>(null)
+   137→
+   138→  useEffect(() => {
+   139→    if (!guestId || !testId) return
+   140→    let alive = true
+   141→    let timer: ReturnType<typeof setInterval> | null = null
+   142→    const fetchOnce = () => {
+   143→      api
+   144→        .riisheTest(testId, guestId)
+   145→        .then(d => {
+   146→          if (!alive) return
+   147→          setLoaded({ key: testId, data: d })
+   148→          setError(null)
+   149→          if (timer && d.status !== 'QUEUED' && d.status !== 'GENERATING') {
+   150→            clearInterval(timer)
+   151→            timer = null
+   152→          }
+   153→        })
+   154→        .catch((e: unknown) => {
+   155→          if (!alive) return
+   156→          setError(e instanceof Error ? e.message : 'Could not load the practice set status.')
+   157→        })
+   158→    }
+   159→    fetchOnce()
+   160→    timer = setInterval(fetchOnce, 4000)
+   161→    return () => {
+   162→      alive = false
+   163→      if (timer) clearInterval(timer)
+   164→    }
+   165→  }, [guestId, testId])
+   166→
+   167→  const test = loaded && loaded.key === testId ? loaded.data : null
+   168→  return { test, error }
+   169→}
+   170→
+   171→// ─── Pre-test summary ───
+   172→
+   173→export function PreTestSummaryCard({
+   174→  test,
+   175→  starting,
+   176→  onStart,
+   177→  onOpenPage,
+   178→}: {
+   179→  test: RiisheTestDetailDTO
+   180→  starting: boolean
+   181→  onStart: () => void
+   182→  onOpenPage: (page: number, docId?: string) => void
+   183→}) {
+   184→  const stats = test.stats
+   185→  const difficulty = stats?.byDifficulty
+   186→  const scoring = `+${test.config.marksPerQuestion} per correct${
+   187→    test.config.negativeMark > 0 ? `, −${test.config.negativeMark} per wrong answer` : ', no negative marking'
+   188→  }`
+   189→  const sourceDocs = test.sourceDocuments?.length ? test.sourceDocuments : [{ id: test.documentId, title: test.documentTitle, pageCount: null }]
+   190→
+   191→  return (
+   192→    <div className="rounded-xl border border-gold/40 bg-card p-5 sm:p-6">
+   193→      <div className="flex flex-wrap items-start justify-between gap-3">
+   194→        <div className="min-w-0">
+   195→          <h2 className="font-display text-lg font-semibold text-foreground" title={test.title}>
+   196→            {test.title}
+   197→          </h2>
+   198→          <p className="mt-1 text-xs text-muted-foreground">
+   199→            {sourceDocs.length === 1
+   200→              ? <>Source document: {test.documentTitle}</>
+   201→              : <>Sources: {sourceDocs.map(d => d.title).join(' · ')}</>}
+   202→            {test.weakFocus ? ' · weak-area focus' : ''}
+   203→          </p>
+   204→        </div>
+   205→        <Badge variant="outline" className="shrink-0 border-success/40 bg-success/10 text-success">
+   206→          <CheckCircle2 className="h-3 w-3" aria-hidden /> Ready
+   207→        </Badge>
+   208→      </div>
+   209→
+   210→      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+   211→        <SummaryItem label="Focus" value={test.focusTopics.length ? test.focusTopics.join(' · ') : 'Balanced mix across your selection'} />
+   212→        <SummaryItem
+   213→          label="Questions"
+   214→          value={
+   215→            stats
+   216→              ? `${test.questionCount} (validated ${stats.validated} of ${stats.generated} generated; ${stats.rejected} rejected by quality gates)`
+   217→              : String(test.questionCount)
+   218→          }
+   219→        />
+   220→        <SummaryItem
+   221→          label="Scoring"
+   222→          value={scoring}
+   223→          sub="Your chosen practice scoring — not tied to any official scheme"
+   224→        />
+   225→        <SummaryItem label="Time limit" value={test.config.timed ? `${test.config.durationMin} min` : 'No time limit'} />
+   226→      </div>
+   227→
+   228→      {difficulty && (
+   229→        <div className="mt-4 flex flex-wrap items-center gap-2">
+   230→          <span className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Difficulty:</span>
+   231→          <Badge variant="outline" className="border-success/40 text-success">EASY {difficulty.EASY}</Badge>
+   232→          <Badge variant="outline" className="border-gold/40 text-gold">MEDIUM {difficulty.MEDIUM}</Badge>
+   233→          <Badge variant="outline" className="border-destructive/40 text-destructive">HARD {difficulty.HARD}</Badge>
+   234→        </div>
+   235→      )}
+   236→
+   237→      {/* Question provenance — page-level preview of the evidence used. The
+   238→          evidence quotes and the answer key stay hidden until submission. */}
+   239→      {test.questions.length > 0 && (
+   240→        <details className="mt-4 rounded-lg border border-border bg-elevated">
+   241→          <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+   242→            Question provenance ({test.questions.length}) — topics and source pages
+   243→          </summary>
+   244→          <ul className="max-h-64 space-y-1 overflow-y-auto px-4 pb-3">
+   245→            {test.questions.map(q => (
+   246→              <li key={q.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 py-2 first:border-t-0">
+   247→                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={q.text}>
+   248→                  <span className="font-semibold text-foreground">Q{q.order}</span>{' '}
+   249→                  {CATEGORY_LABEL[q.category] ?? q.category}
+   250→                  {q.topic ? ` · ${q.topic}` : ''}
+   251→                  {' · '}
+   252→                  {q.difficulty.toLowerCase()}
+   253→                </span>
+   254→                {q.pageRefs.length > 0 && (
+   255→                  <PageRefChips
+   256→                    pages={q.pageRefs}
+   257→                    onOpenPage={page => onOpenPage(page, q.documentId)}
+   258→                    compact
+   259→                  />
+   260→                )}
+   261→              </li>
+   262→            ))}
+   263→          </ul>
+   264→        </details>
+   265→      )}
+   266→
+   267→      <Button
+   268→        className="mt-5 bg-gold text-primary-foreground hover:bg-gold-hover"
+   269→        disabled={starting}
+   270→        onClick={onStart}
+   271→      >
+   272→        {starting ? (
+   273→          <>
+   274→            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Opening…
+   275→          </>
+   276→        ) : (
+   277→          <>
+   278→            <Play className="mr-2 h-4 w-4" aria-hidden /> Start Test
+   279→          </>
+   280→        )}
+   281→      </Button>
+   282→    </div>
+   283→  )
+   284→}
+   285→
+   286→export function SummaryItem({ label, value, sub }: { label: string; value: string; sub?: string }) {
+   287→  return (
+   288→    <div className="rounded-lg border border-border bg-elevated px-4 py-3">
+   289→      <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
+   290→      <p className="mt-1 break-words text-sm text-foreground">{value}</p>
+   291→      {sub && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{sub}</p>}
+   292→    </div>
+   293→  )
+   294→}
+   295→
+   296→// ─── History row ───
+   297→
+   298→export function TestHistoryRow({
+   299→  test,
+   300→  starting,
+   301→  onSelect,
+   302→  onStart,
+   303→}: {
+   304→  test: { id: string; title: string; status: 'QUEUED' | 'GENERATING' | 'READY' | 'FAILED'; questionCount: number; requestedCount: number; createdAt: string; stats?: { validated: number } | null }
+   305→  starting: boolean
+   306→  onSelect: () => void
+   307→  onStart: () => void
+   308→}) {
+   309→  return (
+   310→    <li className="rounded-lg border border-border bg-elevated p-4">
+   311→      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+   312→        <div className="min-w-0">
+   313→          <button
+   314→            type="button"
+   315→            onClick={onSelect}
+   316→            className="group block max-w-full overflow-hidden rounded text-left"
+   317→            aria-label={`Show details for ${test.title}`}
+   318→          >
+   319→            <span className="block truncate text-sm font-medium text-foreground transition-colors group-hover:text-gold">
+   320→              {test.title}
+   321→            </span>
+   322→          </button>
+   323→          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+   324→            <span>
+   325→              {test.questionCount} question{test.questionCount === 1 ? '' : 's'}
+   326→              {test.stats ? ` · ${test.stats.validated} validated` : ''}
+   327→            </span>
+   328→            <span aria-hidden>·</span>
+   329→            <span>Created {formatDate(test.createdAt)}</span>
+   330→          </p>
+   331→        </div>
+   332→        <div className="flex shrink-0 items-center gap-2">
+   333→          <TestHistoryBadge status={test.status} />
+   334→          {test.status === 'READY' && (
+   335→            <Button
+   336→              size="sm"
+   337→              className="bg-gold text-primary-foreground hover:bg-gold-hover"
+   338→              disabled={starting}
+   339→              onClick={onStart}
+   340→              aria-label={`Start ${test.title}`}
+   341→            >
+   342→              {starting ? (
+   343→                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+   344→              ) : (
+   345→                <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+   346→              )}
+   347→              Start Test
+   348→            </Button>
+   349→          )}
+   350→        </div>
+   351→      </div>
+   352→    </li>
+   353→  )
+   354→}
+   355→
+   356→export function TestHistoryBadge({ status }: { status: 'QUEUED' | 'GENERATING' | 'READY' | 'FAILED' }) {
+   357→  if (status === 'READY') {
+   358→    return (
+   359→      <Badge variant="outline" className="gap-1 border-success/40 bg-success/10 text-success">
+   360→        <CheckCircle2 className="h-3 w-3" aria-hidden /> Ready
+   361→      </Badge>
+   362→    )
+   363→  }
+   364→  if (status === 'FAILED') {
+   365→    return (
+   366→      <Badge variant="outline" className="gap-1 border-destructive/40 bg-destructive/10 text-destructive">
+   367→        <AlertTriangle className="h-3 w-3" aria-hidden /> Failed
+   368→      </Badge>
+   369→    )
+   370→  }
+   371→  return (
+   372→    <Badge variant="outline" className="gap-1.5 border-gold/40 bg-gold/10 text-gold">
+   373→      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" aria-hidden />
+   374→      {status === 'QUEUED' ? 'Queued' : 'Generating…'}
+   375→    </Badge>
+   376→  )
+   377→}
+   378→
+   379→// ═══ Generator panel (workspace + practice builder) ═══
+   380→
+   381→export interface GeneratorDoc {
+   382→  id: string
+   383→  title: string
+   384→  topics: { name: string; pages: number[] }[]
+   385→}
+   386→
+   387→const COUNT_PRESETS = [10, 25, 50, 100] as const
+   388→const ALL_CATEGORIES: QuestionCategoryDTO[] = ['FOUNDATION', 'APPLICATION', 'STATEMENT', 'MULTISTEP', 'MISCONCEPTION']
+   389→const MARKS_OPTIONS = [1, 2, 4, 5] as const
+   390→const NEGATIVE_OPTIONS = [0, 0.25, 0.5, 1] as const
+   391→
+   392→/**
+   393→ * The configurable question-generation interface (Step D). Works locked to a
+   394→ * single document (workspace) or across several documents (Practice builder).
+   395→ * Scoring is always an explicit student choice — there is no hidden exam
+   396→ * rule anywhere.
+   397→ */
+   398→export function RiisheGeneratorPanel({
+   399→  guestId,
+   400→  docs,
+   401→  locked,
+   402→  initialDocIds,
+   403→  initialTopics,
+   404→  onGenerated,
+   405→}: {
+   406→  guestId: string
+   407→  docs: GeneratorDoc[]
+   408→  /** Workspace mode: the document selection is fixed. */
+   409→  locked?: boolean
+   410→  initialDocIds?: string[]
+   411→  initialTopics?: string[]
+   412→  onGenerated: (testId: string, primaryDocId: string) => void
+   413→}) {
+   414→  const [selectedDocIds, setSelectedDocIds] = useState<string[]>(() => {
+   415→    if (locked) return docs.map(d => d.id)
+   416→    const init = (initialDocIds ?? []).filter(id => docs.some(d => d.id === id))
+   417→    return init.length > 0 ? init : []
+   418→  })
+   419→  const [selectedFocus, setSelectedFocus] = useState<string[]>(() => (initialTopics ?? []).slice(0, 8))
+   420→  const [count, setCount] = useState<number>(50)
+   421→  const [customCount, setCustomCount] = useState<string>('')
+   422→  const [difficulty, setDifficulty] = useState<'MIXED' | 'FOUNDATIONAL' | 'INTERMEDIATE' | 'ADVANCED'>('MIXED')
+   423→  const [activeCats, setActiveCats] = useState<QuestionCategoryDTO[]>([...ALL_CATEGORIES])
+   424→  const [timed, setTimed] = useState(true)
+   425→  const [durationMin, setDurationMin] = useState<string>('')
+   426→  const [marksPerQuestion, setMarksPerQuestion] = useState<number>(1)
+   427→  const [negativeMark, setNegativeMark] = useState<number>(0)
+   428→  const [generating, setGenerating] = useState(false)
+   429→  const [error, setError] = useState<string | null>(null)
+   430→
+   431→  // Topics offered for the focus: from every currently selected document
+   432→  const availableTopics = useMemo(() => {
+   433→    const map = new Map<string, { name: string; pages: number[] }>()
+   434→    for (const d of docs) {
+   435→      if (locked || selectedDocIds.includes(d.id)) {
+   436→        for (const t of d.topics) if (!map.has(t.name)) map.set(t.name, t)
+   437→      }
+   438→    }
+   439→    return [...map.values()]
+   440→  }, [docs, locked, selectedDocIds])
+   441→
+   442→  const effectiveCount = useMemo(() => {
+   443→    if (count === 0) {
+   444→      const n = Math.floor(Number(customCount))
+   445→      return Number.isFinite(n) ? Math.min(100, Math.max(4, n)) : 0
+   446→    }
+   447→    return count
+   448→  }, [count, customCount])
+   449→
+   450→  const toggleDoc = (id: string) => {
+   451→    if (locked) return
+   452→    setSelectedDocIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+   453→    // Topics from deselected documents no longer apply
+   454→    setSelectedFocus(prev => {
+   455→      const doc = docs.find(d => d.id === id)
+   456→      if (!doc) return prev
+   457→      const removed = new Set(doc.topics.map(t => t.name))
+   458→      return prev.filter(t => !removed.has(t))
+   459→    })
+   460→  }
+   461→
+   462→  const toggleFocus = (name: string) => {
+   463→    setSelectedFocus(prev =>
+   464→      prev.includes(name) ? prev.filter(n => n !== name) : prev.length >= 8 ? prev : [...prev, name],
+   465→    )
+   466→  }
+   467→
+   468→  const toggleCat = (cat: QuestionCategoryDTO) => {
+   469→    setActiveCats(prev => {
+   470→      if (prev.includes(cat)) return prev.length > 1 ? prev.filter(c => c !== cat) : prev
+   471→      return [...ALL_CATEGORIES.filter(c => prev.includes(c) || c === cat)] as QuestionCategoryDTO[]
+   472→    })
+   473→  }
+   474→
+   475→  const generate = () => {
+   476→    if (generating || selectedDocIds.length === 0 || effectiveCount < 4) return
+   477→    setGenerating(true)
+   478→    setError(null)
+   479→    api
+   480→      .generateRiisheTest({
+   481→        guestId,
+   482→        documentIds: selectedDocIds,
+   483→        focusTopics: selectedFocus.length ? selectedFocus : undefined,
+   484→        timed,
+   485→        durationMin: timed && durationMin ? Math.min(240, Math.max(5, Math.floor(Number(durationMin) || 0))) || undefined : undefined,
+   486→        count: effectiveCount,
+   487→        difficultyFocus: difficulty,
+   488→        categories: activeCats.length < ALL_CATEGORIES.length ? activeCats : undefined,
+   489→        scoring: { marksPerQuestion, negativeMark },
+   490→      })
+   491→      .then(r => {
+   492→        if (r.existing) {
+   493→          // Identical generation already running — surface it honestly
+   494→          setError('An identical generation is already running for this selection — showing it below.')
+   495→        }
+   496→        onGenerated(r.testId, selectedDocIds[0])
+   497→      })
+   498→      .catch((e: unknown) => {
+   499→        setError(e instanceof Error ? e.message : 'Could not start generation.')
+   500→      })
+   501→      .finally(() => setGenerating(false))
+   502→  }
+   503→
+   504→  return (
+   505→    <section aria-label="Generate a practice set" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   506→      <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   507→        <Sparkles className="h-4 w-4 text-gold" aria-hidden /> Generate a practice set
+   508→      </h2>
+   509→      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   510→        Questions are drawn strictly from the selected documents. Leave the topic focus empty for a balanced mix.
+   511→      </p>
+   512→
+   513→      {/* Source documents */}
+   514→      {!locked && (
+   515→        <div className="mt-4">
+   516→          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+   517→            Source documents <span className="normal-case tracking-normal">(at least one)</span>
+   518→          </p>
+   519→          {docs.length === 0 ? (
+   520→            <p className="mt-2 rounded-lg border border-border bg-elevated px-4 py-3 text-xs text-muted-foreground">
+   521→              No analysed materials yet — upload a PDF in My Materials first.
+   522→            </p>
+   523→          ) : (
+   524→            <div className="mt-2 flex flex-col gap-2">
+   525→              {docs.map(d => {
+   526→                const active = selectedDocIds.includes(d.id)
+   527→                return (
+   528→                  <button
+   529→                    key={d.id}
+   530→                    type="button"
+   531→                    aria-pressed={active}
+   532→                    onClick={() => toggleDoc(d.id)}
+   533→                    className={cn(
+   534→                      'flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+   535→                      active
+   536→                        ? 'border-gold/60 bg-gold/10 text-foreground'
+   537→                        : 'border-border text-muted-foreground hover:border-gold/40 hover:text-foreground',
+   538→                    )}
+   539→                  >
+   540→                    <span className="min-w-0 truncate font-medium">{d.title}</span>
+   541→                    <span className="shrink-0 text-xs text-muted-foreground">{d.topics.length} topics</span>
+   542→                  </button>
+   543→                )
+   544→              })}
+   545→            </div>
+   546→          )}
+   547→        </div>
+   548→      )}
+   549→
+   550→      {/* Topic focus */}
+   551→      {availableTopics.length > 0 && (
+   552→        <div className="mt-4">
+   553→          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+   554→            Topic focus <span className="normal-case tracking-normal">(up to 8, optional)</span>
+   555→          </p>
+   556→          <div className="mt-2 flex max-h-36 flex-wrap gap-2 overflow-y-auto pr-1" role="group" aria-label="Topic focus selector">
+   557→            {availableTopics.map(t => {
+   558→              const active = selectedFocus.includes(t.name)
+   559→              return (
+   560→                <button
+   561→                  key={t.name}
+   562→                  type="button"
+   563→                  aria-pressed={active}
+   564→                  onClick={() => toggleFocus(t.name)}
+   565→                  title={t.pages.length ? formatPageRefs(t.pages) : undefined}
+   566→                  className={cn(
+   567→                    'min-h-9 rounded-full border px-3 py-1.5 text-xs transition-colors',
+   568→                    active
+   569→                      ? 'border-gold/60 bg-gold/15 text-gold'
+   570→                      : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   571→                  )}
+   572→                >
+   573→                  {t.name}
+   574→                </button>
+   575→              )
+   576→            })}
+   577→          </div>
+   578→          {selectedFocus.length === 0 && (
+   579→            <p className="mt-2 text-xs text-muted-foreground">Balanced mix across the selected content.</p>
+   580→          )}
+   581→        </div>
+   582→      )}
+   583→
+   584→      {/* Count + difficulty */}
+   585→      <div className="mt-5 flex flex-wrap items-start gap-x-8 gap-y-4">
+   586→        <div>
+   587→          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Questions</p>
+   588→          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Question count">
+   589→            {COUNT_PRESETS.map(n => (
+   590→              <button
+   591→                key={n}
+   592→                type="button"
+   593→                aria-pressed={count === n}
+   594→                onClick={() => setCount(n)}
+   595→                className={cn(
+   596→                  'min-h-9 rounded-lg border px-4 py-1.5 text-sm transition-colors',
+   597→                  count === n
+   598→                    ? 'border-gold/60 bg-gold/15 text-gold'
+   599→                    : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   600→                )}
+   601→              >
+   602→                {n}
+   603→              </button>
+   604→            ))}
+   605→            <button
+   606→              type="button"
+   607→              aria-pressed={count === 0}
+   608→              onClick={() => setCount(0)}
+   609→              className={cn(
+   610→                'min-h-9 rounded-lg border px-4 py-1.5 text-sm transition-colors',
+   611→                count === 0
+   612→                  ? 'border-gold/60 bg-gold/15 text-gold'
+   613→                  : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   614→              )}
+   615→            >
+   616→              Custom
+   617→            </button>
+   618→          </div>
+   619→          {count === 0 && (
+   620→            <Input
+   621→              type="number"
+   622→              min={4}
+   623→              max={100}
+   624→              value={customCount}
+   625→              onChange={e => setCustomCount(e.target.value)}
+   626→              placeholder="4–100"
+   627→              aria-label="Custom question count"
+   628→              className="mt-2 h-9 w-28"
+   629→            />
+   630→          )}
+   631→        </div>
+   632→
+   633→        <div>
+   634→          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Difficulty</p>
+   635→          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Difficulty emphasis">
+   636→            {(['MIXED', 'FOUNDATIONAL', 'INTERMEDIATE', 'ADVANCED'] as const).map(d => (
+   637→              <button
+   638→                key={d}
+   639→                type="button"
+   640→                aria-pressed={difficulty === d}
+   641→                onClick={() => setDifficulty(d)}
+   642→                className={cn(
+   643→                  'min-h-9 rounded-lg border px-3.5 py-1.5 text-sm transition-colors',
+   644→                  difficulty === d
+   645→                    ? 'border-gold/60 bg-gold/15 text-gold'
+   646→                    : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   647→                )}
+   648→              >
+   649→                {DIFFICULTY_LABEL[d]}
+   650→              </button>
+   651→            ))}
+   652→          </div>
+   653→        </div>
+   654→      </div>
+   655→
+   656→      {/* Question-type mix */}
+   657→      <div className="mt-5">
+   658→        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Question types</p>
+   659→        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Question type mix">
+   660→          {ALL_CATEGORIES.map(cat => {
+   661→            const active = activeCats.includes(cat)
+   662→            return (
+   663→              <button
+   664→                key={cat}
+   665→                type="button"
+   666→                aria-pressed={active}
+   667→                onClick={() => toggleCat(cat)}
+   668→                className={cn(
+   669→                  'min-h-9 rounded-full border px-3 py-1.5 text-xs transition-colors',
+   670→                  active
+   671→                    ? 'border-gold/60 bg-gold/15 text-gold'
+   672→                    : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold line-through',
+   673→                )}
+   674→              >
+   675→                {CATEGORY_LABEL[cat]}
+   676→              </button>
+   677→            )
+   678→          })}
+   679→        </div>
+   680→        <p className="mt-2 rounded-lg border border-border bg-elevated px-4 py-2.5 text-xs text-muted-foreground">
+   681→          <span className="font-medium text-foreground">Planned mix: </span>
+   682→          {distributionLine(effectiveCount || 50, activeCats)}
+   683→          {effectiveCount !== 50 ? ` — scaled to ${effectiveCount} questions` : ''}
+   684→        </p>
+   685→      </div>
+   686→
+   687→      {/* Time + scoring */}
+   688→      <div className="mt-5 flex flex-wrap items-start gap-x-8 gap-y-4">
+   689→        <div>
+   690→          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Time</p>
+   691→          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Timing mode">
+   692→            <button
+   693→              type="button"
+   694→              aria-pressed={timed}
+   695→              onClick={() => setTimed(true)}
+   696→              className={cn(
+   697→                'min-h-9 rounded-lg border px-3.5 py-1.5 text-sm transition-colors',
+   698→                timed ? 'border-gold/60 bg-gold/15 text-gold' : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   699→              )}
+   700→            >
+   701→              Timed
+   702→            </button>
+   703→            <button
+   704→              type="button"
+   705→              aria-pressed={!timed}
+   706→              onClick={() => setTimed(false)}
+   707→              className={cn(
+   708→                'min-h-9 rounded-lg border px-3.5 py-1.5 text-sm transition-colors',
+   709→                !timed ? 'border-gold/60 bg-gold/15 text-gold' : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   710→              )}
+   711→            >
+   712→              Untimed
+   713→            </button>
+   714→          </div>
+   715→          {timed && (
+   716→            <div className="mt-2 flex items-center gap-2">
+   717→              <Label htmlFor="riishe-duration" className="text-xs text-muted-foreground">
+   718→                Minutes
+   719→              </Label>
+   720→              <Input
+   721→                id="riishe-duration"
+   722→                type="number"
+   723→                min={5}
+   724→                max={240}
+   725→                value={durationMin}
+   726→                onChange={e => setDurationMin(e.target.value)}
+   727→                placeholder={`auto ≈ ${effectiveCount || 50}`}
+   728→                className="h-9 w-28"
+   729→              />
+   730→            </div>
+   731→          )}
+   732→        </div>
+   733→
+   734→        <div>
+   735→          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+   736→            Scoring <span className="normal-case tracking-normal">(your choice)</span>
+   737→          </p>
+   738→          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+   739→            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Marks per correct answer">
+   740→              <span className="text-xs text-muted-foreground">Correct:</span>
+   741→              {MARKS_OPTIONS.map(m => (
+   742→                <button
+   743→                  key={m}
+   744→                  type="button"
+   745→                  aria-pressed={marksPerQuestion === m}
+   746→                  onClick={() => setMarksPerQuestion(m)}
+   747→                  className={cn(
+   748→                    'min-h-8 rounded-md border px-2.5 py-1 text-xs transition-colors',
+   749→                    marksPerQuestion === m
+   750→                      ? 'border-gold/60 bg-gold/15 text-gold'
+   751→                      : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   752→                  )}
+   753→                >
+   754→                  +{m}
+   755→                </button>
+   756→              ))}
+   757→            </div>
+   758→            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Negative marking">
+   759→              <span className="text-xs text-muted-foreground">Wrong:</span>
+   760→              {NEGATIVE_OPTIONS.map(n => (
+   761→                <button
+   762→                  key={n}
+   763→                  type="button"
+   764→                  aria-pressed={negativeMark === n}
+   765→                  onClick={() => setNegativeMark(n)}
+   766→                  className={cn(
+   767→                    'min-h-8 rounded-md border px-2.5 py-1 text-xs transition-colors',
+   768→                    negativeMark === n
+   769→                      ? 'border-gold/60 bg-gold/15 text-gold'
+   770→                      : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+   771→                  )}
+   772→                >
+   773→                  {n === 0 ? 'no penalty' : `−${n}`}
+   774→                </button>
+   775→              ))}
+   776→            </div>
+   777→          </div>
+   778→          <p className="mt-2 text-[11px] text-muted-foreground">
+   779→            Practice scoring is exactly what you choose here — no exam-specific rules are applied implicitly.
+   780→          </p>
+   781→        </div>
+   782→      </div>
+   783→
+   784→      {error && (
+   785→        <p className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive" role="alert">
+   786→          {error}
+   787→        </p>
+   788→      )}
+   789→
+   790→      <Button
+   791→        className="mt-4 bg-gold text-primary-foreground hover:bg-gold-hover"
+   792→        disabled={generating || selectedDocIds.length === 0 || effectiveCount < 4}
+   793→        onClick={generate}
+   794→      >
+   795→        {generating ? (
+   796→          <>
+   797→            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Starting generation…
+   798→          </>
+   799→        ) : (
+   800→          <>
+   801→            <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Generate {effectiveCount || '…'} Questions
+   802→          </>
+   803→        )}
+   804→      </Button>
+   805→      {!locked && selectedDocIds.length === 0 && docs.length > 0 && (
+   806→        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+   807→          <Info className="h-3.5 w-3.5 text-gold" aria-hidden /> Select at least one source document to generate.
+   808→        </p>
+   809→      )}
+   810→    </section>
+   811→  )
+   812→}
+   813→
+   814→// ─── Active test states (progress / failure) ───
+   815→
+   816→export function TestPendingCard({ status, statusDetail }: { status: 'QUEUED' | 'GENERATING'; statusDetail?: string | null }) {
+   817→  return (
+   818→    <div className="rounded-xl border border-gold/40 bg-gold/5 p-5 sm:p-6" role="status">
+   819→      <p className="flex items-center gap-2 text-sm font-medium text-gold">
+   820→        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   821→        {status === 'QUEUED' ? 'Queued — waiting for the generator…' : 'Generating questions…'}
+   822→      </p>
+   823→      {/* Honest progress: a pulsing bar, never a fake percentage */}
+   824→      <div className="mt-3 h-2 overflow-hidden rounded bg-elevated" aria-hidden>
+   825→        <div className="h-full w-1/3 animate-pulse rounded bg-gold/60" />
+   826→      </div>
+   827→      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+   828→        {statusDetail ??
+   829→          'Validated questions are generated in batches — this updates automatically. No percentage is shown because the remaining work is not predictable.'}
+   830→      </p>
+   831→    </div>
+   832→  )
+   833→}
+   834→
+   835→export function TestFailedCard({ statusDetail, onRetry, disabled }: { statusDetail?: string | null; onRetry: () => void; disabled?: boolean }) {
+   836→  return (
+   837→    <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 sm:p-6" role="alert">
+   838→      <p className="font-display text-lg font-semibold text-destructive">Generation failed</p>
+   839→      <p className="mt-2 text-sm leading-relaxed text-destructive/90">
+   840→        {statusDetail ?? 'Riishe could not produce enough validated questions from this selection.'}
+   841→      </p>
+   842→      <Button
+   843→        variant="outline"
+   844→        className="mt-4 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+   845→        onClick={onRetry}
+   846→        disabled={disabled}
+   847→      >
+   848→        <RotateCcw className="mr-1.5 h-4 w-4" /> Try again
+   849→      </Button>
+   850→    </div>
+   851→  )
+   852→}
+   853→
+   854→export function TestSkeletonCard() {
+   855→  return (
+   856→    <div className="rounded-xl border border-border bg-card p-5 sm:p-6" aria-hidden>
+   857→      <Skeleton className="h-6 w-1/2 bg-elevated" />
+   858→      <Skeleton className="mt-4 h-24 bg-elevated" />
+   859→    </div>
+   860→  )
+   861→}
+   862→
+   863→export function HistoryIcon() {
+   864→  return <ClipboardList className="h-4 w-4 text-gold" aria-hidden />
+   865→}
+   866→

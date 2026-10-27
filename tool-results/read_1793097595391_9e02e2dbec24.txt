@@ -1,0 +1,1755 @@
+     1→'use client'
+     2→
+     3→// Riishe AI workspace — upload → analyse → test, applied to your own materials.
+     4→// HUB (#/riishe): the three-step flow, READY materials, weak areas, BEAN handoff.
+     5→// WORKSPACE (#/riishe/[docId]): one document — Material / Analysis / Tests tabs.
+     6→// All data comes from the backend pipeline; every state shown is honest.
+     7→
+     8→import { createContext, useContext, useEffect, useState } from 'react'
+     9→import { api } from '@/lib/api'
+    10→import { useAppStore } from '@/lib/store'
+    11→import type {
+    12→  AnalyzedTopicDTO,
+    13→  DocumentAnalysisDTO,
+    14→  MaterialDetailDTO,
+    15→  MaterialListItemDTO,
+    16→  MaterialStatus,
+    17→  RiisheTestDetailDTO,
+    18→  RiisheWeakTopicDTO,
+    19→} from '@/lib/types'
+    20→import { MaterialStatusBadge } from '@/components/bean/views/materials-view'
+    21→import { MaterialPdfReader } from '@/components/bean/pdf-viewer'
+    22→import { EmptyState } from '@/components/bean/empty-state'
+    23→import {
+    24→  AlertDialog,
+    25→  AlertDialogAction,
+    26→  AlertDialogCancel,
+    27→  AlertDialogContent,
+    28→  AlertDialogDescription,
+    29→  AlertDialogFooter,
+    30→  AlertDialogHeader,
+    31→  AlertDialogTitle,
+    32→  AlertDialogTrigger,
+    33→} from '@/components/ui/alert-dialog'
+    34→import { Badge } from '@/components/ui/badge'
+    35→import { Button } from '@/components/ui/button'
+    36→import {
+    37→  Dialog,
+    38→  DialogContent,
+    39→  DialogDescription,
+    40→  DialogFooter,
+    41→  DialogHeader,
+    42→  DialogTitle,
+    43→} from '@/components/ui/dialog'
+    44→import { Input } from '@/components/ui/input'
+    45→import { Label } from '@/components/ui/label'
+    46→import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+    47→import { Separator } from '@/components/ui/separator'
+    48→import { Skeleton } from '@/components/ui/skeleton'
+    49→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    50→import { toast } from '@/hooks/use-toast'
+    51→import { cn } from '@/lib/utils'
+    52→import {
+    53→  AlertTriangle,
+    54→  ArrowLeft,
+    55→  BookOpen,
+    56→  CheckCircle2,
+    57→  ClipboardList,
+    58→  Download,
+    59→  FileText,
+    60→  FileWarning,
+    61→  Info,
+    62→  Lightbulb,
+    63→  ListChecks,
+    64→  Loader2,
+    65→  Pencil,
+    66→  Play,
+    67→  RotateCcw,
+    68→  ScanSearch,
+    69→  Sigma,
+    70→  Sparkles,
+    71→  Trash2,
+    72→  TrendingDown,
+    73→  Upload,
+    74→  XCircle,
+    75→} from 'lucide-react'
+    76→
+    77→const PROCESSING_STATUSES: MaterialStatus[] = ['QUEUED', 'EXTRACTING', 'ANALYSING']
+    78→const isProcessing = (s: MaterialStatus) => PROCESSING_STATUSES.includes(s)
+    79→
+    80→// ─── Shared formatting helpers ───
+    81→
+    82→function formatBytes(n: number): string {
+    83→  if (!Number.isFinite(n) || n <= 0) return '0 B'
+    84→  if (n < 1024) return `${n} B`
+    85→  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
+    86→  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+    87→}
+    88→
+    89→function formatDate(iso: string): string {
+    90→  const d = new Date(iso)
+    91→  if (Number.isNaN(d.getTime())) return iso
+    92→  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    93→}
+    94→
+    95→/** Same scaling the backend uses for the distribution preview. */
+    96→function distributionLine(count: number): string {
+    97→  const scale = count / 50
+    98→  const d = {
+    99→    f: Math.max(1, Math.round(10 * scale)),
+   100→    a: Math.max(1, Math.round(15 * scale)),
+   101→    s: Math.max(1, Math.round(10 * scale)),
+   102→    m: Math.max(1, Math.round(10 * scale)),
+   103→    x: Math.max(1, Math.round(5 * scale)),
+   104→  }
+   105→  return `${d.f} foundational · ${d.a} application · ${d.s} statement · ${d.m} multi-step · ${d.x} misconception`
+   106→}
+   107→
+   108→// ═══ Router ═══
+   109→
+   110→export function RiisheView({ docId }: { docId?: string }) {
+   111→  if (!docId) return <RiisheHub />
+   112→  return <RiisheWorkspace docId={docId} />
+   113→}
+   114→
+   115→// ═══════════════════════════ HUB ═══════════════════════════
+   116→
+   117→function RiisheHub() {
+   118→  const guestId = useAppStore(s => s.guestId)
+   119→  const navigate = useAppStore(s => s.navigate)
+   120→
+   121→  const [materialsLoaded, setMaterialsLoaded] = useState<{ key: string; data: MaterialListItemDTO[] } | null>(null)
+   122→  const [materialsError, setMaterialsError] = useState<string | null>(null)
+   123→  const [reloadTick, setReloadTick] = useState(0)
+   124→
+   125→  const [weakLoaded, setWeakLoaded] = useState<{ key: string; data: RiisheWeakTopicDTO[] } | null>(null)
+   126→
+   127→  const loadKey = guestId ? `${guestId}|${reloadTick}` : 'no-session'
+   128→
+   129→  useEffect(() => {
+   130→    if (!guestId) return
+   131→    let alive = true
+   132→    api
+   133→      .materials(guestId)
+   134→      .then(d => {
+   135→        if (!alive) return
+   136→        setMaterialsLoaded({ key: loadKey, data: d.materials })
+   137→        setMaterialsError(null)
+   138→      })
+   139→      .catch((e: unknown) => {
+   140→        if (!alive) return
+   141→        setMaterialsError(e instanceof Error ? e.message : 'Could not load your materials.')
+   142→      })
+   143→    return () => {
+   144→      alive = false
+   145→    }
+   146→  }, [guestId, loadKey])
+   147→
+   148→  useEffect(() => {
+   149→    if (!guestId) return
+   150→    let alive = true
+   151→    api
+   152→      .riisheWeakTopics(guestId)
+   153→      .then(d => {
+   154→        if (alive) setWeakLoaded({ key: loadKey, data: d.weakTopics })
+   155→      })
+   156→      .catch(() => {
+   157→        if (alive) setWeakLoaded({ key: loadKey, data: [] }) // honest empty — never fake data
+   158→      })
+   159→    return () => {
+   160→      alive = false
+   161→    }
+   162→  }, [guestId, loadKey])
+   163→
+   164→  const materialsReady = materialsLoaded && materialsLoaded.key === loadKey ? materialsLoaded.data : null
+   165→  const readyMaterials = (materialsReady ?? []).filter(m => m.status === 'READY')
+   166→  const processingCount = (materialsReady ?? []).filter(m => isProcessing(m.status)).length
+   167→  const weakTopics = weakLoaded && weakLoaded.key === loadKey ? weakLoaded.data : null
+   168→  const firstWeakWithDoc = weakTopics?.find(t => !!t.documentId) ?? null
+   169→
+   170→  return (
+   171→    <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+   172→      <header>
+   173→        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">AI study workspace</p>
+   174→        <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">Riishe AI</h1>
+   175→        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+   176→          Turn your own PDFs into practice. Upload a material, let Riishe analyse its topics, definitions and
+   177→          misconceptions, then take a validated test built strictly from that content.
+   178→        </p>
+   179→      </header>
+   180→
+   181→      {/* Three-step flow */}
+   182→      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+   183→        <StepCard n="1" icon={Upload} title="Upload" text="Add any PDF study material — a chapter, class notes or an official document." />
+   184→        <StepCard n="2" icon={ScanSearch} title="Analyse" text="Riishe extracts the text page by page and maps topics, key facts, formulas and common misconceptions." />
+   185→        <StepCard n="3" icon={ClipboardList} title="Test" text="Generate up to 50 validated questions from the material — timed or untimed, with grounded explanations." />
+   186→      </div>
+   187→
+   188→      {/* Primary actions */}
+   189→      <div className="mt-6 flex flex-wrap gap-3">
+   190→        <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'materials' })}>
+   191→          <Upload className="mr-2 h-4 w-4" aria-hidden /> Upload new material
+   192→        </Button>
+   193→        <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'bean' })}>
+   194→          <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Open BEAN Intelligence
+   195→        </Button>
+   196→      </div>
+   197→
+   198→      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-5">
+   199→        {/* READY materials */}
+   200→        <section aria-label="Analysed materials" className="rounded-xl border border-border bg-card p-5 sm:p-6 lg:col-span-3">
+   201→          <div className="flex flex-wrap items-center justify-between gap-3">
+   202→            <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   203→              <BookOpen className="h-4 w-4 text-gold" aria-hidden /> Analysed materials
+   204→            </h2>
+   205→            {readyMaterials.length > 0 && (
+   206→              <Badge variant="outline" className="border-border text-muted-foreground">
+   207→                {readyMaterials.length} ready
+   208→              </Badge>
+   209→            )}
+   210→          </div>
+   211→
+   212→          {!materialsReady && !materialsError && (
+   213→            <div className="mt-5 space-y-3" aria-hidden>
+   214→              <Skeleton className="h-14 bg-elevated" />
+   215→              <Skeleton className="h-14 bg-elevated" />
+   216→            </div>
+   217→          )}
+   218→
+   219→          {materialsError && (
+   220→            <div className="mt-5 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3" role="alert">
+   221→              <p className="text-sm text-destructive">{materialsError}</p>
+   222→              <Button
+   223→                variant="outline"
+   224→                size="sm"
+   225→                className="mt-3 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+   226→                onClick={() => setReloadTick(t => t + 1)}
+   227→              >
+   228→                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Try again
+   229→              </Button>
+   230→            </div>
+   231→          )}
+   232→
+   233→          {materialsReady && readyMaterials.length === 0 && (
+   234→            <p className="mt-5 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+   235→              No analysed materials yet — upload a PDF to get started. Materials still processing appear here once
+   236→              they are ready.
+   237→            </p>
+   238→          )}
+   239→
+   240→          {readyMaterials.length > 0 && (
+   241→            <ul className="mt-5 space-y-3">
+   242→              {readyMaterials.map(doc => (
+   243→                <li
+   244→                  key={doc.id}
+   245→                  className="flex flex-col gap-3 rounded-lg border border-border bg-elevated p-4 sm:flex-row sm:items-center sm:justify-between"
+   246→                >
+   247→                  <div className="min-w-0">
+   248→                    <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
+   249→                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+   250→                      {doc.pageCount != null ? `${doc.pageCount} pages · ` : ''}
+   251→                      {formatBytes(doc.fileSize)} · {doc.tests.filter(t => t.status === 'READY').length} test
+   252→                      {doc.tests.filter(t => t.status === 'READY').length === 1 ? '' : 's'} ready
+   253→                    </p>
+   254→                  </div>
+   255→                  <Button
+   256→                    size="sm"
+   257→                    variant="outline"
+   258→                    className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
+   259→                    onClick={() => navigate({ view: 'riishe', docId: doc.id })}
+   260→                    aria-label={`Open ${doc.title} in the Riishe workspace`}
+   261→                  >
+   262→                    Open
+   263→                  </Button>
+   264→                </li>
+   265→              ))}
+   266→            </ul>
+   267→          )}
+   268→
+   269→          {processingCount > 0 && (
+   270→            <p className="mt-4 text-xs text-muted-foreground">
+   271→              {processingCount} material{processingCount === 1 ? ' is' : 's are'} still processing —
+   272→              follow live status in My Materials.
+   273→            </p>
+   274→          )}
+   275→        </section>
+   276→
+   277→        <div className="space-y-6 lg:col-span-2">
+   278→          {/* Weak areas */}
+   279→          <section aria-label="Weak areas" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   280→            <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   281→              <TrendingDown className="h-4 w-4 text-gold" aria-hidden /> Weak areas
+   282→            </h2>
+   283→            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   284→              Topics from your Riishe tests where accuracy fell below 60% across at least three attempted questions.
+   285→            </p>
+   286→
+   287→            {!weakTopics && (
+   288→              <div className="mt-5 space-y-3" aria-hidden>
+   289→                <Skeleton className="h-12 bg-elevated" />
+   290→                <Skeleton className="h-12 bg-elevated" />
+   291→              </div>
+   292→            )}
+   293→
+   294→            {weakTopics && weakTopics.length === 0 && (
+   295→              <p className="mt-5 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+   296→                No weak areas yet — take a Riishe test first.
+   297→              </p>
+   298→            )}
+   299→
+   300→            {weakTopics && weakTopics.length > 0 && (
+   301→              <>
+   302→                <ul className="mt-5 space-y-3">
+   303→                  {weakTopics.slice(0, 5).map(t => (
+   304→                    <li key={t.topic} className="rounded-lg border border-border bg-elevated p-3">
+   305→                      <div className="flex items-center justify-between gap-3">
+   306→                        <p className="min-w-0 truncate text-sm font-medium text-foreground">{t.topic}</p>
+   307→                        <Badge variant="outline" className="shrink-0 border-destructive/40 bg-destructive/10 text-destructive">
+   308→                          {t.accuracy}%
+   309→                        </Badge>
+   310→                      </div>
+   311→                      <p className="mt-1 truncate text-xs text-muted-foreground">
+   312→                        {t.correct}/{t.attempted} correct
+   313→                        {t.documentTitle ? ` · ${t.documentTitle}` : ''}
+   314→                      </p>
+   315→                    </li>
+   316→                  ))}
+   317→                </ul>
+   318→                {firstWeakWithDoc?.documentId && (
+   319→                  <Button
+   320→                    className="mt-4 w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto"
+   321→                    onClick={() => navigate({ view: 'riishe', docId: firstWeakWithDoc.documentId as string })}
+   322→                  >
+   323→                    <Play className="mr-2 h-4 w-4" aria-hidden /> Practice weak areas
+   324→                  </Button>
+   325→                )}
+   326→              </>
+   327→            )}
+   328→          </section>
+   329→
+   330→          {/* BEAN Intelligence (preserved handoff) */}
+   331→          <section aria-label="BEAN Intelligence" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   332→            <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   333→              <Sparkles className="h-4 w-4 text-gold" aria-hidden /> BEAN Intelligence
+   334→            </h2>
+   335→            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+   336→              The AI tutor knows your exam context. Ask it to explain a concept from your material or plan what to
+   337→              revise next.
+   338→            </p>
+   339→            <Button
+   340→              variant="outline"
+   341→              className="mt-4 w-full border-gold/40 text-gold hover:bg-gold/10 sm:w-auto"
+   342→              onClick={() => navigate({ view: 'bean' })}
+   343→            >
+   344→              Chat with BEAN
+   345→            </Button>
+   346→          </section>
+   347→        </div>
+   348→      </div>
+   349→    </div>
+   350→  )
+   351→}
+   352→
+   353→function StepCard({ n, icon: Icon, title, text }: { n: string; icon: typeof Upload; title: string; text: string }) {
+   354→  return (
+   355→    <div className="rounded-xl border border-border bg-card p-5">
+   356→      <div className="flex items-center justify-between">
+   357→        <span className="font-display text-3xl font-bold text-gold">{n}</span>
+   358→        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+   359→      </div>
+   360→      <h3 className="mt-3 font-display text-base font-semibold text-foreground">{title}</h3>
+   361→      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{text}</p>
+   362→    </div>
+   363→  )
+   364→}
+   365→
+   366→// ═══════════════════════ WORKSPACE ═══════════════════════
+   367→
+   368→type WorkspaceTab = 'material' | 'analysis' | 'tests'
+   369→
+   370→function RiisheWorkspace({ docId }: { docId: string }) {
+   371→  const guestId = useAppStore(s => s.guestId)
+   372→  const navigate = useAppStore(s => s.navigate)
+   373→
+   374→  const [reloadTick, setReloadTick] = useState(0)
+   375→  const [loaded, setLoaded] = useState<{ key: string; data: MaterialDetailDTO } | null>(null)
+   376→  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
+   377→
+   378→  const loadKey = guestId ? `${guestId}|${docId}|${reloadTick}` : 'no-session'
+   379→
+   380→  useEffect(() => {
+   381→    if (!guestId) return
+   382→    let alive = true
+   383→    api
+   384→      .material(docId, guestId)
+   385→      .then(d => {
+   386→        if (!alive) return
+   387→        setLoaded({ key: loadKey, data: d })
+   388→        setFailure(null)
+   389→      })
+   390→      .catch((e: unknown) => {
+   391→        if (!alive) return
+   392→        setFailure({ key: loadKey, message: e instanceof Error ? e.message : 'Could not load this material.' })
+   393→      })
+   394→    return () => {
+   395→      alive = false
+   396→    }
+   397→  }, [guestId, docId, loadKey])
+   398→
+   399→  const doc = loaded && loaded.key === loadKey ? loaded.data : null
+   400→  const error = failure && failure.key === loadKey ? failure.message : null
+   401→  const loading = !doc && !error
+   402→  const notFound = !!error && /not found/i.test(error)
+   403→
+   404→  // Poll the material every 5s ONLY while it (or one of its tests) is in flight.
+   405→  const shouldPoll =
+   406→    !!doc && (isProcessing(doc.status) || doc.tests.some(t => t.status === 'QUEUED' || t.status === 'GENERATING'))
+   407→  useEffect(() => {
+   408→    if (!shouldPoll || !guestId || !docId) return
+   409→    const timer = setInterval(() => {
+   410→      api
+   411→        .material(docId, guestId)
+   412→        .then(d => setLoaded({ key: loadKey, data: d }))
+   413→        .catch(() => {
+   414→          /* keep the last honest state; the next tick retries */
+   415→        })
+   416→    }, 5000)
+   417→    return () => clearInterval(timer)
+   418→  }, [shouldPoll, guestId, docId, loadKey])
+   419→
+   420→  // Default tab: land on Tests when the document already has a READY test to take.
+   421→  const [tab, setTab] = useState<WorkspaceTab>('material')
+   422→  const docKey = loaded?.key ?? null
+   423→  const [appliedKey, setAppliedKey] = useState<string | null>(null)
+   424→  if (doc && docKey && docKey !== appliedKey) {
+   425→    setAppliedKey(docKey)
+   426→    setTab(doc.status === 'READY' && doc.tests.some(t => t.status === 'READY') ? 'tests' : 'material')
+   427→  }
+   428→
+   429→  const [renameOpen, setRenameOpen] = useState(false)
+   430→  const [renameValue, setRenameValue] = useState('')
+   431→  const [renaming, setRenaming] = useState(false)
+   432→
+   433→  // Integrated reader overlay — lifted to the workspace so page chips in the
+   434→  // Analysis tab can deep-link to the exact page, and "Open in reader" in the
+   435→  // Material tab opens without one.
+   436→  const [reader, setReader] = useState<{ startPage?: number } | null>(null)
+   437→  const openReaderAt = (page?: number) => setReader({ startPage: page })
+   438→
+   439→  const refresh = () => setReloadTick(t => t + 1)
+   440→
+   441→  // ── Not found ──
+   442→  if (notFound) {
+   443→    return (
+   444→      <div className="mx-auto w-full max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
+   445→        <EmptyState
+   446→          icon={FileWarning}
+   447→          title="Material not found"
+   448→          description="This material does not exist in your library — it may have been removed from this device, or the link is stale."
+   449→          actionLabel="Back to My Materials"
+   450→          onAction={() => navigate({ view: 'materials' })}
+   451→        />
+   452→      </div>
+   453→    )
+   454→  }
+   455→
+   456→  // ── Load error ──
+   457→  if (!loading && error && doc === null) {
+   458→    return (
+   459→      <div className="mx-auto w-full max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
+   460→        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+   461→          <p className="font-display text-lg font-semibold text-destructive">Could not load this material</p>
+   462→          <p className="mt-2 text-sm text-destructive/90">{error}</p>
+   463→          <div className="mt-5 flex flex-wrap gap-3">
+   464→            <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={refresh}>
+   465→              <RotateCcw className="mr-1.5 h-4 w-4" /> Try again
+   466→            </Button>
+   467→            <Button
+   468→              variant="outline"
+   469→              className="border-border text-muted-foreground hover:bg-elevated"
+   470→              onClick={() => navigate({ view: 'materials' })}
+   471→            >
+   472→              Back to My Materials
+   473→            </Button>
+   474→          </div>
+   475→        </div>
+   476→      </div>
+   477→    )
+   478→  }
+   479→
+   480→  // ── Loading ──
+   481→  if (loading || !doc) {
+   482→    return (
+   483→      <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8" aria-hidden>
+   484→        <Skeleton className="h-8 w-40 bg-elevated" />
+   485→        <Skeleton className="mt-4 h-10 w-2/3 bg-elevated" />
+   486→        <Skeleton className="mt-3 h-6 w-1/2 bg-elevated" />
+   487→        <Skeleton className="mt-8 h-10 bg-elevated" />
+   488→        <Skeleton className="mt-4 h-96 bg-elevated" />
+   489→      </div>
+   490→    )
+   491→  }
+   492→
+   493→  const hasAnalysis = doc.status === 'READY' && !!doc.analysis
+   494→  const metaLabels = [doc.examLabel, doc.subjectLabel, doc.topicLabel].filter((v): v is string => !!v)
+   495→
+   496→  const doRename = () => {
+   497→    const next = renameValue.trim()
+   498→    if (!next || renaming) return
+   499→    setRenaming(true)
+   500→    api
+   501→      .renameMaterial(doc.id, guestId, { title: next })
+   502→      .then(() => {
+   503→        // Update locally — no full reload, so the active tab is preserved.
+   504→        setLoaded(prev => (prev && prev.key === loadKey ? { key: prev.key, data: { ...prev.data, title: next } } : prev))
+   505→        toast({ title: 'Renamed', description: `This material is now “${next}”.` })
+   506→        setRenameOpen(false)
+   507→      })
+   508→      .catch((e: unknown) => {
+   509→        toast({ title: 'Could not rename', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   510→      })
+   511→      .finally(() => setRenaming(false))
+   512→  }
+   513→
+   514→  const doRemove = () => {
+   515→    api
+   516→      .deleteMaterial(doc.id, guestId)
+   517→      .then(() => {
+   518→        toast({
+   519→          title: 'Material removed',
+   520→          description: 'The uploaded file, its analysis and every test generated from it were deleted.',
+   521→        })
+   522→        navigate({ view: 'materials' })
+   523→      })
+   524→      .catch((e: unknown) => {
+   525→        toast({ title: 'Could not remove material', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   526→      })
+   527→  }
+   528→
+   529→  const doRetry = () => {
+   530→    api
+   531→      .retryMaterial(doc.id, guestId)
+   532→      .then(() => {
+   533→        toast({ title: 'Reprocessing started', description: 'Riishe is reading the document again.' })
+   534→        refresh()
+   535→      })
+   536→      .catch((e: unknown) => {
+   537→        toast({ title: 'Could not start reprocessing', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   538→      })
+   539→  }
+   540→
+   541→  const doReanalyse = (force: boolean) => {
+   542→    api
+   543→      .reanalyseMaterial(doc.id, guestId, force)
+   544→      .then(() => {
+   545→        toast({
+   546→          title: force ? 'Re-analysis started' : 'Retry started',
+   547→          description: force
+   548→            ? 'Riishe will re-read and re-analyse the whole document.'
+   549→            : 'Riishe will retry the sections that failed — completed sections are kept.',
+   550→        })
+   551→        refresh()
+   552→      })
+   553→      .catch((e: unknown) => {
+   554→        toast({ title: 'Could not start re-analysis', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+   555→      })
+   556→  }
+   557→
+   558→  return (
+   559→    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+   560→      {/* Header */}
+   561→      <header>
+   562→        <Button
+   563→          variant="ghost"
+   564→          size="sm"
+   565→          className="-ml-2 text-muted-foreground hover:text-gold"
+   566→          onClick={() => navigate({ view: 'materials' })}
+   567→        >
+   568→          <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden /> My Materials
+   569→        </Button>
+   570→        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+   571→          <div className="min-w-0">
+   572→            <h1 className="truncate font-display text-2xl font-bold text-foreground sm:text-3xl" title={doc.title}>
+   573→              {doc.title}
+   574→            </h1>
+   575→            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+   576→              <MaterialStatusBadge status={doc.status} />
+   577→              <span className="truncate">
+   578→                PDF · {formatBytes(doc.fileSize)}
+   579→                {doc.pageCount != null ? ` · ${doc.pageCount} pages` : ''}
+   580→              </span>
+   581→              {metaLabels.map(label => (
+   582→                <Badge key={label} variant="outline" className="border-gold/30 text-gold/90">
+   583→                  {label}
+   584→                </Badge>
+   585→              ))}
+   586→            </div>
+   587→          </div>
+   588→          <div className="flex shrink-0 flex-wrap items-center gap-2">
+   589→            {doc.status === 'READY' && (
+   590→              <Button
+   591→                variant="outline"
+   592→                size="sm"
+   593→                className="border-gold/40 text-gold hover:bg-gold/10"
+   594→                onClick={() => {
+   595→                  setRenameValue(doc.title)
+   596→                  setRenameOpen(true)
+   597→                }}
+   598→              >
+   599→                <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Rename
+   600→              </Button>
+   601→            )}
+   602→            {doc.status === 'FAILED' && (
+   603→              <Button variant="outline" size="sm" className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={doRetry}>
+   604→                <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry processing
+   605→              </Button>
+   606→            )}
+   607→            <AlertDialog>
+   608→              <AlertDialogTrigger asChild>
+   609→                <Button
+   610→                  variant="ghost"
+   611→                  size="sm"
+   612→                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+   613→                  aria-label={`Remove ${doc.title}`}
+   614→                >
+   615→                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Remove
+   616→                </Button>
+   617→              </AlertDialogTrigger>
+   618→              <AlertDialogContent className="bg-card">
+   619→                <AlertDialogHeader>
+   620→                  <AlertDialogTitle className="font-display">Remove this material?</AlertDialogTitle>
+   621→                  <AlertDialogDescription>
+   622→                    This permanently deletes “{doc.title}” — the uploaded file, its analysis, and every test
+   623→                    generated from it. This cannot be undone.
+   624→                  </AlertDialogDescription>
+   625→                </AlertDialogHeader>
+   626→                <AlertDialogFooter>
+   627→                  <AlertDialogCancel>Keep it</AlertDialogCancel>
+   628→                  <AlertDialogAction
+   629→                    className="bg-destructive text-primary-foreground hover:bg-destructive/90"
+   630→                    onClick={doRemove}
+   631→                  >
+   632→                    Remove material
+   633→                  </AlertDialogAction>
+   634→                </AlertDialogFooter>
+   635→              </AlertDialogContent>
+   636→            </AlertDialog>
+   637→          </div>
+   638→        </div>
+   639→      </header>
+   640→
+   641→      {/* Tabs */}
+   642→      <Tabs value={tab} onValueChange={v => setTab(v as WorkspaceTab)} className="mt-6">
+   643→        <TabsList className="flex w-full overflow-x-auto sm:w-fit" aria-label="Workspace sections">
+   644→          <TabsTrigger value="material" className="flex-1 whitespace-nowrap px-4 sm:flex-none sm:px-5">
+   645→            Material
+   646→          </TabsTrigger>
+   647→          {hasAnalysis && (
+   648→            <TabsTrigger value="analysis" className="flex-1 whitespace-nowrap px-4 sm:flex-none sm:px-5">
+   649→              Analysis
+   650→            </TabsTrigger>
+   651→          )}
+   652→          <TabsTrigger value="tests" className="flex-1 whitespace-nowrap px-4 sm:flex-none sm:px-5">
+   653→            Tests
+   654→          </TabsTrigger>
+   655→        </TabsList>
+   656→
+   657→        <TabsContent value="material" className="mt-4">
+   658→          {doc.status === 'READY' ? (
+   659→            <MaterialReadyPanel doc={doc} onOpenReader={openReaderAt} />
+   660→          ) : (
+   661→            <MaterialPendingPanel doc={doc} />
+   662→          )}
+   663→        </TabsContent>
+   664→
+   665→        {hasAnalysis && doc.analysis && (
+   666→          <TabsContent value="analysis" className="mt-4">
+   667→            <AnalysisPanel analysis={doc.analysis} onOpenPage={openReaderAt} onReanalyse={doReanalyse} />
+   668→          </TabsContent>
+   669→        )}
+   670→
+   671→        <TabsContent value="tests" className="mt-4">
+   672→          <TestsPanel doc={doc} guestId={guestId} onDocRefresh={refresh} />
+   673→        </TabsContent>
+   674→      </Tabs>
+   675→
+   676→      {/* Integrated reader overlay (Material tab trigger + Analysis page deep-links) */}
+   677→      {reader && (
+   678→        <MaterialPdfReader
+   679→          documentId={doc.id}
+   680→          title={doc.title}
+   681→          guestId={guestId}
+   682→          startPage={reader.startPage}
+   683→          onBack={() => setReader(null)}
+   684→        />
+   685→      )}
+   686→
+   687→      {/* Rename dialog */}
+   688→      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+   689→        <DialogContent className="bg-card sm:max-w-md">
+   690→          <DialogHeader>
+   691→            <DialogTitle className="font-display">Rename material</DialogTitle>
+   692→            <DialogDescription>Give this document a name you will recognise in your library.</DialogDescription>
+   693→          </DialogHeader>
+   694→          <div>
+   695→            <Label htmlFor="riishe-workspace-rename" className="text-xs text-muted-foreground">
+   696→              Title
+   697→            </Label>
+   698→            <Input
+   699→              id="riishe-workspace-rename"
+   700→              value={renameValue}
+   701→              onChange={e => setRenameValue(e.target.value)}
+   702→              maxLength={160}
+   703→              className="mt-1.5"
+   704→              onKeyDown={e => {
+   705→                if (e.key === 'Enter') doRename()
+   706→              }}
+   707→            />
+   708→          </div>
+   709→          <DialogFooter>
+   710→            <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setRenameOpen(false)}>
+   711→              Cancel
+   712→            </Button>
+   713→            <Button
+   714→              className="bg-gold text-primary-foreground hover:bg-gold-hover"
+   715→              disabled={!renameValue.trim() || renaming}
+   716→              onClick={doRename}
+   717→            >
+   718→              {renaming && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+   719→              Save name
+   720→            </Button>
+   721→          </DialogFooter>
+   722→        </DialogContent>
+   723→      </Dialog>
+   724→    </div>
+   725→  )
+   726→}
+   727→
+   728→// ─── Material tab: READY → document panel (+ integrated reader, lifted overlay) ───
+   729→
+   730→function MaterialReadyPanel({ doc, onOpenReader }: { doc: MaterialDetailDTO; onOpenReader: (page?: number) => void }) {
+   731→  return (
+   732→    <div className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   733→      <div className="flex items-start gap-4">
+   734→        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-gold/30 bg-gold/10">
+   735→          <FileText className="h-5 w-5 text-gold" aria-hidden />
+   736→        </div>
+   737→        <div className="min-w-0">
+   738→          <h2 className="font-display text-lg font-semibold text-foreground">{doc.title}</h2>
+   739→          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+   740→            {doc.originalName} · PDF · {formatBytes(doc.fileSize)}
+   741→            {doc.pageCount != null ? ` · ${doc.pageCount} pages` : ''}
+   742→          </p>
+   743→        </div>
+   744→      </div>
+   745→
+   746→      {/*
+   747→        Reader trigger — opens the integrated full-viewport reader (pdf.js) over
+   748→        the workspace; Back returns here. Same reader used for official PDFs.
+   749→      */}
+   750→      <div className="mt-5 flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-elevated/50 px-4 py-10 text-center">
+   751→        <BookOpen className="h-6 w-6 text-muted-foreground" aria-hidden />
+   752→        <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+   753→          Read your document inside BEAN EXAMS — the integrated reader has page navigation, zoom, rotation,
+   754→          text search and full-screen mode, and remembers where you stopped.
+   755→        </p>
+   756→        <Button
+   757→          className="mt-4 bg-gold text-primary-foreground hover:bg-gold-hover"
+   758→          onClick={() => onOpenReader()}
+   759→        >
+   760→          <BookOpen className="mr-2 h-4 w-4" aria-hidden /> Open in reader
+   761→        </Button>
+   762→      </div>
+   763→
+   764→      <div className="mt-5 flex flex-wrap items-center gap-3">
+   765→        <DownloadButton doc={doc} />
+   766→        <p className="text-xs text-muted-foreground">Served from your own session — only you can open this file.</p>
+   767→      </div>
+   768→    </div>
+   769→  )
+   770→}
+   771→
+   772→function DownloadButton({ doc }: { doc: MaterialDetailDTO }) {
+   773→  const guestId = useAppStore(s => s.guestId)
+   774→  if (!guestId) return null
+   775→  return (
+   776→    <Button asChild className="bg-gold text-primary-foreground hover:bg-gold-hover">
+   777→      <a
+   778→        href={api.materialFileUrl(doc.id, true, guestId)}
+   779→        download={doc.originalName}
+   780→        aria-label={`Download ${doc.title} as PDF`}
+   781→      >
+   782→        <Download className="mr-2 h-4 w-4" aria-hidden /> Download PDF
+   783→      </a>
+   784→    </Button>
+   785→  )
+   786→}
+   787→
+   788→// ─── Material tab: honest status card while not READY ───
+   789→
+   790→function MaterialPendingPanel({ doc }: { doc: MaterialDetailDTO }) {
+   791→  const fallback: Record<MaterialStatus, string> = {
+   792→    QUEUED: 'This document is waiting in the processing queue.',
+   793→    EXTRACTING: 'Riishe is extracting the page text right now.',
+   794→    ANALYSING: 'Riishe is analysing topics, definitions and structure.',
+   795→    READY: '',
+   796→    NEEDS_OCR:
+   797→      'These pages look like scanned images — no readable text was found and OCR is unavailable, so the document cannot be analysed.',
+   798→    FAILED: 'Processing failed. You can retry it from here or from My Materials.',
+   799→  }
+   800→  return (
+   801→    <div className="rounded-xl border border-border bg-card p-6 sm:p-8" role="status">
+   802→      <div className="mx-auto max-w-md text-center">
+   803→        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-gold/30 bg-gold/10">
+   804→          {doc.status === 'FAILED' ? (
+   805→            <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
+   806→          ) : (
+   807→            <Loader2 className={cn('h-5 w-5 text-gold', isProcessing(doc.status) && 'animate-spin')} aria-hidden />
+   808→          )}
+   809→        </div>
+   810→        <h2 className="mt-4 font-display text-lg font-semibold text-foreground">
+   811→          {doc.status === 'FAILED' ? 'Processing failed' : doc.status === 'NEEDS_OCR' ? 'Needs OCR' : 'Analysis in progress'}
+   812→        </h2>
+   813→        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   814→          {doc.statusDetail ?? fallback[doc.status]}
+   815→        </p>
+   816→        {isProcessing(doc.status) && (
+   817→          <p className="mt-2 text-xs text-muted-foreground">This page updates automatically while processing runs.</p>
+   818→        )}
+   819→      </div>
+   820→    </div>
+   821→  )
+   822→}
+   823→
+   824→// ═══ Analysis tab ═══
+   825→
+   826→function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
+   827→  analysis: DocumentAnalysisDTO
+   828→  onOpenPage: (page: number) => void
+   829→  onReanalyse: (force: boolean) => void
+   830→}) {
+   831→  const cov = analysis.coverage
+   832→  const structure = analysis.structure
+   833→  const partial = cov ? !cov.complete : false
+   834→
+   835→  // Hierarchy: level-1 sections carry their level-2 children; children whose
+   836→  // parent vanished (or old flat analyses) render at top level.
+   837→  const tops = analysis.topics.filter(t => t.level !== 2 || !t.parentId || !analysis.topics.some(p => p.id === t.parentId))
+   838→  const childrenOf = (id: string) => analysis.topics.filter(t => t.level === 2 && t.parentId === id)
+   839→
+   840→  return (
+   841→    <StructureContext.Provider value={structure}>
+   842→      <div className="space-y-6">
+   843→      {/* Golden rule */}
+   844→      <div className="flex items-start gap-3 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3">
+   845→        <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
+   846→        <p className="text-sm leading-relaxed text-foreground">
+   847→          <span className="font-semibold text-gold">The golden rule:</span> every question is generated FROM this
+   848→          material — answers and page references point back to the document itself, never to outside knowledge.
+   849→        </p>
+   850→      </div>
+   851→
+   852→      {/* Summary */}
+   853→      <section aria-label="Summary" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   854→        <h2 className="font-display text-xl font-semibold text-foreground">Summary</h2>
+   855→        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.summary}</p>
+   856→      </section>
+   857→
+   858→      {/* Topics — the document's own hierarchy */}
+   859→      {tops.length > 0 && (
+   860→        <section aria-label="Topics" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   861→          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   862→            <ListChecks className="h-4 w-4 text-gold" aria-hidden /> Topics
+   863→          </h2>
+   864→          <p className="mt-1 text-xs text-muted-foreground">
+   865→            {structure?.tocValidated
+   866→              ? `Structure detected from the document's own table of contents (${structure.tocEntries} entries validated against the body).`
+   867→              : structure && structure.kind !== 'UNSTRUCTURED'
+   868→                ? `Structure detected from ${structure.headingCount} headings in the document itself.`
+   869→                : 'This document has no detectable chapters or contents page — topics are listed in document order.'}
+   870→            {' '}Page chips open the integrated reader at that exact page.
+   871→          </p>
+   872→          <ul className="mt-4 max-h-[40rem] space-y-4 overflow-y-auto pr-2">
+   873→            {tops.map(topic => (
+   874→              <TopicRow key={topic.id} topic={topic} childrenTopics={childrenOf(topic.id)} onOpenPage={onOpenPage} />
+   875→            ))}
+   876→          </ul>
+   877→        </section>
+   878→      )}
+   879→
+   880→      {/* Key facts */}
+   881→      {analysis.keyFacts.length > 0 && (
+   882→        <section aria-label="Key facts" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   883→          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   884→            <CheckCircle2 className="h-4 w-4 text-gold" aria-hidden /> Key facts
+   885→          </h2>
+   886→          <ul className="mt-4 max-h-96 space-y-2 overflow-y-auto pr-2">
+   887→            {analysis.keyFacts.map((fact, i) => (
+   888→              <li key={i} className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground">
+   889→                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
+   890→                {fact}
+   891→              </li>
+   892→            ))}
+   893→          </ul>
+   894→        </section>
+   895→      )}
+   896→
+   897→      {/* Definitions */}
+   898→      {analysis.definitions.length > 0 && (
+   899→        <section aria-label="Definitions" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   900→          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   901→            <Lightbulb className="h-4 w-4 text-gold" aria-hidden /> Definitions
+   902→          </h2>
+   903→          <dl className="mt-4 grid max-h-96 grid-cols-1 gap-3 overflow-y-auto pr-2 sm:grid-cols-2">
+   904→            {analysis.definitions.map((def, i) => (
+   905→              <div key={i} className="rounded-lg border border-border bg-elevated p-4">
+   906→                <dt className="flex items-center justify-between gap-2">
+   907→                  <span className="text-sm font-semibold text-foreground">{def.term}</span>
+   908→                  {def.page >= 1 && (
+   909→                    <button
+   910→                      type="button"
+   911→                      onClick={() => onOpenPage(def.page)}
+   912→                      className="shrink-0 rounded-full border border-gold/30 px-2 py-0.5 text-xs text-gold transition-colors hover:bg-gold/10"
+   913→                      aria-label={`Open page ${def.page} in the reader`}
+   914→                    >
+   915→                      <PageChipLabel page={def.page} structure={structure} />
+   916→                    </button>
+   917→                  )}
+   918→                </dt>
+   919→                <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{def.meaning}</dd>
+   920→              </div>
+   921→            ))}
+   922→          </dl>
+   923→        </section>
+   924→      )}
+   925→
+   926→      {/* Formulas */}
+   927→      {analysis.formulas.length > 0 && (
+   928→        <section aria-label="Formulas" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   929→          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   930→            <Sigma className="h-4 w-4 text-gold" aria-hidden /> Formulas
+   931→          </h2>
+   932→          <ul className="mt-4 space-y-2">
+   933→            {analysis.formulas.map((f, i) => (
+   934→              <li
+   935→                key={i}
+   936→                className="overflow-x-auto rounded-lg border border-border bg-elevated px-4 py-2.5 font-mono text-sm text-gold"
+   937→              >
+   938→                {f}
+   939→              </li>
+   940→            ))}
+   941→          </ul>
+   942→        </section>
+   943→      )}
+   944→
+   945→      {/* Misconceptions */}
+   946→      {analysis.misconceptions.length > 0 && (
+   947→        <section aria-label="Common misconceptions" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   948→          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   949→            <XCircle className="h-4 w-4 text-destructive" aria-hidden /> Common misconceptions
+   950→          </h2>
+   951→          <ul className="mt-4 space-y-3">
+   952→            {analysis.misconceptions.map((m, i) => (
+   953→              <li key={i} className="rounded-lg border border-border bg-elevated p-4">
+   954→                <p className="flex items-start gap-2 text-sm text-muted-foreground">
+   955→                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+   956→                  <span>
+   957→                    <span className="font-medium text-destructive/90">Misconception: </span>
+   958→                    {m.misconception}
+   959→                  </span>
+   960→                </p>
+   961→                <p className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
+   962→                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
+   963→                  <span>
+   964→                    <span className="font-medium text-success">Correction: </span>
+   965→                    {m.correction}
+   966→                    {m.page != null && m.page >= 1 && (
+   967→                      <button
+   968→                        type="button"
+   969→                        onClick={() => onOpenPage(m.page as number)}
+   970→                        className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold"
+   971→                        aria-label={`Open page ${m.page} in the reader`}
+   972→                      >
+   973→                        <PageChipLabel page={m.page} structure={structure} />
+   974→                      </button>
+   975→                    )}
+   976→                  </span>
+   977→                </p>
+   978→              </li>
+   979→            ))}
+   980→          </ul>
+   981→        </section>
+   982→      )}
+   983→
+   984→      {/* Coverage — real accounting, never "complete" when it isn't */}
+   985→      <section aria-label="Coverage and gaps" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+   986→        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+   987→          <Info className="h-4 w-4 text-gold" aria-hidden /> Coverage &amp; gaps
+   988→        </h2>
+   989→
+   990→        {cov ? (
+   991→          <>
+   992→            <div className="mt-4 flex flex-wrap items-center gap-2">
+   993→              <Badge
+   994→                variant="outline"
+   995→                className={
+   996→                  cov.complete
+   997→                    ? 'border-success/40 text-success'
+   998→                    : 'border-gold/50 bg-gold/10 text-gold'
+   999→                }
+  1000→              >
+  1001→                {cov.complete ? 'Full document analysed' : 'Partially analysed'}
+  1002→              </Badge>
+  1003→              {structure?.kind && (
+  1004→                <Badge variant="outline" className="border-border text-muted-foreground">
+  1005→                  {STRUCTURE_KIND_LABEL[structure.kind]}
+  1006→                </Badge>
+  1007→              )}
+  1008→            </div>
+  1009→            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+  1010→              <CoverageStat label="Pages extracted" value={cov.readablePages + cov.scannedPages} sub={`${cov.totalPages} total`} />
+  1011→              <CoverageStat label="Analysed pages" value={cov.analysedPages} sub={cov.unanalysedPages > 0 ? `${cov.unanalysedPages} pending` : cov.skippedPages > 0 ? `${cov.skippedPages} skipped` : 'all readable'} />
+  1012→              <CoverageStat label="Need OCR" value={cov.scannedPages} sub={cov.scannedPages > 0 ? 'image-only' : 'none'} />
+  1013→              <CoverageStat
+  1014→                label="Sections"
+  1015→                value={cov.unitsOk}
+  1016→                sub={cov.unitsFailed > 0
+  1017→                  ? `${cov.unitsFailed} failed of ${cov.unitsTotal}`
+  1018→                  : cov.unitsSkipped > 0
+  1019→                    ? `${cov.unitsSkipped} skipped of ${cov.unitsTotal}`
+  1020→                    : `${cov.unitsTotal} analysed`}
+  1021→              />
+  1022→            </dl>
+  1023→            {structure?.printedPageOffset != null && (
+  1024→              <p className="mt-3 text-xs text-muted-foreground">
+  1025→                This document prints its own page numbers — PDF page {structure.printedPageOffset + 1} is printed page 1
+  1026→                (offset {structure.printedPageOffset}). Chips show both when known.
+  1027→                {structure.printedRomanFrontMatter ? ' Front matter uses roman numerals.' : ''}
+  1028→              </p>
+  1029→            )}
+  1030→          </>
+  1031→        ) : null}
+  1032→
+  1033→        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{analysis.coverageNote}</p>
+  1034→
+  1035→        {/* Section-by-section accounting: what failed (retryable) and what was
+  1036→            skipped, always with the recorded reason — never a bare count. */}
+  1037→        {analysis.sectionOutcomes && analysis.sectionOutcomes.some(o => o.status !== 'OK') && (
+  1038→          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-2">
+  1039→            {analysis.sectionOutcomes.filter(o => o.status === 'FAILED').map(o => (
+  1040→              <div key={`f-${o.index}`} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+  1041→                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
+  1042→                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+  1043→                  <span><span className="font-medium text-destructive/90">Not analysed (retryable): </span>{o.label}</span>
+  1044→                </p>
+  1045→                {o.error && <p className="ml-5 text-[11px] text-muted-foreground">{o.error}</p>}
+  1046→              </div>
+  1047→            ))}
+  1048→            {analysis.sectionOutcomes.filter(o => o.status === 'SKIPPED').map(o => (
+  1049→              <div key={`s-${o.index}`} className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-2">
+  1050→                <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground">
+  1051→                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
+  1052→                  <span><span className="font-medium text-gold">Skipped with reason: </span>{o.label}</span>
+  1053→                </p>
+  1054→                {o.error && <p className="ml-5 text-[11px] leading-relaxed text-muted-foreground">{o.error}</p>}
+  1055→              </div>
+  1056→            ))}
+  1057→          </div>
+  1058→        )}
+  1059→
+  1060→        {partial && cov && (
+  1061→          <div className="mt-4 flex flex-wrap gap-2">
+  1062→            <Button
+  1063→              size="sm"
+  1064→              className="bg-gold text-primary-foreground hover:bg-gold-hover"
+  1065→              onClick={() => onReanalyse(false)}
+  1066→            >
+  1067→              <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry failed sections
+  1068→            </Button>
+  1069→            <Button
+  1070→              size="sm"
+  1071→              variant="outline"
+  1072→              className="border-border text-muted-foreground hover:bg-elevated"
+  1073→              onClick={() => onReanalyse(true)}
+  1074→            >
+  1075→              Re-analyse from scratch
+  1076→            </Button>
+  1077→          </div>
+  1078→        )}
+  1079→
+  1080→        {analysis.studyGaps.length > 0 && (
+  1081→          <>
+  1082→            <Separator className="my-4" />
+  1083→            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+  1084→              <AlertTriangle className="h-3.5 w-3.5 text-gold" aria-hidden /> Study gaps noticed by Riishe
+  1085→            </h3>
+  1086→            <ul className="mt-2 space-y-1.5">
+  1087→              {analysis.studyGaps.map((gap, i) => (
+  1088→                <li key={i} className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground">
+  1089→                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold/70" aria-hidden />
+  1090→                  {gap}
+  1091→                </li>
+  1092→              ))}
+  1093→            </ul>
+  1094→          </>
+  1095→        )}
+  1096→
+  1097→        {analysis.unreadableSections.length > 0 && (
+  1098→          <>
+  1099→            <Separator className="my-4" />
+  1100→            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+  1101→              <FileWarning className="h-3.5 w-3.5 text-gold" aria-hidden /> Sections Riishe could not read
+  1102→            </h3>
+  1103→            <ul className="mt-2 space-y-1.5">
+  1104→              {analysis.unreadableSections.map((s, i) => (
+  1105→                <li key={i} className="text-sm leading-relaxed text-muted-foreground">
+  1106→                  {s}
+  1107→                </li>
+  1108→              ))}
+  1109→            </ul>
+  1110→          </>
+  1111→        )}
+  1112→      </section>
+  1113→    </div>
+  1114→    </StructureContext.Provider>
+  1115→  )
+  1116→}
+  1117→
+  1118→const STRUCTURE_KIND_LABEL: Record<NonNullable<DocumentAnalysisDTO['structure']>['kind'], string> = {
+  1119→  TOC_GUIDED: 'Contents-page structure',
+  1120→  HEADING_GUIDED: 'Heading structure',
+  1121→  QUESTION_PAPER: 'Question paper',
+  1122→  UNSTRUCTURED: 'Free-form document',
+  1123→}
+  1124→
+  1125→/** A topic row: level-1 sections render their level-2 children nested. */
+  1126→function TopicRow({ topic, childrenTopics, onOpenPage }: {
+  1127→  topic: AnalyzedTopicDTO
+  1128→  childrenTopics: AnalyzedTopicDTO[]
+  1129→  onOpenPage: (page: number) => void
+  1130→}) {
+  1131→  const structure = useContext(StructureContext)
+  1132→  return (
+  1133→    <li className="rounded-lg border border-border bg-elevated p-4">
+  1134→      <div className="flex flex-wrap items-start justify-between gap-2">
+  1135→        <div className="min-w-0">
+  1136→          <p className="text-sm font-semibold text-foreground">{topic.name}</p>
+  1137→          {topic.aliases.length > 0 && (
+  1138→            <p className="mt-0.5 text-xs text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
+  1139→          )}
+  1140→        </div>
+  1141→        <PageChips pages={topic.pages} structure={structure} onOpenPage={onOpenPage} />
+  1142→      </div>
+  1143→      {topic.subtopics.length > 0 && (
+  1144→        <div className="mt-2 flex flex-wrap gap-1.5">
+  1145→          {topic.subtopics.map(sub => (
+  1146→            <Badge key={sub} variant="outline" className="border-border text-muted-foreground">
+  1147→              {sub}
+  1148→            </Badge>
+  1149→          ))}
+  1150→        </div>
+  1151→      )}
+  1152→      {childrenTopics.length > 0 && (
+  1153→        <ul className="mt-3 space-y-2 border-l border-gold/25 pl-3">
+  1154→          {childrenTopics.map(child => (
+  1155→            <li key={child.id} className="rounded border border-border/60 bg-card/60 p-2.5">
+  1156→              <div className="flex flex-wrap items-start justify-between gap-2">
+  1157→                <div className="min-w-0">
+  1158→                  <p className="text-xs font-medium text-foreground/90">{child.name}</p>
+  1159→                  {child.aliases.length > 0 && (
+  1160→                    <p className="mt-0.5 text-[11px] text-muted-foreground/70">also found as: {child.aliases.join(' · ')}</p>
+  1161→                  )}
+  1162→                </div>
+  1163→                <PageChips pages={child.pages} structure={structure} onOpenPage={onOpenPage} compact />
+  1164→              </div>
+  1165→              {child.subtopics.length > 0 && (
+  1166→                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">{child.subtopics.join(' · ')}</p>
+  1167→              )}
+  1168→            </li>
+  1169→          ))}
+  1170→        </ul>
+  1171→      )}
+  1172→    </li>
+  1173→  )
+  1174→}
+  1175→
+  1176→// Structure info context — avoids re-plumbing props through every row.
+  1177→const StructureContext = createContext<DocumentAnalysisDTO['structure'] | undefined>(undefined)
+  1178→
+  1179→function PageChipLabel({ page, structure }: { page: number; structure?: DocumentAnalysisDTO['structure'] }) {
+  1180→  const off = structure?.printedPageOffset
+  1181→  const printed = off != null ? page - off : null
+  1182→  if (printed != null && printed >= 1) return <>PDF p. {page} · printed p. {printed}</>
+  1183→  return <>p. {page}</>
+  1184→}
+  1185→
+  1186→function PageChips({ pages, structure, onOpenPage, compact }: {
+  1187→  pages: number[]
+  1188→  structure?: DocumentAnalysisDTO['structure']
+  1189→  onOpenPage: (page: number) => void
+  1190→  compact?: boolean
+  1191→}) {
+  1192→  const sorted = [...new Set(pages)].filter(Number.isFinite).filter(p => p >= 1).sort((a, b) => a - b)
+  1193→  if (sorted.length === 0) return null
+  1194→  const shown = compact ? sorted.slice(0, 6) : sorted.slice(0, 10)
+  1195→  const hidden = sorted.length - shown.length
+  1196→  return (
+  1197→    <div className="flex flex-wrap items-center justify-end gap-1.5">
+  1198→      {shown.map(p => (
+  1199→        <button
+  1200→          key={p}
+  1201→          type="button"
+  1202→          onClick={() => onOpenPage(p)}
+  1203→          title={`Open page ${p} in the reader`}
+  1204→          aria-label={`Open page ${p} in the reader`}
+  1205→          className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-gold/50 hover:bg-gold/10 hover:text-gold"
+  1206→        >
+  1207→          <PageChipLabel page={p} structure={structure} />
+  1208→        </button>
+  1209→      ))}
+  1210→      {hidden > 0 && (
+  1211→        <span className="text-xs text-muted-foreground/70">+{hidden} more</span>
+  1212→      )}
+  1213→    </div>
+  1214→  )
+  1215→}
+  1216→
+  1217→function CoverageStat({ label, value, sub }: { label: string; value: number; sub?: string }) {
+  1218→  return (
+  1219→    <div className="rounded-lg border border-border bg-elevated p-3">
+  1220→      <dt className="text-xs text-muted-foreground">{label}</dt>
+  1221→      <dd className="mt-1 font-display text-lg font-semibold text-foreground">{value}</dd>
+  1222→      {sub && <p className="text-[11px] text-muted-foreground/80">{sub}</p>}
+  1223→    </div>
+  1224→  )
+  1225→}
+  1226→
+  1227→// ═══ Tests tab ═══
+  1228→
+  1229→function TestsPanel({
+  1230→  doc,
+  1231→  guestId,
+  1232→  onDocRefresh,
+  1233→}: {
+  1234→  doc: MaterialDetailDTO
+  1235→  guestId: string
+  1236→  onDocRefresh: () => void
+  1237→}) {
+  1238→  const navigate = useAppStore(s => s.navigate)
+  1239→
+  1240→  // Generator options
+  1241→  const analysisTopics = doc.analysis?.topics.map(t => t.name) ?? []
+  1242→  const [selectedFocus, setSelectedFocus] = useState<string[]>([])
+  1243→  const [timed, setTimed] = useState(true)
+  1244→  const [count, setCount] = useState<50 | 30 | 20>(50)
+  1245→  const [generating, setGenerating] = useState(false)
+  1246→
+  1247→  // Active test detail (fetched + polled separately from the material)
+  1248→  const [activeTestId, setActiveTestId] = useState<string | null>(null)
+  1249→  const [testLoaded, setTestLoaded] = useState<{ key: string; data: RiisheTestDetailDTO } | null>(null)
+  1250→  const [testError, setTestError] = useState<string | null>(null)
+  1251→  const [startingId, setStartingId] = useState<string | null>(null)
+  1252→
+  1253→  const sortedTests = [...doc.tests].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  1254→
+  1255→  // Auto-pick: an in-flight test first, otherwise the newest READY test.
+  1256→  const inflight = doc.tests.find(t => t.status === 'QUEUED' || t.status === 'GENERATING')
+  1257→  const latestReady = sortedTests.find(t => t.status === 'READY')
+  1258→  const activeId = activeTestId ?? inflight?.id ?? latestReady?.id ?? null
+  1259→  const activeTest = testLoaded && testLoaded.key === activeId ? testLoaded.data : null
+  1260→
+  1261→  // Fetch + poll the active test every 4s until it settles (READY / FAILED).
+  1262→  useEffect(() => {
+  1263→    if (!guestId || !activeId) return
+  1264→    let alive = true
+  1265→    let timer: ReturnType<typeof setInterval> | null = null
+  1266→    const fetchOnce = () => {
+  1267→      api
+  1268→        .riisheTest(activeId, guestId)
+  1269→        .then(d => {
+  1270→          if (!alive) return
+  1271→          setTestLoaded({ key: activeId, data: d })
+  1272→          setTestError(null)
+  1273→          if (timer && d.status !== 'QUEUED' && d.status !== 'GENERATING') {
+  1274→            clearInterval(timer)
+  1275→            timer = null
+  1276→          }
+  1277→        })
+  1278→        .catch((e: unknown) => {
+  1279→          if (!alive) return
+  1280→          setTestError(e instanceof Error ? e.message : 'Could not load the test status.')
+  1281→        })
+  1282→    }
+  1283→    fetchOnce()
+  1284→    timer = setInterval(fetchOnce, 4000)
+  1285→    return () => {
+  1286→      alive = false
+  1287→      if (timer) clearInterval(timer)
+  1288→    }
+  1289→  }, [guestId, activeId])
+  1290→
+  1291→  const toggleFocus = (name: string) => {
+  1292→    setSelectedFocus(prev =>
+  1293→      prev.includes(name) ? prev.filter(n => n !== name) : prev.length >= 3 ? prev : [...prev, name],
+  1294→    )
+  1295→  }
+  1296→
+  1297→  const generate = () => {
+  1298→    if (generating || doc.status !== 'READY') return
+  1299→    setGenerating(true)
+  1300→    setTestError(null)
+  1301→    api
+  1302→      .generateRiisheTest({
+  1303→        guestId,
+  1304→        documentId: doc.id,
+  1305→        focusTopics: selectedFocus.length ? selectedFocus : undefined,
+  1306→        timed,
+  1307→        count,
+  1308→      })
+  1309→      .then(r => {
+  1310→        setActiveTestId(r.testId)
+  1311→        if (r.existing) {
+  1312→          toast({
+  1313→            title: 'Identical test already prepared',
+  1314→            description: 'Riishe reused the matching in-flight test instead of generating a duplicate.',
+  1315→          })
+  1316→        }
+  1317→        onDocRefresh()
+  1318→      })
+  1319→      .catch((e: unknown) => {
+  1320→        setTestError(e instanceof Error ? e.message : 'Could not start generation.')
+  1321→      })
+  1322→      .finally(() => setGenerating(false))
+  1323→  }
+  1324→
+  1325→  const startTest = (testId: string) => {
+  1326→    if (startingId) return
+  1327→    setStartingId(testId)
+  1328→    api
+  1329→      .startRiisheTest(testId, guestId)
+  1330→      .then(r => {
+  1331→        if (r.resumed) {
+  1332→          toast({ title: 'Resuming your saved attempt', description: 'Your earlier answers were restored.' })
+  1333→        }
+  1334→        navigate({ view: 'test', attemptId: r.attemptId })
+  1335→      })
+  1336→      .catch((e: unknown) => {
+  1337→        toast({ title: 'Could not start the test', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+  1338→      })
+  1339→      .finally(() => setStartingId(null))
+  1340→  }
+  1341→
+  1342→  const canGenerate = doc.status === 'READY'
+  1343→
+  1344→  const generateNote =
+  1345→    doc.status === 'NEEDS_OCR'
+  1346→      ? 'Questions cannot be generated — this document could not be analysed (scanned pages, OCR unavailable).'
+  1347→      : doc.status === 'FAILED'
+  1348→        ? 'Processing failed — retry it from the Material tab before generating a test.'
+  1349→        : !canGenerate
+  1350→          ? 'Generation unlocks once the document analysis completes.'
+  1351→          : null
+  1352→
+  1353→  return (
+  1354→    <div className="space-y-6">
+  1355→      {/* Generate section */}
+  1356→      <section aria-label="Generate a test" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+  1357→        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+  1358→          <Sparkles className="h-4 w-4 text-gold" aria-hidden /> Generate a test
+  1359→        </h2>
+  1360→        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+  1361→          Questions are drawn strictly from this document. Leave the focus empty for a balanced mix across it.
+  1362→        </p>
+  1363→
+  1364→        {/* Topic focus */}
+  1365→        {analysisTopics.length > 0 ? (
+  1366→          <div className="mt-4">
+  1367→            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+  1368→              Topic focus <span className="normal-case tracking-normal">(up to 3, optional)</span>
+  1369→            </p>
+  1370→            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Topic focus selector">
+  1371→              {analysisTopics.map(name => {
+  1372→                const active = selectedFocus.includes(name)
+  1373→                return (
+  1374→                  <button
+  1375→                    key={name}
+  1376→                    type="button"
+  1377→                    aria-pressed={active}
+  1378→                    onClick={() => toggleFocus(name)}
+  1379→                    className={cn(
+  1380→                      'min-h-9 rounded-full border px-3 py-1.5 text-xs transition-colors',
+  1381→                      active
+  1382→                        ? 'border-gold/60 bg-gold/15 text-gold'
+  1383→                        : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+  1384→                    )}
+  1385→                  >
+  1386→                    {name}
+  1387→                  </button>
+  1388→                )
+  1389→              })}
+  1390→            </div>
+  1391→            {selectedFocus.length === 0 && (
+  1392→              <p className="mt-2 text-xs text-muted-foreground">Balanced mix across the document.</p>
+  1393→            )}
+  1394→          </div>
+  1395→        ) : (
+  1396→          canGenerate && (
+  1397→            <p className="mt-4 text-xs text-muted-foreground">Balanced mix across the document.</p>
+  1398→          )
+  1399→        )}
+  1400→
+  1401→        {/* Timed / untimed + count */}
+  1402→        <div className="mt-5 flex flex-wrap items-start gap-x-8 gap-y-4">
+  1403→          <div>
+  1404→            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Time</p>
+  1405→            <RadioGroup
+  1406→              value={timed ? 'timed' : 'untimed'}
+  1407→              onValueChange={v => setTimed(v === 'timed')}
+  1408→              className="mt-2 flex flex-wrap gap-4"
+  1409→            >
+  1410→              <div className="flex min-h-9 items-center gap-2">
+  1411→                <RadioGroupItem value="timed" id="riishe-timed" />
+  1412→                <Label htmlFor="riishe-timed" className="cursor-pointer text-sm font-normal">
+  1413→                  Timed — about {Math.max(10, count)} min
+  1414→                </Label>
+  1415→              </div>
+  1416→              <div className="flex min-h-9 items-center gap-2">
+  1417→                <RadioGroupItem value="untimed" id="riishe-untimed" />
+  1418→                <Label htmlFor="riishe-untimed" className="cursor-pointer text-sm font-normal">
+  1419→                  Untimed — no time limit
+  1420→                </Label>
+  1421→              </div>
+  1422→            </RadioGroup>
+  1423→          </div>
+  1424→
+  1425→          <div>
+  1426→            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Questions</p>
+  1427→            <div className="mt-2 flex gap-2" role="group" aria-label="Question count">
+  1428→              {([50, 30, 20] as const).map(n => (
+  1429→                <button
+  1430→                  key={n}
+  1431→                  type="button"
+  1432→                  aria-pressed={count === n}
+  1433→                  onClick={() => setCount(n)}
+  1434→                  className={cn(
+  1435→                    'min-h-9 rounded-lg border px-4 py-1.5 text-sm transition-colors',
+  1436→                    count === n
+  1437→                      ? 'border-gold/60 bg-gold/15 text-gold'
+  1438→                      : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+  1439→                  )}
+  1440→                >
+  1441→                  {n}
+  1442→                </button>
+  1443→              ))}
+  1444→            </div>
+  1445→          </div>
+  1446→        </div>
+  1447→
+  1448→        {/* Distribution preview */}
+  1449→        <p className="mt-4 rounded-lg border border-border bg-elevated px-4 py-2.5 text-xs text-muted-foreground">
+  1450→          <span className="font-medium text-foreground">Planned mix: </span>
+  1451→          {distributionLine(count)}
+  1452→          {count !== 50 ? ` — scaled to ${count} questions` : ''}
+  1453→        </p>
+  1454→
+  1455→        {generateNote && (
+  1456→          <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+  1457→            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
+  1458→            {generateNote}
+  1459→          </p>
+  1460→        )}
+  1461→
+  1462→        {testError && (
+  1463→          <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive" role="alert">
+  1464→            {testError}
+  1465→          </p>
+  1466→        )}
+  1467→
+  1468→        <Button
+  1469→          className="mt-4 bg-gold text-primary-foreground hover:bg-gold-hover"
+  1470→          disabled={!canGenerate || generating}
+  1471→          onClick={generate}
+  1472→        >
+  1473→          {generating ? (
+  1474→            <>
+  1475→              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Starting generation…
+  1476→            </>
+  1477→          ) : (
+  1478→            <>
+  1479→              <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Generate {count} Questions
+  1480→            </>
+  1481→          )}
+  1482→        </Button>
+  1483→      </section>
+  1484→
+  1485→      {/* Active test: live progress / failure / pre-test summary */}
+  1486→      {activeId && (
+  1487→        <section aria-label="Selected test">
+  1488→          {!activeTest && (
+  1489→            <div className="rounded-xl border border-border bg-card p-5 sm:p-6" aria-hidden>
+  1490→              <Skeleton className="h-6 w-1/2 bg-elevated" />
+  1491→              <Skeleton className="mt-4 h-24 bg-elevated" />
+  1492→            </div>
+  1493→          )}
+  1494→
+  1495→          {activeTest && (activeTest.status === 'QUEUED' || activeTest.status === 'GENERATING') && (
+  1496→            <div className="rounded-xl border border-gold/40 bg-gold/5 p-5 sm:p-6" role="status">
+  1497→              <p className="flex items-center gap-2 text-sm font-medium text-gold">
+  1498→                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+  1499→                {activeTest.status === 'QUEUED' ? 'Queued — waiting for the generator…' : 'Generating questions…'}
+  1500→              </p>
+  1501→              {/* Honest progress: a pulsing bar, never a fake percentage */}
+  1502→              <div className="mt-3 h-2 overflow-hidden rounded bg-elevated" aria-hidden>
+  1503→                <div className="h-full w-1/3 animate-pulse rounded bg-gold/60" />
+  1504→              </div>
+  1505→              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+  1506→                {activeTest.statusDetail ??
+  1507→                  'Validated questions are generated in batches — this updates automatically. No percentage is shown because the remaining work is not predictable.'}
+  1508→              </p>
+  1509→            </div>
+  1510→          )}
+  1511→
+  1512→          {activeTest && activeTest.status === 'FAILED' && (
+  1513→            <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 sm:p-6" role="alert">
+  1514→              <p className="font-display text-lg font-semibold text-destructive">Generation failed</p>
+  1515→              <p className="mt-2 text-sm leading-relaxed text-destructive/90">
+  1516→                {activeTest.statusDetail ?? 'Riishe could not produce enough validated questions from this document.'}
+  1517→              </p>
+  1518→              <Button
+  1519→                variant="outline"
+  1520→                className="mt-4 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+  1521→                onClick={generate}
+  1522→                disabled={!canGenerate || generating}
+  1523→              >
+  1524→                <RotateCcw className="mr-1.5 h-4 w-4" /> Try again
+  1525→              </Button>
+  1526→            </div>
+  1527→          )}
+  1528→
+  1529→          {activeTest && activeTest.status === 'READY' && (
+  1530→            <PreTestSummaryCard
+  1531→              test={activeTest}
+  1532→              starting={startingId === activeTest.id}
+  1533→              onStart={() => startTest(activeTest.id)}
+  1534→            />
+  1535→          )}
+  1536→        </section>
+  1537→      )}
+  1538→
+  1539→      {/* History */}
+  1540→      <section aria-label="Test history" className="rounded-xl border border-border bg-card p-5 sm:p-6">
+  1541→        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+  1542→          <ClipboardList className="h-4 w-4 text-gold" aria-hidden /> Test history
+  1543→        </h2>
+  1544→
+  1545→        {sortedTests.length === 0 ? (
+  1546→          <p className="mt-5 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
+  1547→            No tests generated for this document yet.
+  1548→          </p>
+  1549→        ) : (
+  1550→          <ul className="mt-5 space-y-3">
+  1551→            {sortedTests.map(t => (
+  1552→              <TestHistoryRow
+  1553→                key={t.id}
+  1554→                test={t}
+  1555→                starting={startingId === t.id}
+  1556→                onSelect={() => setActiveTestId(t.id)}
+  1557→                onStart={() => startTest(t.id)}
+  1558→              />
+  1559→            ))}
+  1560→          </ul>
+  1561→        )}
+  1562→        <p className="mt-4 text-xs text-muted-foreground">
+  1563→          Completed attempts and their scores appear in My Progress.
+  1564→        </p>
+  1565→      </section>
+  1566→    </div>
+  1567→  )
+  1568→}
+  1569→
+  1570→// ─── Pre-test summary ───
+  1571→
+  1572→function PreTestSummaryCard({
+  1573→  test,
+  1574→  starting,
+  1575→  onStart,
+  1576→}: {
+  1577→  test: RiisheTestDetailDTO
+  1578→  starting: boolean
+  1579→  onStart: () => void
+  1580→}) {
+  1581→  const stats = test.stats
+  1582→  const difficulty = stats?.byDifficulty
+  1583→  const scoring = `+${test.config.marksPerQuestion} per correct${
+  1584→    test.config.negativeMark > 0 ? `, −${test.config.negativeMark} per wrong answer` : ', no negative marking'
+  1585→  }`
+  1586→
+  1587→  return (
+  1588→    <div className="rounded-xl border border-gold/40 bg-card p-5 sm:p-6">
+  1589→      <div className="flex flex-wrap items-start justify-between gap-3">
+  1590→        <div className="min-w-0">
+  1591→          <h2 className="font-display text-lg font-semibold text-foreground" title={test.title}>
+  1592→            {test.title}
+  1593→          </h2>
+  1594→          <p className="mt-1 text-xs text-muted-foreground">
+  1595→            Source document: {test.documentTitle}
+  1596→            {test.weakFocus ? ' · weak-area focus' : ''}
+  1597→          </p>
+  1598→        </div>
+  1599→        <Badge variant="outline" className="shrink-0 border-success/40 bg-success/10 text-success">
+  1600→          <CheckCircle2 className="h-3 w-3" aria-hidden /> Ready
+  1601→        </Badge>
+  1602→      </div>
+  1603→
+  1604→      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+  1605→        <SummaryItem label="Focus" value={test.focusTopics.length ? test.focusTopics.join(' · ') : 'Balanced mix across the document'} />
+  1606→        <SummaryItem
+  1607→          label="Questions"
+  1608→          value={
+  1609→            stats
+  1610→              ? `${test.questionCount} (validated ${stats.validated} of ${stats.generated} generated)`
+  1611→              : String(test.questionCount)
+  1612→          }
+  1613→        />
+  1614→        <SummaryItem label="Scoring" value={scoring} />
+  1615→        <SummaryItem label="Time limit" value={test.config.timed ? `${test.config.durationMin} min` : 'No time limit'} />
+  1616→      </div>
+  1617→
+  1618→      {difficulty && (
+  1619→        <div className="mt-4 flex flex-wrap items-center gap-2">
+  1620→          <span className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Difficulty:</span>
+  1621→          <Badge variant="outline" className="border-success/40 text-success">EASY {difficulty.EASY}</Badge>
+  1622→          <Badge variant="outline" className="border-gold/40 text-gold">MEDIUM {difficulty.MEDIUM}</Badge>
+  1623→          <Badge variant="outline" className="border-destructive/40 text-destructive">HARD {difficulty.HARD}</Badge>
+  1624→        </div>
+  1625→      )}
+  1626→
+  1627→      <Button
+  1628→        className="mt-5 bg-gold text-primary-foreground hover:bg-gold-hover"
+  1629→        disabled={starting}
+  1630→        onClick={onStart}
+  1631→      >
+  1632→        {starting ? (
+  1633→          <>
+  1634→            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Opening…
+  1635→          </>
+  1636→        ) : (
+  1637→          <>
+  1638→            <Play className="mr-2 h-4 w-4" aria-hidden /> Start Test
+  1639→          </>
+  1640→        )}
+  1641→      </Button>
+  1642→    </div>
+  1643→  )
+  1644→}
+  1645→
+  1646→function SummaryItem({ label, value }: { label: string; value: string }) {
+  1647→  return (
+  1648→    <div className="rounded-lg border border-border bg-elevated px-4 py-3">
+  1649→      <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
+  1650→      <p className="mt-1 break-words text-sm text-foreground">{value}</p>
+  1651→    </div>
+  1652→  )
+  1653→}
+  1654→
+  1655→// ─── History row ───
+  1656→
+  1657→function TestHistoryRow({
+  1658→  test,
+  1659→  starting,
+  1660→  onSelect,
+  1661→  onStart,
+  1662→}: {
+  1663→  test: MaterialDetailDTO['tests'][number]
+  1664→  starting: boolean
+  1665→  onSelect: () => void
+  1666→  onStart: () => void
+  1667→}) {
+  1668→  return (
+  1669→    <li className="rounded-lg border border-border bg-elevated p-4">
+  1670→      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  1671→        <div className="min-w-0">
+  1672→          <button
+  1673→            type="button"
+  1674→            onClick={onSelect}
+  1675→            className="group rounded text-left"
+  1676→            aria-label={`Show details for ${test.title}`}
+  1677→          >
+  1678→            <span className="block truncate text-sm font-medium text-foreground transition-colors group-hover:text-gold">
+  1679→              {test.title}
+  1680→            </span>
+  1681→          </button>
+  1682→          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+  1683→            <span>
+  1684→              {test.questionCount} question{test.questionCount === 1 ? '' : 's'}
+  1685→              {test.stats ? ` · ${test.stats.validated} validated` : ''}
+  1686→            </span>
+  1687→            <span aria-hidden>·</span>
+  1688→            <span>Created {formatDate(test.createdAt)}</span>
+  1689→            {test.weakFocus && (
+  1690→              <Badge variant="outline" className="border-destructive/40 text-destructive">Weak-area focus</Badge>
+  1691→            )}
+  1692→          </p>
+  1693→          {test.focusTopics.length > 0 && (
+  1694→            <div className="mt-1.5 flex flex-wrap gap-1.5">
+  1695→              {test.focusTopics.map(topic => (
+  1696→                <Badge key={topic} variant="outline" className="border-border text-muted-foreground">
+  1697→                  {topic}
+  1698→                </Badge>
+  1699→              ))}
+  1700→            </div>
+  1701→          )}
+  1702→          {test.status === 'FAILED' && test.statusDetail && (
+  1703→            <p className="mt-1.5 text-xs leading-relaxed text-destructive/90">{test.statusDetail}</p>
+  1704→          )}
+  1705→          {(test.status === 'QUEUED' || test.status === 'GENERATING') && (
+  1706→            <p className="mt-1.5 text-xs text-gold">Generation in progress — this row updates automatically.</p>
+  1707→          )}
+  1708→        </div>
+  1709→        <div className="flex shrink-0 items-center gap-2">
+  1710→          <TestHistoryBadge status={test.status} />
+  1711→          {test.status === 'READY' && (
+  1712→            <Button
+  1713→              size="sm"
+  1714→              className="bg-gold text-primary-foreground hover:bg-gold-hover"
+  1715→              disabled={starting}
+  1716→              onClick={onStart}
+  1717→              aria-label={`Start ${test.title}`}
+  1718→            >
+  1719→              {starting ? (
+  1720→                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+  1721→              ) : (
+  1722→                <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+  1723→              )}
+  1724→              Start Test
+  1725→            </Button>
+  1726→          )}
+  1727→        </div>
+  1728→      </div>
+  1729→    </li>
+  1730→  )
+  1731→}
+  1732→
+  1733→function TestHistoryBadge({ status }: { status: 'QUEUED' | 'GENERATING' | 'READY' | 'FAILED' }) {
+  1734→  if (status === 'READY') {
+  1735→    return (
+  1736→      <Badge variant="outline" className="gap-1 border-success/40 bg-success/10 text-success">
+  1737→        <CheckCircle2 className="h-3 w-3" aria-hidden /> Ready
+  1738→      </Badge>
+  1739→    )
+  1740→  }
+  1741→  if (status === 'FAILED') {
+  1742→    return (
+  1743→      <Badge variant="outline" className="gap-1 border-destructive/40 bg-destructive/10 text-destructive">
+  1744→        <AlertTriangle className="h-3 w-3" aria-hidden /> Failed
+  1745→      </Badge>
+  1746→    )
+  1747→  }
+  1748→  return (
+  1749→    <Badge variant="outline" className="gap-1.5 border-gold/40 bg-gold/10 text-gold">
+  1750→      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" aria-hidden />
+  1751→      {status === 'QUEUED' ? 'Queued' : 'Generating…'}
+  1752→    </Badge>
+  1753→  )
+  1754→}
+  1755→

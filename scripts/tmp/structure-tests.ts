@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert'
 import { extractPdfPages } from '../../src/lib/riishe/extract'
-import { detectStructure } from '../../src/lib/riishe/structure'
+import { detectStructure, detectPrintedPages, verifyTocLayer } from '../../src/lib/riishe/structure'
 import { canonicalizeTopics, normalizeTitle, verifyPages } from '../../src/lib/riishe/dedupe'
 
 let passed = 0
@@ -112,8 +112,10 @@ const idx = new Map([
   [5, 'glycolysis happens in the cytoplasm and yields two atp per glucose'],
 ])
 
-function T(name, subtopics, pages, unitIndex, unitTitle, fromPage, toPage) {
-  return { name, subtopics, pages, unitIndex, unitTitle, unitFromPage: fromPage, unitToPage: toPage }
+function T(name, subtopics, pages, unitIndex, unitTitle, fromPage, toPage, anchored) {
+  // Mirrors the real pipeline contract: collectTopicInputs marks unit-title
+  // topics anchored:true + origin 'SOURCE_HEADING'; model output is unanchored.
+  return { name, subtopics, pages, unitIndex, unitTitle, unitFromPage: fromPage, unitToPage: toPage, ...(anchored ? { anchored: true, origin: 'SOURCE_HEADING' } : {}) }
 }
 
 check('merges exact-normalised duplicates from different sections', () => {
@@ -154,7 +156,7 @@ check('does NOT merge distinct concepts with similar names in different areas', 
 })
 check('level-2 assignment under the parent heading topic', () => {
   const out = canonicalizeTopics([
-    T('Chapter 1 Photosynthesis Overview', [], [3, 4], 0, 'Chapter 1 Photosynthesis Overview', 3, 4, ),
+    T('Chapter 1 Photosynthesis Overview', [], [3, 4], 0, 'Chapter 1 Photosynthesis Overview', 3, 4, true),
     T('Light Reactions', [], [3], 0, 'Chapter 1 Photosynthesis Overview', 3, 4),
     T('Dark Reactions', [], [4], 1, 'Chapter 1 Photosynthesis Overview', 3, 4),
   ].map(x => ({ ...x })), { pageTextIndex: idx })
@@ -336,6 +338,226 @@ check('a topic merged from several chunks of one long section keeps its FULL pag
   )
   assert.deepEqual(r.pages, [40, 41, 44, 47], `got ${JSON.stringify(r.pages)}`)
   assert.equal(r.verified, true)
+})
+
+// ═══ Task I regressions: structure fidelity, origin layers, evidence ═════════
+
+console.log('── Task I: origin-aware dedupe (no cross-section fusing) ──')
+check('appendix heading is NEVER fused with a same-words topic from another chapter', () => {
+  // Regression: "I List of Central Universities" (appendix, pages 36-37) was
+  // merged with "List of Central Universities" mentioned in Chapter-1 (p14).
+  const idxA = new Map([
+    [14, 'about central universities the list of central universities act 2009'],
+    [36, 'appendix i list of central universities central university of rajasthan'],
+    [37, 'central university of gujarat central university of kerala'],
+  ])
+  const out = canonicalizeTopics([
+    T('Chapter-1 Introduction', [], [14, 15], 2, 'Chapter-1 Introduction', 14, 15, true),
+    T('List of Central Universities', ['Central Universities Act'], [14], 2, 'Chapter-1 Introduction', 14, 15),
+    T('I List of Central Universities', [], [36, 37], 8, 'I List of Central Universities', 36, 37, true),
+  ], { pageTextIndex: idxA })
+  // three honest topics: the chapter heading, the chapter's own inferred
+  // mention, and the appendix — the last two NEVER fuse
+  assert.equal(out.length, 3, `wrong grouping: ${JSON.stringify(out.map(t => t.name))}`)
+  const appendix = out.find(t => t.origin === 'SOURCE_HEADING' && t.numbering === 'I')
+  assert.ok(appendix, 'appendix stays a source heading')
+  assert.equal(appendix.numbering, 'I')
+  assert.deepEqual(appendix.pages, [36, 37])
+  const chapterHeading = out.find(t => t.name === 'Chapter-1 Introduction')
+  assert.ok(chapterHeading && chapterHeading.level === 1)
+  const inferred = out.find(t => t.origin === 'AI_INFERRED')
+  assert.ok(inferred, 'chapter mention stays an inferred topic')
+  assert.equal(inferred.level, 2, 'chapter mention sits under its own section')
+  assert.equal(inferred.parentId, chapterHeading?.id)
+})
+check('model echo of a section title merges INTO the source heading (never renamed)', () => {
+  const idxB = new Map([[19, 'chapter 4 reservation provisions for reservation categories']])
+  const out = canonicalizeTopics([
+    T('Chapter-4 Reservation', [], [19], 0, 'Chapter-4 Reservation', 19, 19, true),
+    T('Chapter 4 Reservation', [], [19], 1, 'Chapter-4 Reservation', 19, 20),
+  ], { pageTextIndex: idxB })
+  assert.equal(out.length, 1, JSON.stringify(out.map(t => t.name)))
+  assert.equal(out[0].origin, 'SOURCE_HEADING')
+  assert.equal(out[0].name, 'Chapter-4 Reservation', 'document wording wins')
+  assert.equal(out[0].numbering, 'Chapter-4')
+  assert.ok((out[0].aliases ?? []).length >= 1, 'echo kept as alias')
+})
+check('near-identical inferred topics in the same section merge ("Rough Work" pattern)', () => {
+  const idxC = new Map([
+    [56, 'rough work may be done on the blank sheets provided in the test book'],
+    [58, 'rough work guidelines hand over the rough sheets to the invigilator'],
+  ])
+  const out = canonicalizeTopics([
+    T('Rough Work', [], [56], 4, 'V Computer Based Test (CBT) Guidelines', 56, 56),
+    T('Rough Work Guidelines', [], [58], 6, 'V Computer Based Test (CBT) Guidelines', 58, 58),
+  ], { pageTextIndex: idxC })
+  assert.equal(out.length, 1, `kept separate: ${JSON.stringify(out.map(t => t.name))}`)
+})
+check('similar inferred topics in DIFFERENT sections stay separate', () => {
+  const idxD = new Map([
+    [26, 'rough work on the sheets provided during the examination instructions'],
+    [56, 'rough work may be done on the blank sheets provided in the test book'],
+  ])
+  const out = canonicalizeTopics([
+    T('Rough Work', [], [26], 2, 'Chapter-8 Important instructions for the candidates', 26, 26),
+    T('Rough Work', [], [56], 4, 'V Computer Based Test (CBT) Guidelines', 56, 56),
+  ], { pageTextIndex: idxD })
+  assert.equal(out.length, 2, `fused across sections: ${JSON.stringify(out.map(t => t.name))}`)
+})
+check('chunk continuations of one long section merge into ONE source topic', () => {
+  const idxE = new Map([
+    [7, 'important information and dates at a glance fee structure dates'],
+    [8, 'important information and dates at a glance application details'],
+    [9, 'important information and dates at a glance eligibility window'],
+  ])
+  const out = canonicalizeTopics([
+    T('Important Information and Dates at a Glance', [], [7, 8], 1, 'Important Information and Dates at a Glance', 7, 8, true),
+    T('Important Information and Dates at a Glance', [], [9], 2, 'Important Information and Dates at a Glance', 9, 9, true),
+  ], { pageTextIndex: idxE })
+  assert.equal(out.length, 1)
+  assert.deepEqual(out[0].pages, [7, 8, 9])
+  assert.equal(out[0].origin, 'SOURCE_HEADING')
+})
+check('inferred topic attaches to the section that produced it (no self-parent, ever)', () => {
+  const idxF = new Map([
+    [16, 'examination scheme mode of examination computer based test'],
+    [17, 'examination scheme marking scheme four marks'],
+  ])
+  const out = canonicalizeTopics([
+    T('Chapter-2 Examination Scheme', [], [16], 0, 'Chapter-2 Examination Scheme', 16, 16, true),
+    T('Chapter-2 Examination Scheme', [], [17], 1, 'Chapter-2 Examination Scheme', 17, 17, true),
+    T('Mode of Examination', [], [16], 0, 'Chapter-2 Examination Scheme', 16, 16),
+    T('Marking Scheme', [], [17], 1, 'Chapter-2 Examination Scheme', 17, 17),
+  ], { pageTextIndex: idxF })
+  const parent = out.find(t => t.name === 'Chapter-2 Examination Scheme')
+  assert.ok(parent)
+  for (const t of out) assert.notEqual(t.parentId, t.id, 'self-parent found')
+  const mode = out.find(t => t.name === 'Mode of Examination')
+  assert.equal(mode?.level, 2)
+  assert.equal(mode?.parentId, parent?.id)
+})
+
+console.log('── Task I: subtopic evidence filter (no invented/garbled keywords) ──')
+check('garbled subtopic fragments are dropped, real entries survive', () => {
+  const idxG = new Map([[55, 'technical issues malfunction replacement time adjustment on screen keyboard']])
+  const out = canonicalizeTopics([
+    T('Technical Issues', ['alfunction', 'replacement', 'time adjustment', 'Invented Category'], [55], 3, 'V Computer Based Test (CBT) Guidelines', 55, 55),
+  ], { pageTextIndex: idxG })
+  const subs = out[0].subtopics
+  assert.ok(!subs.includes('alfunction'), `garbled kept: ${JSON.stringify(subs)}`)
+  assert.ok(!subs.includes('Invented Category'), `invented kept: ${JSON.stringify(subs)}`)
+  assert.ok(subs.includes('replacement'), `real dropped: ${JSON.stringify(subs)}`)
+  assert.ok(subs.includes('time adjustment'), `real dropped: ${JSON.stringify(subs)}`)
+})
+check('page verification is word-boundary based ("rate" is not supported by "moderate")', () => {
+  const r = verifyPages('Interest Rate', [9], [{ fromPage: 9, toPage: 9 }], new Map([[9, 'a moderate pace of growth was observed']]), null)
+  // the unit-range fallback keeps the page honestly, but it is NOT verified
+  assert.deepEqual(r.pages, [9])
+  assert.equal(r.verified, false)
+  const r2 = verifyPages('Interest Rate', [9], [{ fromPage: 9, toPage: 9 }], new Map([[9, 'the interest rate was revised moderate growth']]), null)
+  assert.deepEqual(r2.pages, [9])
+  assert.equal(r2.verified, true)
+})
+
+console.log('── Task I: TOC layer (original structure recorded honestly) ──')
+// pageOf() from the wrapped-row section above is reused
+check('image-reprint appendix is KEPT as a section and recorded honestly', () => {
+  const toc = pageOf([
+    'Index',
+    'Chapter-1 Alpha Foundations 2',
+    'Chapter-2 Beta Concepts 3',
+    '7. VII The Gazette of India notification related to PwD',
+    'candidates 4',
+    '8. VIII Certificate regarding physical limitation 5',
+  ], 1)
+  const p2 = pageOf(['Alpha foundations chapter body text with enough words to be a real readable page.'], 2)
+  const p3 = pageOf(['Beta concepts chapter body text with enough words to be a real readable page too.'], 3)
+  const p4 = pageOf(['Appendix VII'], 4) // image-only reprint: only the heading survived extraction
+  const p5 = pageOf(['Certificate regarding physical limitation in an Examinee to Write the body.'], 5)
+  const s = detectStructure([toc, p2, p3, p4, p5], 5, { maxUnitChars: 6000 })
+  assert.equal(s.kind, 'TOC_GUIDED', `kind ${s.kind}`)
+  // the section EXISTS (never dropped into a neighbour's range)
+  const gazetteUnit = s.units.find(u => u.title && u.title.includes('Gazette'))
+  assert.ok(gazetteUnit, `no Gazette unit: ${JSON.stringify(s.units.map(u => u.title))}`)
+  assert.equal(gazetteUnit.fromPage, 4)
+  // the TOC layer records the entry with its own numbering
+  const entry = s.tocLayer.find(e => e.title.includes('Gazette'))
+  assert.ok(entry, 'toc layer missing the Gazette entry')
+  assert.equal(entry.number, 'VII')
+  assert.equal(entry.matchPage, 4, 'the body heading line "Appendix VII" is evidence')
+  assert.equal(entry.matched, true)
+  // fully-unreadable claimed page → honest unverified record, entry never vanishes
+  const p4scanned = { page: 4, chars: 8, text: '', scanned: true }
+  const s2 = detectStructure([toc, p2, p3, p4scanned, p5], 5, { maxUnitChars: 6000 })
+  const entry2 = s2.tocLayer.find(e => e.title.includes('Gazette'))
+  assert.ok(entry2, 'entry vanished when the claimed page is scanned')
+  assert.equal(entry2.matched, false)
+  assert.ok(entry2.note && /image-only|no readable text/i.test(entry2.note), `note: ${entry2.note}`)
+  // a scanned page cannot form a readable analysis unit — but the NEXT section
+  // still starts at its own page (VII's pages never swallow VIII's)
+  const unitVIII = s2.units.find(u => u.title && u.title.includes('Certificate'))
+  assert.ok(unitVIII, 'next section missing')
+  assert.equal(unitVIII.fromPage, 5)
+})
+check('"9. IX"-style numeral rows keep their numbering through wrapped titles', () => {
+  const toc = pageOf([
+    'Index',
+    '9. IX',
+    'Certificate for person with specified disability covered',
+    'under the definition of Section 2 (s) of the RPwD Act,',
+    '2016 but not covered under the definition of Section',
+    '2(r) of the said Act i.e. persons having less than 40%',
+    'disability and having difficulty in writing',
+    '72',
+    '10. X Letter of Undertaking 73',
+    '11. XI Application Form Replica 74',
+    '12. XII Fee Receipt Copy 76',
+    '13. XIII Hall Ticket Sample 78',
+  ], 1)
+  const body = pageOf(['Certificate for person with specified disability covered under the definition of Section 2 (s) of the RPwD Act 2016.'], 2)
+  const s = detectStructure([toc, body], 2, { maxUnitChars: 6000 })
+  const e = s.toc.find(x => x.title.includes('Certificate for person'))
+  assert.ok(e, 'entry missing')
+  assert.equal(e.number, 'IX', `number was ${e.number}`)
+  assert.ok(e.title.includes('difficulty in writing'), `title truncated: ${e.title}`)
+})
+check('wrapped TOC titles are not truncated at 90 characters', () => {
+  const longTitle = '9. IX Certificate for person with specified disability covered under the definition of Section 2 (s) of the RPwD Act, 2016 but not covered under the definition of Section 2(r) of the said Act i.e. persons having less than 40% disability and having difficulty in writing'
+  const toc = pageOf(['Index', '9. IX', longTitle.replace(/^9\. IX /, ''), '190', '10. X Letter of Undertaking 191', '11. XI Application Form Replica 192', '12. XII Fee Receipt Copy 193', '13. XIII Hall Ticket Sample 194'], 1)
+  const body = pageOf(['Certificate body page with the disability definition text for verification purposes.'], 2)
+  const s = detectStructure([toc, body], 2, { maxUnitChars: 6000 })
+  const e = s.toc.find(x => x.title.includes('Certificate'))
+  assert.ok(e && e.title.includes('difficulty in writing'), `truncated: ${e?.title}`)
+})
+check('verifyTocLayer reports matched/unmatched counts the pipeline can store', () => {
+  const toc = pageOf(['Index', 'Chapter-1 One 2', 'Chapter-2 Two 3', 'Chapter-3 Three 4', 'Chapter-4 Four 5'], 1)
+  const bodies = [2, 3, 4, 5].map(p => pageOf([`Chapter body page ${p} with enough words to be a real readable page here.`], p))
+  const readable = bodies
+  const layer = verifyTocLayer(
+    [{ title: 'Chapter-1 One', page: 2, number: 'Chapter-1' }, { title: 'Chapter-2 Two', page: 3, number: 'Chapter-2' }, { title: 'Chapter-3 Three', page: 4, number: 'Chapter-3' }, { title: 'Chapter-4 Four', page: 5, number: 'Chapter-4' }],
+    readable,
+    0,
+  )
+  assert.equal(layer.length, 4)
+  assert.equal(layer.filter(e => e.matched).length, 4)
+  const empty = verifyTocLayer([{ title: 'Chapter-9 Nine', page: 40, number: 'Chapter-9' }], readable, 1)
+  assert.equal(empty[0].matched, false)
+  assert.ok(empty[0].note)
+})
+check('printed page labels are recorded as per-page evidence', () => {
+  const pages = [
+    pageOf(['Cover page with artwork only'], 1),
+    pageOf(['Page |1', 'Introduction body text with plenty of readable words for the check.'], 2),
+    pageOf(['Page |2', 'Second body text with plenty of readable words for the check here.'], 3),
+    pageOf(['Page |3', 'Third body text with plenty of readable words for the check too.'], 4),
+    pageOf(['Page |4', 'Fourth body text with plenty of readable words for the check end.'], 5),
+    pageOf(['Page |5', 'Fifth body text with plenty of readable words for the check fin.'], 6),
+  ]
+  const printed = detectPrintedPages(pages)
+  assert.equal(printed.offset, 1)
+  assert.equal(printed.labels[2], '1')
+  assert.equal(printed.labels[6], '5')
+  assert.equal(printed.labels[1], undefined, 'no label invented for the cover')
 })
 
 console.log(`\n${passed} passed, ${failed} failed`)

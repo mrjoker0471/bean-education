@@ -1,11 +1,21 @@
 // ─── Riishe backend types (mirrored for the client in src/lib/types.ts) ──────
 
-// v3: fair topic cap (never drops level-1 sections), full multi-unit page
-// spans, wrapped-TOC-row joining, content-filter sub-chunk/skip accounting.
-export const PIPELINE_VERSION = 3
+// v4: three-layer representation — the document's own structure (original
+// headings, numbering, contents-table entries with match status) is kept
+// separate from AI-inferred study topics; dedupe is origin-aware and never
+// fuses distinct sections; page labels come from detected evidence.
+export const PIPELINE_VERSION = 4
+
+/** What a topic's TITLE represents in the source document. */
+export type TopicOrigin =
+  | 'SOURCE_HEADING' // the document's own heading / section title (kept verbatim)
+  | 'AI_INFERRED' // a study topic Riishe identified inside a source section
+
+/** Where the title wording was found. */
+export type TitleSource = 'toc' | 'body' | 'inferred'
 
 export interface AnalyzedTopic {
-  /** Canonical title — the variant that best matches the document's own wording */
+  /** Canonical title — for SOURCE_HEADING topics this is the document's own wording, never renamed */
   name: string
   subtopics: string[]
   /** Physical PDF pages (1-based), verified against the extracted page text */
@@ -13,9 +23,9 @@ export interface AnalyzedTopic {
   // ── v2 fields (pipelineVersion ≥ 2) ──
   /** Stable id within the analysis (t1, t2 …) for parent links */
   id?: string
-  /** 1 = major section of the document, 2 = subtopic/concept under a section */
+  /** 1 = major section of the document (or unparented inferred topic), 2 = study topic under a section */
   level?: 1 | 2
-  /** id of the containing level-1 topic, when the document has that structure */
+  /** id of the containing source-section topic, when the document has that structure */
   parentId?: string | null
   /** Duplicate variants merged into this canonical topic (wording differences) */
   aliases?: string[]
@@ -23,6 +33,19 @@ export interface AnalyzedTopic {
   printedPages?: string[]
   /** false when no claimed page could be verified against the page text */
   pageVerified?: boolean
+  // ── v4 fields ──
+  /** SOURCE_HEADING = original document structure; AI_INFERRED = Riishe's study layer */
+  origin?: TopicOrigin
+  /** where the title wording came from: the contents table, the document body, or model inference */
+  titleSource?: TitleSource
+  /** the document's own section number exactly as printed ("Chapter-4", "Appendix VII", "4.3", "II") */
+  numbering?: string | null
+  /** printed page the contents table claims for this section (null when absent/unmatched) */
+  tocPrintedPage?: number | null
+  /** physical page where the contents claim was matched in the body (null = unmatched) */
+  tocMatchPage?: number | null
+  /** when false for a SOURCE_HEADING topic, no body page could confirm the title (e.g. unreadable pages) */
+  structureVerified?: boolean
 }
 
 export interface CoverageMetrics {
@@ -58,6 +81,35 @@ export interface SectionOutcome {
   error?: string
 }
 
+/** One entry of the document's own table of contents (original wording kept). */
+export interface StructureTocEntry {
+  /** exactly as printed in the contents table (row number stripped for matching, kept in `number`) */
+  title: string
+  /** the document's own row number / numeral ("Chapter-4", "1.1", "VII") when present */
+  number: string | null
+  /** printed page (or start of range) the entry claims */
+  printedPage: number | null
+  /** physical PDF page = printedPage + detected offset (null when no offset was provable) */
+  physicalPage: number | null
+  /** 1 = major entry, 2 = numbered subsection (x.y) */
+  level: 1 | 2
+  /** a body page was found that carries this entry's words */
+  matched: boolean
+  /** physical page where the match was found (null when unmatched) */
+  matchPage: number | null
+  /** honest note when unmatched or unverifiable (e.g. claimed page is image-only) */
+  note?: string
+}
+
+/** A heading found in the document body (original wording kept). */
+export interface StructureHeading {
+  title: string
+  page: number
+  level: 1 | 2
+  /** the same title also appears in the validated contents table */
+  fromToc: boolean
+}
+
 export interface DocStructureInfo {
   kind: 'TOC_GUIDED' | 'HEADING_GUIDED' | 'QUESTION_PAPER' | 'UNSTRUCTURED'
   tocValidated: boolean
@@ -66,6 +118,19 @@ export interface DocStructureInfo {
   /** physical = printed + offset (null when no consistent numbering found) */
   printedPageOffset: number | null
   printedRomanFrontMatter: boolean
+  // ── v4: the original-structure layer ──
+  /** the document's own contents entries with match status (capped, document order) */
+  toc?: StructureTocEntry[]
+  /** headings found in the body text (capped, document order) */
+  headings?: StructureHeading[]
+  /** how many contents entries matched a body page */
+  tocMatched?: number
+  /** contents entries that could NOT be matched to the body (recorded, never silently dropped) */
+  tocUnmatched?: number
+  /** detected printed label per physical page ("5", "ii" …) — only pages where a label was actually read */
+  printedLabels?: Record<string, string>
+  /** which pages carry the document's own contents table */
+  tocPages?: number[]
 }
 
 export interface DocumentAnalysis {

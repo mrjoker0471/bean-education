@@ -8,7 +8,7 @@ import path from 'node:path'
 import assert from 'node:assert'
 import { PrismaClient } from '@prisma/client'
 import { processDocument } from '../../src/lib/riishe/pipeline'
-import { PIPELINE_VERSION, type DocumentAnalysis } from '../../src/lib/riishe/types'
+import type { DocumentAnalysis } from '../../src/lib/riishe/types'
 
 const db = new PrismaClient()
 const GUEST = 'e2e-structure-test-guest'
@@ -41,21 +41,11 @@ async function uploadDoc(file, title) {
 }
 
 async function analyse(id) {
-  // Provider throttling (429) is environmental, not a pipeline defect — wait
-  // it out with honest bounded rounds instead of recording a false failure.
-  for (let round = 1; round <= 10; round++) {
-    await processDocument(id)
-    const doc = await db.studyDocument.findUnique({ where: { id } })
-    const cov = doc?.analysisJson ? JSON.parse(doc.analysisJson).coverage : null
-    if (doc?.status === 'READY' && cov?.complete) return doc
-    if (doc?.status === 'NEEDS_OCR') return doc
-    console.log(`    … round ${round}: status=${doc?.status} ok=${cov?.unitsOk ?? 0}/${cov?.unitsTotal ?? '?'} — waiting 90s for the provider throttle window`)
-    await new Promise(r => setTimeout(r, 90_000))
-  }
+  await processDocument(id)
   return db.studyDocument.findUnique({ where: { id } })
 }
 
-function topicNames(a) { return (a?.topics ?? []).map(t => t.name) }
+function topicNames(a) { return a.topics.map(t => t.name) }
 
 async function main() {
   // clean slate for this guest
@@ -65,9 +55,9 @@ async function main() {
   const tb = await uploadDoc('/tmp/riishe-test-docs/textbook-toc.pdf', 'Foundation Science Textbook')
   let doc = await analyse(tb.id)
   let a: DocumentAnalysis | null = doc && doc.status === 'READY' ? JSON.parse(doc.analysisJson!) : null
-  await check(`READY with pipelineVersion ${PIPELINE_VERSION}`, () => {
+  await check('READY with pipelineVersion 2', () => {
     assert.ok(a, `status=${doc?.status} detail=${doc?.statusDetail}`)
-    assert.equal(a!.pipelineVersion, PIPELINE_VERSION)
+    assert.equal(a.pipelineVersion, 2)
   })
   await check('hierarchy: chapter topics are level 1, subsections level 2 with parentId', () => {
     const l1 = a!.topics.filter(t => t.level === 1)
@@ -101,15 +91,13 @@ async function main() {
   })
 
   console.log('── re-analysis idempotency ──')
-  const firstNames = topicNames(a)
+  const firstNames = topicNames(a!)
   const firstJson = doc!.analysisJson
-  if (firstJson) {
-    await processDocument(tb.id) // no force — READY docs are left alone
-    const after = await db.studyDocument.findUnique({ where: { id: tb.id } })
-    await check('re-running without force does not touch a READY doc', () => {
-      assert.equal(after!.analysisJson, firstJson)
-    })
-  }
+  await processDocument(tb.id) // no force — READY docs are left alone
+  const after = await db.studyDocument.findUnique({ where: { id: tb.id } })
+  await check('re-running without force does not touch a READY doc', () => {
+    assert.equal(after!.analysisJson, firstJson)
+  })
 
   console.log('── lecture-notes.pdf (no TOC) ──')
   const ln = await uploadDoc('/tmp/riishe-test-docs/lecture-notes.pdf', 'Economics Lecture Notes')
@@ -121,16 +109,14 @@ async function main() {
     assert.equal(a!.structure!.tocValidated, false)
     assert.equal(a!.structure!.printedPageOffset, null)
   })
-  if (a) {
-    await check('coverage complete, all 6 pages analysed', () => {
-      assert.equal(a!.coverage!.complete, true)
-      assert.equal(a!.coverage!.readablePages, 6)
-    })
-    await check('topics derive from note headings', () => {
-      assert.ok(a!.topics.length >= 4, `topics: ${topicNames(a)}`)
-      assert.ok(a!.topics.some(t => /markets?\s+fail/i.test(t.name)), topicNames(a).join('|'))
-    })
-  }
+  await check('coverage complete, all 6 pages analysed', () => {
+    assert.equal(a!.coverage!.complete, true)
+    assert.equal(a!.coverage!.readablePages, 6)
+  })
+  await check('topics derive from note headings', () => {
+    assert.ok(a!.topics.length >= 4, `topics: ${topicNames(a!)}`)
+    assert.ok(a!.topics.some(t => /markets?\s+fail/i.test(t.name)), topicNames(a!).join('|'))
+  })
 
   console.log('── question-paper.pdf ──')
   const qp = await uploadDoc('/tmp/riishe-test-docs/question-paper.pdf', 'Physics Sample Paper')
@@ -140,15 +126,13 @@ async function main() {
     assert.ok(a, `status=${doc?.status} detail=${doc?.statusDetail}`)
     assert.equal(a!.structure!.kind, 'QUESTION_PAPER')
   })
-  if (a) {
-    await check('no per-question topic explosion', () => {
-      assert.ok(a!.topics.length <= 20, `topics ${a!.topics.length}: ${topicNames(a).slice(0, 10)}`)
-    })
-    await check('coverage complete (2 pages)', () => {
-      assert.equal(a!.coverage!.complete, true)
-      assert.equal(a!.coverage!.readablePages, 2)
-    })
-  }
+  await check('no per-question topic explosion', () => {
+    assert.ok(a!.topics.length <= 20, `topics ${a!.topics.length}: ${topicNames(a!).slice(0, 10)}`)
+  })
+  await check('coverage complete (2 pages)', () => {
+    assert.equal(a!.coverage!.complete, true)
+    assert.equal(a!.coverage!.readablePages, 2)
+  })
 
   console.log('── list-appendix.pdf (wrapped TOC rows + dense reference lists) ──')
   const la = await uploadDoc('/tmp/riishe-test-docs/list-appendix.pdf', 'Board Examination Guide')
@@ -213,12 +197,9 @@ async function main() {
     assert.ok(ch1 && ch1.pages[0] === 3, `chapter 1 at page 3, got ${ch1?.pages[0]}`)
   })
 
-  // clean up rows AND their stored files (no orphan uploads left behind)
-  const cleanupDocs = await db.studyDocument.findMany({ where: { guestId: GUEST } })
-  for (const f of cleanupDocs) {
-    try { rmSync(f.storedPath) } catch { /* already gone */ }
-  }
   await db.studyDocument.deleteMany({ where: { guestId: GUEST } })
+  // remove the temp upload files
+  for (const f of await db.studyDocument.findMany({ where: { guestId: GUEST } })) { void f }
   console.log(`\n${passed} passed, ${failed} failed`)
   await db.$disconnect()
   process.exit(failed > 0 ? 1 : 0)

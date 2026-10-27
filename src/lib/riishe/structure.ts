@@ -12,6 +12,7 @@
 // produces the same structure, so re-analysis is repeatable and unit-testable.
 
 import type { ExtractedPage } from './extract'
+import type { StructureTocEntry } from './types'
 
 // ─── Public shapes ────────────────────────────────────────────────────────────
 
@@ -19,7 +20,9 @@ export type StructureKind = 'TOC_GUIDED' | 'HEADING_GUIDED' | 'QUESTION_PAPER' |
 
 export interface TocEntry {
   title: string
-  page: number | null // physical page the entry claims (1-based)
+  page: number | null // PRINTED page the entry claims (1-based; convert with the detected offset)
+  /** the document's own numbering token, exactly as printed ("Chapter-4", "1.1", "VII") */
+  number: string | null
 }
 
 export interface HeadingHit {
@@ -36,6 +39,9 @@ export interface PrintedPageInfo {
   offset: number | null
   /** front matter used roman numerals (i, ii, iii …) */
   romanFrontMatter: boolean
+  /** printed label actually READ from each page's edge ("5", "ii" …) — physical page → label.
+   *  Evidence, never derived from an offset. Empty when no labels could be read. */
+  labels: Record<number, string>
 }
 
 export interface AnalysisUnit {
@@ -58,6 +64,8 @@ export interface DetectedStructure {
   printed: PrintedPageInfo
   units: AnalysisUnit[]
   tocPages: number[]
+  /** the document's own contents entries, each matched against the body (v4 layer A) */
+  tocLayer: StructureTocEntry[]
 }
 
 // ─── Tuning constants ─────────────────────────────────────────────────────────
@@ -142,6 +150,11 @@ interface TocPageResult {
  * the previous entry (it is the tail of a wrapped row that carried its own
  * page number).
  */
+/** "9. IX" / "10." / "IX" — a row-number (optionally followed by a numeral) with no title text yet.
+ *  These START a wrapped TOC row whose title follows on the next physical lines; dropping them
+ *  loses the entry's numbering ("9. IX Certificate for person…" became numberless). */
+const ROW_NUMBER_NUMERAL_RE = /^(\d{1,2}\s*[.)]\s*)?([ivxlcdm]{1,7})\.?$/i
+
 function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[] {
   const lines = linesOf(page)
   if (lines.length < TOC_MIN_ENTRIES) return []
@@ -150,9 +163,9 @@ function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[
   let hintSeen = false
 
   const pushEntry = (rawTitle: string, num: number | null) => {
-    const title = cleanTitle(rawTitle)
+    const title = cleanTitle(rawTitle, 300)
     if (title.length < 2 || !WORD_RE.test(title)) return
-    entries.push({ title, page: Number.isFinite(num) ? num : null })
+    entries.push({ title, page: Number.isFinite(num) ? num : null, number: extractNumberToken(stripEntryTitle(title)) })
   }
 
   for (const raw of lines) {
@@ -173,7 +186,7 @@ function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[
         if (pending) { pushEntry(`${pending} ${rawTitle}`, num); pending = '' }
         continue
       }
-      if (rawTitle.length < 2 || rawTitle.length > 90 || !WORD_RE.test(rawTitle)) continue
+      if (rawTitle.length < 2 || rawTitle.length > 160 || !WORD_RE.test(rawTitle)) continue
       // Data rows of reference lists ("101  Ahmedabad  Zone  2") start with a
       // multi-digit code and are NOT contents entries — they would flood the
       // TOC with junk sections on list-heavy documents.
@@ -182,14 +195,14 @@ function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[
         if (pending) { pending = ''; }
         // lowercase-start titles are wrapped tails of the previous entry
         const prev = entries[entries.length - 1]
-        if (prev && /^[a-z]/.test(rawTitle)) {
-          prev.title = cleanTitle(`${prev.title} ${rawTitle}`).slice(0, 120)
+        if (prev && /^[a-z(]/.test(rawTitle)) {
+          prev.title = cleanTitle(`${prev.title} ${rawTitle}`, 300)
           if (num !== null && !Number.isNaN(num)) prev.page = num
           continue
         }
         pushEntry(rawTitle, num)
       } else {
-        pending = `${pending} ${rawTitle}`.slice(0, 240)
+        pending = `${pending} ${rawTitle}`.slice(0, 400)
         pushEntry(pending, num)
         pending = ''
       }
@@ -207,8 +220,17 @@ function detectTocOnPage(page: ExtractedPage, furniture: Set<string>): TocEntry[
       }
       continue
     }
+    // A lone "9. IX" row starts a wrapped entry whose title follows on the
+    // next lines — keep it as the pending prefix instead of dropping it.
+    if ((entries.length > 0 || hintSeen) && !pending && line.length <= 12 && ROW_NUMBER_NUMERAL_RE.test(line)) {
+      pending = line
+      continue
+    }
     if (furniture.has(normKey(line))) continue
-    if (line.length < 8 || line.length > 120) continue
+    // Wrapped-row lines inside an established contents table can be long
+    // (single-line titles up to ~300 chars); outside one, stay strict.
+    const maxPendingLine = entries.length > 0 || hintSeen ? 300 : 120
+    if (line.length < 8 || line.length > maxPendingLine) continue
     if (!WORD_RE.test(line)) continue
     if (entries.length === 0 && !hintSeen) continue // title/header before any entry
     pending = pending ? `${pending} ${line}` : line
@@ -278,10 +300,16 @@ function headingScore(line: string, inTocTitles: Set<string>): { level: 1 | 2; s
   if (/[.,;:]$/.test(raw) && !NUMBERED_L1_RE.test(raw) && !NUMBERED_L2_RE.test(raw)) return null
   if (NON_HEADING_RE.test(raw)) return null
 
-  // x.y numbered subsection — strongest hierarchical signal
+  // x.y numbered subsection — strongest hierarchical signal. Long sentence-
+  // like titles (numbered instruction paragraphs "8.1 The candidate must show…")
+  // are not headings; only TOC-corroborated long rows pass.
   const l2 = NUMBERED_L2_RE.exec(raw)
   if (l2 && l2[3].length >= 3 && WORD_RE.test(l2[3])) {
-    return { level: 2, score: 6, title: l2[3].trim() }
+    const title = l2[3].trim()
+    if (title.length <= 60 || inTocTitles.has(normKey(title))) {
+      return { level: 2, score: 6, title }
+    }
+    return null
   }
 
   // Chapter / Unit / Appendix … style — keep the document's own wording
@@ -296,13 +324,20 @@ function headingScore(line: string, inTocTitles: Set<string>): { level: 1 | 2; s
     return { level: 1, score: 5, title: cleanTitle(raw) }
   }
 
-  // Numbered top-level heading "12. Reservation Policy"
+  // Numbered top-level heading "12. Reservation Policy". A single-word title
+  // with no contents-table corroboration is usually a table row fragment
+  // ("1. Total", "2. Marks") — reject it.
   const l1 = NUMBERED_L1_RE.exec(raw)
   if (l1) {
     const title = l1[2].trim()
     if (title.length >= 3 && WORD_RE.test(title) && !QUESTION_LINE_RE.test(raw)) {
-      const bonus = inTocTitles.has(normKey(title)) ? 2 : 0
-      return { level: 1, score: 4 + bonus, title: cleanTitle(title) }
+      const corroborated = inTocTitles.has(normKey(title))
+      const lastWord = title.split(/\s+/).pop() ?? ''
+      // a title ending in a preposition is a wrapped fragment ("Choice of"), not a heading
+      const fragmentTail = /^(of|and|for|in|with|to|the|a|an|by|on)$/i.test(lastWord)
+      if ((title.split(/\s+/).length >= 2 || corroborated) && !fragmentTail) {
+        return { level: 1, score: 4 + (corroborated ? 2 : 0), title: cleanTitle(title) }
+      }
     }
     return null
   }
@@ -328,17 +363,37 @@ function headingScore(line: string, inTocTitles: Set<string>): { level: 1 | 2; s
   return null
 }
 
-function cleanTitle(t: string): string {
-  return t.replace(/\s+/g, ' ').replace(/[.:]\s*$/, '').trim().slice(0, 90)
+function cleanTitle(t: string, maxLen = 90): string {
+  return t.replace(/\s+/g, ' ').replace(/[.:]\s*$/, '').trim().slice(0, maxLen)
 }
 
 /** Remove leading row numbers from a TOC entry title: "1.1 About NTA" → "About NTA". */
-function stripEntryTitle(t: string): string {
+export function stripEntryTitle(t: string): string {
   return t
     .replace(/^\d{1,2}\.\d{1,2}\s*[.)]?\s*/, '')
     .replace(/^\d{1,2}\s*[.)]\s+/, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * Extract the document's own numbering token from a TOC row / heading title,
+ * exactly as printed: "Chapter-4 Reservation" → "Chapter-4", "1.1 About NTA" →
+ * "1.1", "I List of Central Universities" → "I", "Appendix – VII" → "Appendix – VII".
+ * Null when the title carries no explicit numbering.
+ */
+const NUMBER_TOKEN_RE =
+  /^((?:chapter|appendix|annexure|annex|unit|part|section|paper|lesson|module)\s*[-–—:]?\s*(?:[0-9]{1,3}|[ivxlcdm]{1,7}|[a-z])\b|\d{1,2}(?:\.\d{1,2})?\b|[ivxlcdm]{1,7}\b)/i
+
+export function extractNumberToken(title: string): string | null {
+  const m = NUMBER_TOKEN_RE.exec(title.trim())
+  if (!m) return null
+  const token = m[1].replace(/\s+/g, ' ').trim()
+  // A bare roman numeral must be a real numeral row, not the word "I" or "mix"
+  if (/^[ivxlcdm]+$/i.test(token) && token.length > 1 && !/^(ii|iii|iv|vi|vii|viii|ix|xi|xii|xiii|xiv|xv|vi{0,3}|i[xv]|xl|xc|cd|cm|dl)/i.test(token)) {
+    return null
+  }
+  return token
 }
 
 /** x.y subsection rows of a contents table ("1.1 About NTA  13") */
@@ -393,6 +448,7 @@ function printedLabelFromEdge(lines: string[]): string | null {
 
 export function detectPrintedPages(pages: ExtractedPage[]): PrintedPageInfo {
   const pairs: { physical: number; printed: number | null; roman: boolean }[] = []
+  const labels: Record<number, string> = {}
   for (const p of pages) {
     if (p.scanned || !p.text) {
       pairs.push({ physical: p.page, printed: null, roman: false })
@@ -403,8 +459,10 @@ export function detectPrintedPages(pages: ExtractedPage[]): PrintedPageInfo {
       pairs.push({ physical: p.page, printed: null, roman: false })
     } else if (/^\d+$/.test(label)) {
       pairs.push({ physical: p.page, printed: Number(label), roman: false })
+      labels[p.page] = label
     } else {
       pairs.push({ physical: p.page, printed: romanToInt(label), roman: true })
+      labels[p.page] = label
     }
   }
 
@@ -433,7 +491,7 @@ export function detectPrintedPages(pages: ExtractedPage[]): PrintedPageInfo {
   if (bestOffset !== null && !(bestRun >= 5 && bestRun >= arabicPages * 0.5 && arabicPages >= pages.length * 0.25)) {
     bestOffset = null
   }
-  return { offset: bestOffset, romanFrontMatter }
+  return { offset: bestOffset, romanFrontMatter, labels }
 }
 
 // ─── Main detection ───────────────────────────────────────────────────────────
@@ -568,16 +626,126 @@ export function detectStructure(pages: ExtractedPage[], numPages: number, opts: 
     printed,
     units,
     tocPages: tocPages.map(t => t.page),
+    tocLayer: verifyTocLayer(allTocEntries, readable, printed.offset),
   }
 }
 
 // ─── Analysis units ───────────────────────────────────────────────────────────
 
 /**
+ * Verify one contents entry against the body text.
+ * Returns the physical page that carries the entry's words, or null.
+ *
+ * The check is evidence-first and never trusts the claimed number blindly:
+ *   1. the entry's meaningful tokens must appear on the claimed physical page;
+ *   2. failing that, they may appear anywhere in the entry's plausible window
+ *      (claimed page … page before the next entry's claim) — headings in real
+ *      documents often sit on an image-only claimed page while their text
+ *      starts on the next readable page (a Gazette reprint, a fold-out table);
+ *   3. an entry whose claimed page has NO readable text is never "disproven" —
+ *      it is unverifiable, and the caller decides honestly what to record.
+ */
+function matchEntryInBody(
+  title: string,
+  claimedPhysical: number | null,
+  windowTo: number,
+  pageByNumber: Map<number, ExtractedPage>,
+  numberToken?: string | null,
+): { matchPage: number | null; claimedReadable: boolean } {
+  if (claimedPhysical === null) return { matchPage: null, claimedReadable: false }
+  const claimedPage = pageByNumber.get(claimedPhysical)
+  const claimedReadable = !!claimedPage && !claimedPage.scanned && claimedPage.text.trim().length >= 40
+  const tokens = normKey(title).split(' ').filter(t => t.length > 3)
+  if (tokens.length === 0) return { matchPage: claimedPhysical, claimedReadable }
+  // A claimed page that carries the section's own heading line ("Appendix VII",
+  // "Chapter-4") is a positive match even when the rest of the page is an
+  // image-only reprint — the heading is body evidence the section starts there.
+  const numeral = numberToken
+    ? /^(?:chapter|appendix|annexure|annex|unit|part|section|paper|lesson|module)?\s*[-–—:]?\s*([ivxlcdm]{1,7}|\d{1,3})$/i.exec(numberToken.trim())?.[1]
+    : null
+  const headingLineRe = numeral
+    ? new RegExp(`^(?:append(?:ix|ance)|annexure|annex|chapter|unit|part|section|paper|lesson|module)\\s*[-–—:]?\\s*${numeral}\\b`, 'i')
+    : null
+  const from = claimedPhysical
+  const to = Math.max(claimedPhysical, Math.min(windowTo, claimedPhysical + 30))
+  for (let p = from; p <= to; p++) {
+    const page = pageByNumber.get(p)
+    if (!page || page.scanned || page.text.trim().length === 0) continue
+    // Token evidence needs substantial text; a heading-line-only page (an
+    // image-only appendix reprint that still prints its own heading) can
+    // still prove the section starts exactly where the contents says.
+    if (page.text.trim().length >= 40) {
+      const hay = normText(page.text)
+      if (tokens.some(t => hay.includes(t))) return { matchPage: p, claimedReadable }
+    }
+    if (headingLineRe && p === claimedPhysical) {
+      const hasHeadingLine = page.text.split('\n').some(l => headingLineRe.test(l.trim()))
+      if (hasHeadingLine) return { matchPage: p, claimedReadable }
+    }
+  }
+  return { matchPage: null, claimedReadable }
+}
+
+const normText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+
+/**
+ * Build the ORIGINAL-STRUCTURE record of the document's own contents table:
+ * every entry with its printed claim, physical claim, body match status and an
+ * honest note when it could not be verified. Unmatched entries are recorded,
+ * never silently dropped, and never treated as unquestionable ground truth.
+ */
+export function verifyTocLayer(
+  entries: TocEntry[],
+  readable: ExtractedPage[],
+  printedOffset: number | null,
+  cap = 200,
+): StructureTocEntry[] {
+  const pageByNumber = new Map(readable.map(p => [p.page, p] as const))
+  const physicalOf = (printed: number) => (printedOffset !== null ? printed + printedOffset : printed)
+  const out: StructureTocEntry[] = []
+  for (let i = 0; i < entries.length && out.length < cap; i++) {
+    const e = entries[i]
+    const physical = e.page !== null ? physicalOf(e.page) : null
+    // window: up to the next major entry's claim
+    let windowTo = physical ?? 0
+    for (let j = i + 1; j < entries.length; j++) {
+      const nxt = entries[j]
+      if (nxt.page === null) continue
+      const nxtPhysical = physicalOf(nxt.page)
+      if (Number.isFinite(nxtPhysical) && nxtPhysical > (physical ?? 0)) {
+        windowTo = nxtPhysical - 1
+        break
+      }
+    }
+    const level: 1 | 2 = SUBSECTION_ROW_RE.test(e.title.trim()) ? 2 : 1
+    const { matchPage, claimedReadable } = matchEntryInBody(stripEntryTitle(e.title), physical, windowTo, pageByNumber, e.number)
+    let note: string | undefined
+    if (matchPage === null) {
+      if (physical === null) note = 'The contents entry states no page number, and no body page carried its words.'
+      else if (!claimedReadable) note = `The claimed page (physical ${physical}) has no readable text — image-only or blank — so the entry could not be verified against the body.`
+      else note = `No body page carried this entry's words at its claimed page (physical ${physical}).`
+    }
+    out.push({
+      title: e.title,
+      number: e.number,
+      printedPage: e.page,
+      physicalPage: physical,
+      level,
+      matched: matchPage !== null,
+      matchPage,
+      note,
+    })
+  }
+  return out
+}
+
+/**
  * Build units directly from a VALIDATED table of contents: each major (non
  * x.y) entry becomes a section whose physical start page is the entry's page
  * (printed + detected offset) — but only when the body page actually contains
- * the entry's words. If too few entries verify, returns null so the caller
+ * the entry's words, OR the claimed page is unreadable (image-only reprint:
+ * the entry stays, honestly unverified — dropping it erased whole appendices
+ * from the analysis). If too few entries verify, returns null so the caller
  * falls back to heading-anchored units. This is what makes page references
  * land on the right page in documents with a real contents table.
  */
@@ -594,7 +762,7 @@ export function buildTocUnits(
   const majors = entries
     .filter(e => e.page !== null && !SUBSECTION_ROW_RE.test(e.title.trim()))
     .map(e => ({ title: stripEntryTitle(e.title), physical: physicalOf(e.page as number) }))
-    .filter(x => x.title.length >= 2 && x.title.length <= 95)
+    .filter(x => x.title.length >= 2 && x.title.length <= 300)
   if (majors.length < TOC_MIN_ENTRIES) return null
 
   // Wrapped TOC rows continue on the next line claiming the same page —
@@ -603,24 +771,26 @@ export function buildTocUnits(
   for (const m of majors) {
     const prev = mergedMajors[mergedMajors.length - 1]
     if (prev && prev.physical === m.physical) {
-      prev.title = cleanTitle(`${prev.title} ${m.title}`)
+      prev.title = cleanTitle(`${prev.title} ${m.title}`, 300)
       continue
     }
     mergedMajors.push({ ...m })
   }
   if (mergedMajors.length < TOC_MIN_ENTRIES) return null
 
-  // Verify each entry against the physical page it claims
+  // Verify each entry against the body. An entry whose claimed page carries
+  // its words is verified; an entry whose claimed page has NO readable text
+  // is unverifiable but KEPT (the document's own claim — dropping it erased
+  // image-reprint appendices); only an entry contradicted by a readable
+  // claimed page is dropped here (the TOC layer records it either way).
   const verified: { title: string; physical: number }[] = []
-  for (const m of mergedMajors) {
-    const page = pageByNumber.get(m.physical)
-    if (!page) continue
-    const hay = normText(page.text)
-    const tokens = normKey(m.title).split(' ').filter(t => t.length > 3)
-    const hit = tokens.length === 0 || tokens.some(t => hay.includes(t))
-    if (hit) verified.push(m)
+  for (let i = 0; i < mergedMajors.length; i++) {
+    const m = mergedMajors[i]
+    const windowTo = i + 1 < mergedMajors.length ? mergedMajors[i + 1].physical - 1 : m.physical + 30
+    const { matchPage, claimedReadable } = matchEntryInBody(m.title, m.physical, windowTo, pageByNumber)
+    if (matchPage !== null || !claimedReadable) verified.push(m)
   }
-  if (verified.length < TOC_MIN_ENTRIES || verified.length < Math.ceil(majors.length * 0.5)) return null
+  if (verified.length < TOC_MIN_ENTRIES || verified.length < Math.ceil(mergedMajors.length * 0.5)) return null
 
   verified.sort((a, b) => a.physical - b.physical)
   const cleaned = verified.filter((v, i) => i === 0 || v.physical > verified[i - 1].physical)
