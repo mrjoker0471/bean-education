@@ -24,9 +24,19 @@ import {
 
 const GEN_SECTION_CHARS = 4200
 const BATCH_SIZE = 10
-const MAX_BATCHES = 9 // generation batch budget (incl. top-ups)
+const MIN_BATCHES = 9 // floor keeps small tests as generous as the original budget
+const MAX_BATCHES = 30 // absolute ceiling — always bounded, never unbounded
 const MIN_PUBLISHABLE = 4
 const RATE_LIMIT_BACKOFF_MS = 15_000
+
+/**
+ * Batch budget for one run: enough batches to reach the requested count plus
+ * top-up headroom, bounded both ways. 50 → 9 (the original budget), 100 → 14,
+ * 200 → 24. A bigger request buys more attempts; it never removes the ceiling.
+ */
+export function batchBudgetFor(requested: number): number {
+  return Math.max(MIN_BATCHES, Math.min(MAX_BATCHES, Math.ceil(requested / BATCH_SIZE) + 4))
+}
 
 /** Provider outages that make further batches pointless this run. */
 function isProviderUnavailable(err: unknown): boolean {
@@ -317,10 +327,29 @@ function programmaticValidate(
   const validPages = pageRefs.filter(p => covered.fromPage <= p && p <= covered.toPage)
   if (validPages.length === 0) return { reject: 'page refs out of range' }
 
+  // Page-reference precision: pin the citation to the page(s) that actually
+  // carry the evidence excerpt. The model sometimes cites the section's first
+  // page while quoting text from a later page of the same section — the quote
+  // is real, but the chip would land one page off. Split the section into its
+  // [page N] blocks and keep only cited pages that hold the evidence; when
+  // none does, cite the pages where the evidence actually appears instead.
+  const pageTexts = new Map<number, string>()
+  for (const block of covered.text.split(/\n\n+/)) {
+    const m = /^\[page (\d+)\]/.exec(block)
+    if (m) pageTexts.set(Number(m[1]), block)
+  }
+  const evidencePages = [...pageTexts.entries()]
+    .filter(([, txt]) => evidenceInText(evidence, txt))
+    .map(([p]) => p)
+  const refined = validPages.filter(p => evidencePages.includes(p))
+  const finalPages = refined.length > 0
+    ? refined
+    : evidencePages.filter(p => covered.fromPage <= p && p <= covered.toPage)
+
   return {
     text, options, correctIndex, explanation,
     difficulty: difficulty as GeneratedQuestion['difficulty'],
-    category, topic, pageRefs: validPages, evidence,
+    category, topic, pageRefs: finalPages.length > 0 ? finalPages : validPages, evidence,
     sectionIdx: sections.indexOf(covered),
     docId: covered.docId,
     dupKey: normalize(text).slice(0, 140),
@@ -377,7 +406,10 @@ export async function generateTestJob(testId: string): Promise<void> {
 
   // Distribution: the route computed the student's requested mix (count +
   // category selection). Fall back to the scaled default for legacy rows.
-  const requested = Math.min(50, Math.max(4, test.requestedCount || 50))
+  // Requests beyond 50 (the practice builder offers up to 200) are honoured
+  // when the material supports them — the batch budget scales with the count,
+  // and validation still publishes only what actually passes.
+  const requested = Math.min(200, Math.max(4, test.requestedCount || 50))
   const storedDist = safeParse<Record<string, number> | null>(test.distributionJson, null)
   const dist: Record<QuestionCategory, number> = { ...DEFAULT_DISTRIBUTION }
   if (storedDist && typeof storedDist === 'object') {
@@ -391,6 +423,7 @@ export async function generateTestJob(testId: string): Promise<void> {
     for (const k of Object.keys(dist) as QuestionCategory[]) dist[k] = Math.max(1, Math.round(dist[k] * scale))
   }
   const focusCat: QuestionCategory[] = (Object.keys(dist) as QuestionCategory[]).filter(k => dist[k] > 0)
+  const maxBatches = batchBudgetFor(requested)
 
   // Build the initial batch plan (category → chunk of ≤ BATCH_SIZE)
   const plan: { category: QuestionCategory; count: number }[] = []
@@ -414,7 +447,7 @@ export async function generateTestJob(testId: string): Promise<void> {
   const cursor = { i: 0 }
 
   const runBatch = async (category: QuestionCategory, count: number): Promise<void> => {
-    if (batches >= MAX_BATCHES) return
+    if (batches >= maxBatches) return
     batches++
     const secs = pickSections(sections, focus, cursor, category === 'MISCONCEPTION' ? 3 : 2)
     const avoid = candidates.slice(-30).map(c => c.text.slice(0, 90))
@@ -518,7 +551,7 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
 
   // Top-up rounds (categories with the largest deficits first)
   let guard = 0
-  while (countValid() < requested && batches < MAX_BATCHES && guard < 4 && !providerFailed) {
+  while (countValid() < requested && batches < maxBatches && guard < 4 && !providerFailed) {
     guard++
     const deficit = categoryDeficit(dist, candidates, requested)
     const cat = deficit[0]?.category ?? 'APPLICATION'
@@ -606,8 +639,11 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
   }
 
   function categoryDeficit(distMap: Record<QuestionCategory, number>, list: CandidateQuestion[], total: number): { category: QuestionCategory; deficit: number }[] {
+    // Scale by the distribution's own total (it sums to the requested count),
+    // never a hard-coded 50 — otherwise top-ups skew for 20/30/100-question runs.
+    const distSum = (Object.keys(distMap) as QuestionCategory[]).reduce((s, k) => s + Math.max(0, distMap[k]), 0) || 1
     return (Object.keys(distMap) as QuestionCategory[])
-      .map(cat => ({ category: cat, deficit: Math.round(distMap[cat] / 50 * total) - list.filter(q => q.category === cat).length }))
+      .map(cat => ({ category: cat, deficit: Math.round(distMap[cat] / distSum * total) - list.filter(q => q.category === cat).length }))
       .sort((a, b) => b.deficit - a.deficit)
   }
 }

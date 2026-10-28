@@ -1614,11 +1614,12 @@ function TestsPanel({
 }) {
   const navigate = useAppStore(s => s.navigate)
 
-  // Generator options
-  const analysisTopics = doc.analysis?.topics.map(t => t.name) ?? []
+  // Generator options — topic records keep their stable unique ids even when two
+  // sections of the document share a display name (e.g. "Required Documents").
+  const analysisTopics = doc.analysis?.topics ?? []
   const [selectedFocus, setSelectedFocus] = useState<string[]>([])
   const [timed, setTimed] = useState(true)
-  const [count, setCount] = useState<50 | 30 | 20>(50)
+  const [count, setCount] = useState<100 | 50 | 30 | 20>(50)
   const [generating, setGenerating] = useState(false)
 
   // Active test detail (fetched + polled separately from the material)
@@ -1745,11 +1746,12 @@ function TestsPanel({
               Topic focus <span className="normal-case tracking-normal">(up to 3, optional)</span>
             </p>
             <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Topic focus selector">
-              {analysisTopics.map(name => {
+              {analysisTopics.map(topic => {
+                const name = topic.name
                 const active = selectedFocus.includes(name)
                 return (
                   <button
-                    key={name}
+                    key={topic.id}
                     type="button"
                     aria-pressed={active}
                     onClick={() => toggleFocus(name)}
@@ -1802,7 +1804,7 @@ function TestsPanel({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Questions</p>
             <div className="mt-2 flex gap-2" role="group" aria-label="Question count">
-              {([50, 30, 20] as const).map(n => (
+              {([100, 50, 30, 20] as const).map(n => (
                 <button
                   key={n}
                   type="button"

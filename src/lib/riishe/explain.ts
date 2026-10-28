@@ -42,7 +42,11 @@ interface ExplainInput {
   documentExcerpt: string
 }
 
-/** Background job: generate explanations for an attempt's incorrect answers. */
+/** Background job: generate explanations for an attempt's incorrect answers.
+ *  Multi-document tests: each question is verified against the document that
+ *  actually supports it — a question from document B must never have its
+ *  evidence checked against document A's pages (that would falsely downgrade
+ *  document-grounded explanations to "external"). */
 export async function explainAttemptJob(attemptId: string, guestId: string): Promise<void> {
   const attempt = await db.attempt.findUnique({ where: { id: attemptId } })
   if (!attempt || attempt.guestId !== guestId || attempt.source !== 'RIISHE') return
@@ -52,8 +56,6 @@ export async function explainAttemptJob(attemptId: string, guestId: string): Pro
   const answers = safeParse<Record<string, number>>(attempt.answersJson ?? '{}', {})
   const questions = await db.riisheQuestion.findMany({ where: { id: { in: questionIds } } })
   if (questions.length === 0) return
-  const doc = await db.studyDocument.findUnique({ where: { id: questions[0].documentId } })
-  if (!doc) return
 
   // Only the questions the student got wrong (skipped ones keep their stored explanation)
   const wrong = questions
@@ -88,28 +90,52 @@ export async function explainAttemptJob(attemptId: string, guestId: string): Pro
 
   await db.riisheExplanation.deleteMany({ where: { attemptId, status: { in: ['PENDING'] } } })
 
-  // Build a compact retrieval window: the evidence pages of the wrong questions
-  const relevantPages = new Set<number>()
-  const pageRefsByQuestion = new Map<string, number[]>()
+  // ── Group the remaining questions per supporting document ──
+  const todoById = new Map(todo.map(t => [t.id, t]))
+  const byDoc = new Map<string, typeof wrong>()
   for (const q of wrong) {
-    const refs = safeParse<number[]>(q.pageRefsJson ?? '[]', []).filter(n => Number.isFinite(n))
-    pageRefsByQuestion.set(q.id, refs)
-    for (const p of refs) relevantPages.add(p)
+    if (!todoById.has(q.id)) continue
+    const list = byDoc.get(q.documentId) ?? []
+    list.push(q)
+    byDoc.set(q.documentId, list)
   }
-  const pages = safeParse(doc.extractionJson ?? '[]', [] as { page: number; text: string; chars: number }[])
-  const windowText = pages
-    .filter(p => relevantPages.has(p.page) && p.text)
-    .map(p => `[page ${p.page}]\n${p.text}`)
-    .join('\n\n')
-    .slice(0, 14000)
+  if (byDoc.size === 0) return
+
+  // Per-document retrieval windows: the evidence pages of THAT document's wrong
+  // questions, with page refs kept per document (page numbers are per-PDF and
+  // collide across documents).
+  const docIds = [...byDoc.keys()]
+  const docs = await db.studyDocument.findMany({ where: { id: { in: docIds } } })
+  const docById = new Map(docs.map(d => [d.id, d] as const))
 
   let lastError: string | null = null
-  for (let i = 0; i < todo.length; i += BATCH) {
-    const batch = todo.slice(i, i + BATCH)
-    try {
-      const payload = await chatJson<{ explanations?: Partial<RiisheExplanationPayload>[] }>({
-        system: 'You are Riishe, the exam-review teacher inside BEAN EXAMS. You diagnose exactly why a student picked a wrong answer and teach the correct reasoning. Output only valid JSON.',
-        user: `For EACH question below, the student selected an incorrect option. Explain the mistake.
+  outer: for (const [docId, docQuestions] of byDoc) {
+    const doc = docById.get(docId)
+    if (!doc) continue
+    const docTitle = doc.title
+    const relevantPages = new Set<number>()
+    const pageRefsByQuestion = new Map<string, number[]>()
+    for (const q of docQuestions) {
+      const refs = safeParse<number[]>(q.pageRefsJson ?? '[]', []).filter(n => Number.isFinite(n))
+      pageRefsByQuestion.set(q.id, refs)
+      for (const p of refs) relevantPages.add(p)
+    }
+    const pages = safeParse(doc.extractionJson ?? '[]', [] as { page: number; text: string; chars: number }[])
+    const windowText = pages
+      .filter(p => relevantPages.has(p.page) && p.text)
+      .map(p => `[page ${p.page}]\n${p.text}`)
+      .join('\n\n')
+      .slice(0, 14000)
+    const items: ExplainItem[] = docQuestions
+      .map(q => todoById.get(q.id))
+      .filter((t): t is ExplainItem => !!t)
+
+    for (let i = 0; i < items.length; i += BATCH) {
+      const batch = items.slice(i, i + BATCH)
+      try {
+        const payload = await chatJson<{ explanations?: Partial<RiisheExplanationPayload>[] }>({
+          system: 'You are Riishe, the exam-review teacher inside BEAN EXAMS. You diagnose exactly why a student picked a wrong answer and teach the correct reasoning. Output only valid JSON.',
+          user: `For EACH question below, the student selected an incorrect option. Explain the mistake.
 
 Return JSON: {"explanations": [{
   "whyWrong": string,          // why the STUDENT'S selected option is wrong — reference its letter and content
@@ -127,75 +153,76 @@ Rules:
 - Keep each field concise (1-4 sentences) and exam-useful.
 - Address the student directly ("You chose B, but...").
 
-${fenceDocumentText(doc.title, windowText || '(the relevant pages were not retrievable — explain from the question record only)')}
+${fenceDocumentText(docTitle, windowText || '(the relevant pages were not retrievable — explain from the question record only)')}
 
 QUESTIONS (student's pick in brackets):
 ${batch.map((q, j) => `Q${j + 1} (id=${q.id}) ${q.text}
 Options: ${q.options.map((o, k) => `${'ABCD'[k]}. ${o}`).join(' | ')}
 Correct: ${'ABCD'[q.correctIndex]}. Student selected: ${q.selectedIndex !== null ? `${'ABCD'[q.selectedIndex]}. ${q.options[q.selectedIndex] ?? ''}` : 'no answer (skipped)'}
 Recorded evidence: "${(q.evidence ?? '').slice(0, 250)}"`).join('\n\n')}`,
-      })
+        })
 
-      const list = payload.explanations
-      if (Array.isArray(list)) {
-        for (let j = 0; j < batch.length; j++) {
-          const e = list[j]
-          const q = batch[j]
-          if (!e || typeof e !== 'object') continue
-          let excerpt = String(e.excerpt ?? '').slice(0, 500)
-          let pageRefs = (Array.isArray(e.pageRefs) ? e.pageRefs : []).map(Number).filter(n => Number.isFinite(n)).slice(0, 8)
-          let grounding: 'document' | 'external' = e.grounding === 'external' ? 'external' : 'document'
+        const list = payload.explanations
+        if (Array.isArray(list)) {
+          for (let j = 0; j < batch.length; j++) {
+            const e = list[j]
+            const q = batch[j]
+            if (!e || typeof e !== 'object') continue
+            let excerpt = String(e.excerpt ?? '').slice(0, 500)
+            let pageRefs = (Array.isArray(e.pageRefs) ? e.pageRefs : []).map(Number).filter(n => Number.isFinite(n)).slice(0, 8)
+            let grounding: 'document' | 'external' = e.grounding === 'external' ? 'external' : 'document'
 
-          // Programmatic verification: a "document"-grounded explanation must
-          // quote text that actually exists in the document window, and cite
-          // only pages that were actually fed. Anything else is downgraded to
-          // external — a fabricated quote must never be shown as source-backed.
-          if (grounding === 'document') {
-            const inWindow = excerpt && excerpt.length >= 12 && evidenceInText(excerpt, windowText)
-            const knownEvidence = excerpt && q.evidence && evidenceInText(excerpt, q.evidence)
-            const pagesOk = pageRefs.length === 0 || pageRefs.some(p => relevantPages.has(p))
-            if (!(inWindow || knownEvidence) || !pagesOk) {
-              // Fall back to the question's own validated evidence excerpt
-              if (q.evidence && q.evidence.length >= 12 && evidenceInText(q.evidence, windowText)) {
-                excerpt = q.evidence.slice(0, 500)
-                pageRefs = pageRefsByQuestion.get(q.id) ?? []
-                grounding = 'document'
-              } else {
-                grounding = 'external'
+            // Programmatic verification: a "document"-grounded explanation must
+            // quote text that actually exists in THIS document's window, and cite
+            // only pages that were actually fed. Anything else is downgraded to
+            // external — a fabricated quote must never be shown as source-backed.
+            if (grounding === 'document') {
+              const inWindow = excerpt && excerpt.length >= 12 && evidenceInText(excerpt, windowText)
+              const knownEvidence = excerpt && q.evidence && evidenceInText(excerpt, q.evidence)
+              const pagesOk = pageRefs.length === 0 || pageRefs.some(p => relevantPages.has(p))
+              if (!(inWindow || knownEvidence) || !pagesOk) {
+                // Fall back to the question's own validated evidence excerpt
+                if (q.evidence && q.evidence.length >= 12 && evidenceInText(q.evidence, windowText)) {
+                  excerpt = q.evidence.slice(0, 500)
+                  pageRefs = pageRefsByQuestion.get(q.id) ?? []
+                  grounding = 'document'
+                } else {
+                  grounding = 'external'
+                  excerpt = ''
+                  pageRefs = []
+                }
+              }
+            } else {
+              // Even external explanations must not display invented quotes
+              if (excerpt && !evidenceInText(excerpt, windowText) && !(q.evidence && evidenceInText(excerpt, q.evidence))) {
                 excerpt = ''
                 pageRefs = []
               }
             }
-          } else {
-            // Even external explanations must not display invented quotes
-            if (excerpt && !evidenceInText(excerpt, windowText) && !(q.evidence && evidenceInText(excerpt, q.evidence))) {
-              excerpt = ''
-              pageRefs = []
-            }
-          }
 
-          const payloadClean: RiisheExplanationPayload = {
-            whyWrong: String(e.whyWrong ?? '').slice(0, 1200),
-            correctReasoning: String(e.correctReasoning ?? '').slice(0, 1600),
-            excerpt,
-            pageRefs,
-            concept: String(e.concept ?? q.topic ?? '').slice(0, 200),
-            misconception: e.misconception ? String(e.misconception).slice(0, 400) : null,
-            revisionTopic: String(e.revisionTopic ?? q.topic ?? '').slice(0, 200),
-            grounding,
+            const payloadClean: RiisheExplanationPayload = {
+              whyWrong: String(e.whyWrong ?? '').slice(0, 1200),
+              correctReasoning: String(e.correctReasoning ?? '').slice(0, 1600),
+              excerpt,
+              pageRefs,
+              concept: String(e.concept ?? q.topic ?? '').slice(0, 200),
+              misconception: e.misconception ? String(e.misconception).slice(0, 400) : null,
+              revisionTopic: String(e.revisionTopic ?? q.topic ?? '').slice(0, 200),
+              grounding,
+            }
+            await db.riisheExplanation.upsert({
+              where: { attemptId_questionId: { attemptId, questionId: q.id } },
+              create: { attemptId, questionId: q.id, status: 'READY', payloadJson: JSON.stringify(payloadClean) },
+              update: { status: 'READY', payloadJson: JSON.stringify(payloadClean) },
+            })
           }
-          await db.riisheExplanation.upsert({
-            where: { attemptId_questionId: { attemptId, questionId: q.id } },
-            create: { attemptId, questionId: q.id, status: 'READY', payloadJson: JSON.stringify(payloadClean) },
-            update: { status: 'READY', payloadJson: JSON.stringify(payloadClean) },
-          })
         }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err)
+        console.error('[riishe explain] batch failed:', err)
+        // Preserve what was generated; leave remaining questions for a retry
+        break outer
       }
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err)
-      console.error('[riishe explain] batch failed:', err)
-      // Preserve what was generated; leave remaining questions for a retry
-      break
     }
   }
 

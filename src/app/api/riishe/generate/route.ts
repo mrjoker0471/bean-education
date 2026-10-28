@@ -22,7 +22,9 @@ const bodySchema = z.object({
   timed: z.boolean().optional(),
   /** Explicit per-question timing (minutes); 0 = untimed. Default: 1 min/question. */
   durationMin: z.number().int().min(0).max(240).optional(),
-  count: z.number().int().min(4).max(50).optional(),
+  /** 50/100-and-beyond practice: the batch budget scales with the count, and
+   *  only validated questions are ever published (never padded to the count). */
+  count: z.number().int().min(4).max(200).optional(),
   difficultyFocus: z.enum(['MIXED', 'FOUNDATIONAL', 'INTERMEDIATE', 'ADVANCED']).optional(),
   /** Question-type mix — a subset of categories. The requested counts are
    *  re-scaled over the selection so the total still equals `count`. */
