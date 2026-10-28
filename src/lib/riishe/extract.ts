@@ -9,6 +9,9 @@ export interface ExtractedPage {
   chars: number
   text: string
   scanned: boolean
+  /** Per-page extraction outcome. Older stored extractions lack the field —
+   *  consumers treat a missing outcome with chars > 0 as 'extracted'. */
+  outcome?: 'extracted' | 'scanned' | 'failed'
 }
 
 export interface ExtractionResult {
@@ -69,7 +72,7 @@ export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResul
     } else {
       text = ''
     }
-    pages.push({ page: p, chars, text, scanned })
+    pages.push({ page: p, chars, text, scanned, outcome: scanned ? 'scanned' : 'extracted' })
     // Release page resources eagerly for large documents
     page.cleanup()
   }

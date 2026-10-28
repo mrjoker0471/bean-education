@@ -269,15 +269,16 @@ model StudyDocument {
 model RiisheTest {
   id               String        @id @default(cuid())
   guestId          String
-  documentId       String
+  documentId       String // PRIMARY source document (workspace owner)
   title            String
   status           String        @default("QUEUED") // QUEUED | GENERATING | READY | FAILED
   statusDetail     String?
   focusTopicsJson  String? // JSON string[] — empty/null = balanced mix across the document
   weakFocus        Boolean       @default(false) // generated from the student's weak areas
   requestedCount   Int           @default(50)
-  configJson       String // JSON {timed, durationMin, marksPerQuestion, negativeMark}
-  distributionJson String? // JSON {category: requested count}
+  configJson       String // JSON {timed, durationMin, marksPerQuestion, negativeMark, scoringModel?, patternLabel?}
+  distributionJson String? // JSON {category: requested count} — respects the student's category mix
+  sourceDocIdsJson String? // JSON string[] — every source document beyond the primary (multi-doc practice)
   statsJson        String? // JSON {generated, validated, rejected, byCategory, byDifficulty, llmCalls, batches}
   questionIdsJson  String? // ordered ids of PUBLISHED validated questions
   createdAt        DateTime      @default(now())
@@ -322,4 +323,27 @@ model RiisheExplanation {
 
   @@unique([attemptId, questionId])
   @@index([attemptId])
+}
+
+// ─── Riishe follow-up chat (persisted, guest-scoped) ──────────────────────────
+// Scope: document chat (documentId set), per-question review chat (attemptId +
+// questionId set), or whole-library hub chat (both null). Turns are never
+// shared across guests.
+
+model RiisheChatTurn {
+  id              String   @id @default(cuid())
+  guestId         String
+  documentId      String?
+  attemptId       String?
+  questionId      String?
+  role            String // user | assistant
+  content         String
+  pagesCitedJson  String? // JSON number[]
+  grounding       String? // document | mixed | general (assistant turns only)
+  sourcesJson     String? // JSON RiisheChatSourceDTO[]
+  createdAt       DateTime @default(now())
+
+  @@index([guestId, createdAt])
+  @@index([documentId])
+  @@index([attemptId, questionId])
 }

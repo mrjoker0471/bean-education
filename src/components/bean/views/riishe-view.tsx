@@ -20,6 +20,7 @@ import type {
   SectionOutcomeDTO,
 } from '@/lib/types'
 import { PageRefChips, formatPageRefs } from '@/components/bean/riishe-bits'
+import { RiisheChatPanel } from '@/components/bean/riishe-chat'
 import { MaterialStatusBadge } from '@/components/bean/views/materials-view'
 import { MaterialPdfReader } from '@/components/bean/pdf-viewer'
 import { EmptyState } from '@/components/bean/empty-state'
@@ -112,14 +113,14 @@ function distributionLine(count: number): string {
 
 // ═══ Router ═══
 
-export function RiisheView({ docId }: { docId?: string }) {
-  if (!docId) return <RiisheHub />
-  return <RiisheWorkspace docId={docId} />
+export function RiisheView({ docId, page, topic }: { docId?: string; page?: number; topic?: string }) {
+  if (!docId) return <RiisheHub initialTopic={topic} />
+  return <RiisheWorkspace docId={docId} initialPage={page} />
 }
 
 // ═══════════════════════════ HUB ═══════════════════════════
 
-function RiisheHub() {
+function RiisheHub({ initialTopic }: { initialTopic?: string }) {
   const guestId = useAppStore(s => s.guestId)
   const navigate = useAppStore(s => s.navigate)
 
@@ -351,6 +352,33 @@ function RiisheHub() {
           </section>
         </div>
       </div>
+
+      {/* Ask Riishe — grounded follow-up chat over the analysed library.
+          Replies cite real pages from the student's own uploads; anything
+          outside the material is labelled. */}
+      {readyMaterials.length > 0 && (
+        <section aria-label="Ask Riishe" className="mt-8 rounded-xl border border-border bg-card p-5 sm:p-6">
+          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+            <Sparkles className="h-4 w-4 text-gold" aria-hidden /> Ask Riishe
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Answers come from your analysed materials with page citations. Anything not supported by them is labelled
+            as general knowledge — Riishe never presents an outside fact as coming from your documents.
+          </p>
+          <div className="mt-4">
+            <RiisheChatPanel
+              guestId={guestId}
+              scope={{}}
+              topicFocus={initialTopic}
+              greeting="Ask anything about your uploaded material — Riishe cites the exact pages it used."
+              materials={readyMaterials.map(m => ({ id: m.id, title: m.title }))}
+              onOpenPage={(page, docId) => {
+                if (docId) navigate({ view: 'riishe', docId, page })
+              }}
+            />
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -372,7 +400,7 @@ function StepCard({ n, icon: Icon, title, text }: { n: string; icon: typeof Uplo
 
 type WorkspaceTab = 'material' | 'analysis' | 'tests'
 
-function RiisheWorkspace({ docId }: { docId: string }) {
+function RiisheWorkspace({ docId, initialPage }: { docId: string; initialPage?: number }) {
   const guestId = useAppStore(s => s.guestId)
   const navigate = useAppStore(s => s.navigate)
 
@@ -438,7 +466,11 @@ function RiisheWorkspace({ docId }: { docId: string }) {
   // Integrated reader overlay — lifted to the workspace so page chips in the
   // Analysis tab can deep-link to the exact page, and "Open in reader" in the
   // Material tab opens without one.
-  const [reader, setReader] = useState<{ startPage?: number } | null>(null)
+  const [reader, setReader] = useState<{ startPage?: number } | null>(
+    // Page deep-links ("explain this page", practice provenance chips) land
+    // directly in the integrated reader at that physical page.
+    initialPage && Number.isFinite(initialPage) && initialPage >= 1 ? { startPage: initialPage } : null,
+  )
   const openReaderAt = (page?: number) => setReader({ startPage: page })
 
   const refresh = () => setReloadTick(t => t + 1)

@@ -195,10 +195,10 @@ async function main() {
     await sleep(4000)
     const s = await jfetch<any>(`/api/riishe/attempts/${attemptId}/explanations?guestId=${GUEST}`)
     exState = s.body
-    if (i % 5 === 0) log(`  poll ${i + 1}: ready=${exState.readyCount} failed=${exState.failedCount} pending=${exState.pending} (wrong=${exState.wrongCount} correct=${exState.correctCount} skipped=${exState.skippedCount})`)
+    if (i % 5 === 0) log(`  poll ${i + 1}: ready=${exState.readyCount} failed=${exState.failedCount} pending=${exState.pending} (wrong=${exState.wrongCount})`)
     if (exState.pending <= 0) break
   }
-  const total = exState.wrongCount + exState.correctCount + exState.skippedCount
+  const total = exState.wrongCount + (exState.correctCount ?? 0) + (exState.skippedCount ?? 0)
   const allReady = exState.pending <= 0 && exState.failedCount === 0
   log(`  coverage: ${exState.readyCount}/${total} ${allReady ? '✓' : '✗'} (failed: ${exState.failedCount})`)
 
@@ -210,11 +210,11 @@ async function main() {
     const p = entry.payload
     const row = byId.get(qid)
     const refs: number[] = p.pageRefs ?? []
-    if (p.kind === 'WRONG') {
+    if (p.whyWrong) {
       wrongTotal++
       if (p.whyWrong && p.correctReasoning && p.concept && p.revisionTopic) wrongFull++
       if (p.followUp) followUps++
-    } else if (p.kind === 'CORRECT') {
+    } else if (p.correctReasoning && !/left this question unanswered/.test(p.correctReasoning)) {
       correctTotal++
       if (p.correctReasoning) correctOk++
       if (p.followUp) followUps++

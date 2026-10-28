@@ -195,6 +195,24 @@ export interface RiisheTestStats {
   batches: number
 }
 
+// ─── Scoring ───────────────────────────────────────────────────────────────────
+// Practice tests are scored exactly as the student chose. 'EXAM_PATTERN' is
+// only ever set from a VERIFIED catalogue pattern row (see exam-pattern.ts) —
+// it is practice scoring labelled with its source, never an official result.
+
+export type ScoringModel = 'CUSTOM' | 'EXAM_PATTERN'
+
+export interface ScoringConfig {
+  timed: boolean
+  /** 0 = untimed */
+  durationMin: number
+  marksPerQuestion: number
+  negativeMark: number
+  scoringModel: ScoringModel
+  /** Human-readable provenance for EXAM_PATTERN scoring. */
+  patternLabel?: string
+}
+
 // ─── Explanations ──────────────────────────────────────────────────────────────
 
 export interface RiisheExplanationPayload {

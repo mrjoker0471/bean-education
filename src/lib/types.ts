@@ -426,7 +426,9 @@ export interface RiisheTestDetailDTO {
   focusTopics: string[]
   weakFocus: boolean
   requestedCount: number
-  config: { timed: boolean; durationMin: number; marksPerQuestion: number; negativeMark: number }
+  config: { timed: boolean; durationMin: number; marksPerQuestion: number; negativeMark: number; scoringModel?: string; patternLabel?: string }
+  /** Every source document behind this set (multi-document practice) — primary first. */
+  sourceDocuments?: { id: string; title: string; pageCount: number | null }[]
   stats: {
     generated: number
     validated: number
@@ -445,6 +447,8 @@ export interface RiisheTestDetailDTO {
     category: string
     topic: string | null
     status: string
+    pageRefs?: number[]
+    documentId?: string
   }[]
   createdAt: string
   updatedAt: string
@@ -452,6 +456,11 @@ export interface RiisheTestDetailDTO {
 
 export interface MaterialDetailDTO extends MaterialListItemDTO {
   analysis: DocumentAnalysisDTO | null
+  /** Derived from coverage: COMPLETE only when nothing failed or was skipped. */
+  analysisState?: 'COMPLETE' | 'PARTIAL' | null
+  analysisPct?: number | null
+  /** Extraction/analysis coverage accounting (null when not yet known). */
+  coverage?: CoverageMetricsDTO | (Partial<CoverageMetricsDTO> & { noTextPages?: number }) | null
   tests: (RiisheTestSummaryDTO & {
     statusDetail: string | null
     focusTopics: string[]
@@ -488,4 +497,68 @@ export interface RiisheExplanationsDTO {
   failedCount: number
   pending: number
   explanations: Record<string, { status: 'READY' | 'FAILED'; payload: RiisheExplanationPayloadDTO | null }>
+}
+
+// ─── Riishe chat (follow-up tutoring, persisted) ───
+
+export type RiisheQuestionCategoryDTO = 'FOUNDATION' | 'APPLICATION' | 'STATEMENT' | 'MULTISTEP' | 'MISCONCEPTION'
+/** Back-compat alias used by the shared generator panel. */
+export type QuestionCategoryDTO = RiisheQuestionCategoryDTO
+
+/** One verified source behind a chat answer — a document window or a live web result. */
+export interface RiisheChatSourceDTO {
+  documentId: string
+  title: string
+  /** [from, to] physical page range (document sources only). */
+  pages: number[]
+  excerpt: string
+  kind?: 'document' | 'web'
+  url?: string
+  detail?: string
+}
+
+export type RiisheGroundingDTO = 'document' | 'mixed' | 'general'
+
+export interface RiisheChatTurnDTO {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  pagesCited: number[]
+  grounding: RiisheGroundingDTO | null
+  sources: RiisheChatSourceDTO[]
+  createdAt: string
+}
+
+export interface RiisheChatResponseDTO {
+  reply: string
+  pagesCited: number[]
+  grounding: RiisheGroundingDTO
+  sources: RiisheChatSourceDTO[]
+  turnId?: string
+}
+
+// ─── Riishe topics browser (aggregated across the library) ───
+
+export interface RiisheTopicDocDTO {
+  documentId: string
+  documentTitle: string
+  pageCount: number | null
+  analysisState: 'COMPLETE' | 'PARTIAL'
+  analysisPct: number | null
+  summary: string | null
+  topics: {
+    name: string
+    subtopics: string[]
+    pages: number[]
+    origin?: 'SOURCE_HEADING' | 'AI_INFERRED'
+  }[]
+  definitions: number
+  formulas: number
+  questionPatterns: string[]
+  updatedAt: string
+}
+
+export interface RiisheTopicsResponseDTO {
+  documents: RiisheTopicDocDTO[]
+  totalTopics: number
 }

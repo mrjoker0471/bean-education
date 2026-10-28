@@ -37,6 +37,8 @@ function isProviderUnavailable(err: unknown): boolean {
 interface CandidateQuestion extends GeneratedQuestion {
   sectionIdx: number
   dupKey: string
+  /** The document whose excerpt supports this question (multi-doc practice). */
+  docId: string
   validationNote?: string
 }
 
@@ -75,11 +77,17 @@ function evidenceInText(evidence: string, text: string): boolean {
 
 // ─── Retrieval: which sections feed each batch? ────────────────────────────────
 
-interface GenSection {
+interface BaseGenSection {
   label: string
   text: string
   fromPage: number
   toPage: number
+}
+
+interface GenSection extends BaseGenSection {
+  /** Which uploaded document this section came from (multi-doc practice). */
+  docId: string
+  docTitle: string
 }
 
 /**
@@ -95,7 +103,7 @@ export function buildGenerationSections(
   numPages: number,
   analysis: DocumentAnalysis | null,
   focus: string[],
-): GenSection[] {
+): BaseGenSection[] {
   const readable = pages.filter(p => !p.scanned && p.text.length > 0)
   const pageByNumber = new Map(readable.map(p => [p.page, p] as const))
   const textOf = (from: number, to: number) =>
@@ -104,7 +112,7 @@ export function buildGenerationSections(
       .map(p => `[page ${p.page}]\n${p.text}`)
       .join('\n\n')
 
-  const fromUnits = (): GenSection[] => {
+  const fromUnits = (): BaseGenSection[] => {
     const structure = detectStructure(pages, numPages, { maxUnitChars: GEN_SECTION_CHARS })
     if (structure.units.length === 0) return []
     return structure.units.map(u => ({
@@ -115,7 +123,7 @@ export function buildGenerationSections(
     }))
   }
 
-  const fallbackSections = (): GenSection[] =>
+  const fallbackSections = (): BaseGenSection[] =>
     sectionPages(pages, { maxChars: GEN_SECTION_CHARS, maxSections: 400 }).map(s => ({
       label: s.label,
       text: s.text,
@@ -153,7 +161,7 @@ export function buildGenerationSections(
         if (last && p <= last.to + 1) last.to = p
         else runs.push({ from: p, to: p })
       }
-      const focusSections: GenSection[] = runs
+  const focusSections: BaseGenSection[] = runs
         .map(r => ({
           label: r.from === r.to ? `page ${r.from}` : `pages ${r.from}–${r.to}`,
           text: textOf(r.from, r.to).slice(0, GEN_SECTION_CHARS * 2),
@@ -282,7 +290,7 @@ interface ValidationVerdict {
 function programmaticValidate(
   raw: RawQuestion,
   category: QuestionCategory,
-  sections: { text: string; fromPage: number; toPage: number }[],
+  sections: GenSection[],
 ): CandidateQuestion | { reject: string } {
   const text = String(raw.text ?? '').trim()
   const options = (raw.options ?? []).map(o => String(o ?? '').trim())
@@ -314,6 +322,7 @@ function programmaticValidate(
     difficulty: difficulty as GeneratedQuestion['difficulty'],
     category, topic, pageRefs: validPages, evidence,
     sectionIdx: sections.indexOf(covered),
+    docId: covered.docId,
     dupKey: normalize(text).slice(0, 140),
   }
 }
@@ -321,10 +330,17 @@ function programmaticValidate(
 // ─── The job ───────────────────────────────────────────────────────────────────
 
 export async function generateTestJob(testId: string): Promise<void> {
-  const test = await db.riisheTest.findUnique({ where: { id: testId }, include: { document: true } })
+  const test = await db.riisheTest.findUnique({ where: { id: testId } })
   if (!test || !['QUEUED', 'FAILED'].includes(test.status)) return
-  const doc = test.document
-  if (!doc || doc.status !== 'READY' || !doc.extractionJson) {
+
+  // Every source document behind this test (multi-document practice) —
+  // ownership was checked by the route that created the test; here we only
+  // load what was recorded. The primary document is always first.
+  const docIds = [test.documentId, ...jsonIdArr(test.sourceDocIdsJson).filter(id => id !== test.documentId)]
+  const docs = await db.studyDocument.findMany({ where: { id: { in: docIds } } })
+  const ordered = docIds.map(id => docs.find(d => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d)
+  const primary = ordered[0]
+  if (!primary || primary.status !== 'READY' || !primary.extractionJson || ordered.some(d => d.status !== 'READY' || !d.extractionJson)) {
     await db.riisheTest.update({
       where: { id: testId },
       data: { status: 'FAILED', statusDetail: 'The document is not analysed yet. Wait for processing to finish, then try again.' },
@@ -337,12 +353,20 @@ export async function generateTestJob(testId: string): Promise<void> {
     data: { status: 'GENERATING', statusDetail: 'Selecting relevant sections…', updatedAt: new Date() },
   })
 
-  const pages = safeParse(doc.extractionJson, [] as ExtractedPage[])
-  const analysis = safeParse<DocumentAnalysis | null>(doc.analysisJson, null)
   const focus = safeParse<string[]>(test.focusTopicsJson ?? '[]', []).filter(Boolean)
 
-  // Whole-document, structure-aware retrieval (never limited to the first pages)
-  const sections = buildGenerationSections(pages, doc.pageCount ?? pages.length, analysis, focus)
+  // Whole-document, structure-aware retrieval per source document (never
+  // limited to the first pages). Sections carry their own docId so every
+  // generated question is attributed to the document that actually supports it.
+  const sections: GenSection[] = []
+  const analysisOf = new Map<string, DocumentAnalysis | null>()
+  for (const d of ordered) {
+    const pages = safeParse(d.extractionJson, [] as ExtractedPage[])
+    const analysis = safeParse<DocumentAnalysis | null>(d.analysisJson, null)
+    analysisOf.set(d.id, analysis)
+    const docSections = buildGenerationSections(pages, d.pageCount ?? pages.length, analysis, focus)
+    for (const s of docSections) sections.push({ ...s, docId: d.id, docTitle: d.title })
+  }
   if (sections.length === 0) {
     await db.riisheTest.update({
       where: { id: testId },
@@ -351,16 +375,22 @@ export async function generateTestJob(testId: string): Promise<void> {
     return
   }
 
-  // Distribution: focus tests may compress the mix, balanced tests use the default
+  // Distribution: the route computed the student's requested mix (count +
+  // category selection). Fall back to the scaled default for legacy rows.
   const requested = Math.min(50, Math.max(4, test.requestedCount || 50))
+  const storedDist = safeParse<Record<string, number> | null>(test.distributionJson, null)
   const dist: Record<QuestionCategory, number> = { ...DEFAULT_DISTRIBUTION }
-  if (requested !== 50) {
+  if (storedDist && typeof storedDist === 'object') {
+    const valid = (Object.keys(dist) as QuestionCategory[]).filter(k => Number.isFinite(storedDist[k]) && storedDist[k] > 0)
+    if (valid.length > 0) {
+      for (const k of Object.keys(dist) as QuestionCategory[]) dist[k] = 0
+      for (const k of valid) dist[k] = Math.max(1, Math.round(storedDist[k]))
+    }
+  } else if (requested !== 50) {
     const scale = requested / 50
     for (const k of Object.keys(dist) as QuestionCategory[]) dist[k] = Math.max(1, Math.round(dist[k] * scale))
   }
-  const focusCat: QuestionCategory[] = focus.length > 0
-    ? ['FOUNDATION', 'APPLICATION', 'STATEMENT', 'MULTISTEP', 'MISCONCEPTION']
-    : ['FOUNDATION', 'APPLICATION', 'STATEMENT', 'MULTISTEP', 'MISCONCEPTION']
+  const focusCat: QuestionCategory[] = (Object.keys(dist) as QuestionCategory[]).filter(k => dist[k] > 0)
 
   // Build the initial batch plan (category → chunk of ≤ BATCH_SIZE)
   const plan: { category: QuestionCategory; count: number }[] = []
@@ -388,16 +418,19 @@ export async function generateTestJob(testId: string): Promise<void> {
     batches++
     const secs = pickSections(sections, focus, cursor, category === 'MISCONCEPTION' ? 3 : 2)
     const avoid = candidates.slice(-30).map(c => c.text.slice(0, 90))
+    // A batch that draws on a question-paper document only informs STYLE — the
+    // prompt is told so it never treats question wording as factual evidence.
+    const questionPaper = secs.some(s => analysisOf.get(s.docId)?.structure?.kind === 'QUESTION_PAPER')
     const callGenerate = async (): Promise<RawQuestion[]> => {
       llmCalls++
       const raws = await chatJson<RawQuestion[]>({
         system: 'You are Riishe, a meticulous exam-question generator. Output only valid JSON.',
         user: generationPrompt({
           category, count,
-          sections: secs.map(s => ({ label: s.label, text: s.text })),
+          sections: secs.map(s => ({ label: `${s.docTitle} · ${s.label}`, text: s.text })),
           focus, avoid,
-          examLabel: doc.examLabel,
-          questionPaper: analysis?.structure?.kind === 'QUESTION_PAPER',
+          examLabel: primary.examLabel,
+          questionPaper,
         }),
       })
       return Array.isArray(raws) ? raws : []
@@ -450,7 +483,7 @@ export async function generateTestJob(testId: string): Promise<void> {
 
 Return a JSON array: [{"index": <position in the list starting at 0>, "verdict": "VALID"|"INVALID", "note": short reason}]
 
-${fenceDocumentText('student study material', secs.map(s => `--- (${s.label}) ---\n${s.text}`).join('\n\n'))}
+${fenceDocumentText('student study material', secs.map(s => `--- (${s.docTitle} · ${s.label}) ---\n${s.text}`).join('\n\n'))}
 
 QUESTIONS:
 ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${'ABCD'[j]}. ${o}`).join(' | ')}\nKeyed correct: ${'ABCD'[q.correctIndex]}\nEvidence: "${q.evidence.slice(0, 250)}"`).join('\n\n')}`,
@@ -515,11 +548,12 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
     return
   }
 
-  // Persist questions + publish
+  // Persist questions + publish (each question keeps the document that
+  // actually supports it, so provenance and page chips deep-link correctly)
   await db.riisheQuestion.deleteMany({ where: { testId } })
   const rows = published.map((q, i) => ({
     testId,
-    documentId: doc.id,
+    documentId: q.docId,
     order: i + 1,
     text: q.text,
     optionsJson: JSON.stringify(q.options),
@@ -575,5 +609,15 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
     return (Object.keys(distMap) as QuestionCategory[])
       .map(cat => ({ category: cat, deficit: Math.round(distMap[cat] / 50 * total) - list.filter(q => q.category === cat).length }))
       .sort((a, b) => b.deficit - a.deficit)
+  }
+}
+
+function jsonIdArr(json: string | null | undefined): string[] {
+  if (!json) return []
+  try {
+    const v = JSON.parse(json)
+    return Array.isArray(v) ? v.map(String) : []
+  } catch {
+    return []
   }
 }

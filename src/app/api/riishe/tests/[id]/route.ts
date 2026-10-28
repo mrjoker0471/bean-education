@@ -24,8 +24,22 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const questions = await db.riisheQuestion.findMany({
       where: { testId: id },
       orderBy: { order: 'asc' },
-      select: { id: true, order: true, text: true, difficulty: true, category: true, topic: true, status: true, pageRefsJson: true },
+      select: { id: true, order: true, text: true, difficulty: true, category: true, topic: true, status: true, pageRefsJson: true, documentId: true },
     })
+
+    // Every source document behind this set (multi-document practice) —
+    // primary first, then the additional ones in the recorded order.
+    const sourceDocIds = [test.documentId, ...jsonIdArr(test.sourceDocIdsJson).filter(x => x !== test.documentId)]
+    const sourceDocs = await db.studyDocument.findMany({
+      where: { id: { in: sourceDocIds } },
+      select: { id: true, title: true, pageCount: true },
+    })
+    const sourceDocuments = sourceDocIds
+      .map(docId => {
+        const d = sourceDocs.find(x => x.id === docId)
+        return d ? { id: d.id, title: d.title, pageCount: d.pageCount } : null
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null)
 
     return NextResponse.json({
       id: test.id,
@@ -38,9 +52,20 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       weakFocus: test.weakFocus,
       requestedCount: test.requestedCount,
       config: safeCfg(test.configJson),
+      sourceDocuments,
       stats: safeStats(test.statsJson),
       questionCount: test.questionIdsJson ? safeArr(test.questionIdsJson).length : questions.filter(q => q.status === 'VALIDATED').length,
-      questions, // no answers/explanations before an attempt exists — this is a summary, not the runner feed
+      questions: questions.map(q => ({
+        id: q.id,
+        order: q.order,
+        text: q.text,
+        difficulty: q.difficulty,
+        category: q.category,
+        topic: q.topic,
+        status: q.status,
+        pageRefs: safePageRefs(q.pageRefsJson),
+        documentId: q.documentId,
+      })), // no answers/explanations before an attempt exists — this is a summary, not the runner feed
       createdAt: test.createdAt.toISOString(),
       updatedAt: test.updatedAt.toISOString(),
     })
@@ -60,4 +85,15 @@ function safeCfg(json: string) {
 function safeStats(json: string | null) {
   if (!json) return null
   try { return JSON.parse(json) } catch { return null }
+}
+function jsonIdArr(json: string | null): string[] {
+  if (!json) return []
+  try { const v = JSON.parse(json); return Array.isArray(v) ? v.map(String) : [] } catch { return [] }
+}
+function safePageRefs(json: string | null): number[] {
+  if (!json) return []
+  try {
+    const v = JSON.parse(json)
+    return Array.isArray(v) ? v.filter((n: unknown) => typeof n === 'number' && Number.isFinite(n)) : []
+  } catch { return [] }
 }

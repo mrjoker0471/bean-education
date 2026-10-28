@@ -35,6 +35,31 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     }
 
     const analysis = safeAnalysis(fresh.analysisJson)
+
+    // Honest analysis-state accounting derived from the stored coverage —
+    // COMPLETE only when every readable page was analysed and nothing failed.
+    const cov = analysis?.coverage ?? null
+    const analysisState: 'COMPLETE' | 'PARTIAL' | null = fresh.status === 'READY' && analysis
+      ? cov?.complete ? 'COMPLETE' : 'PARTIAL'
+      : null
+    const analysisPct: number | null = cov && cov.readablePages > 0
+      ? Math.round((cov.analysedPages / cov.readablePages) * 100)
+      : null
+    // NEEDS_OCR documents have no analysis — their coverage comes straight
+    // from the extraction stats (total vs image-only pages).
+    let coverage: Record<string, unknown> | null = (cov as unknown as Record<string, unknown>) ?? null
+    if (!coverage && fresh.status === 'NEEDS_OCR' && fresh.extractionJson) {
+      try {
+        const pages = JSON.parse(fresh.extractionJson) as { page: number; scanned: boolean }[]
+        coverage = {
+          totalPages: fresh.pageCount ?? pages.length,
+          readablePages: pages.filter(p => !p.scanned).length,
+          scannedPages: pages.filter(p => p.scanned).length,
+          noTextPages: pages.filter(p => p.scanned).length,
+        }
+      } catch { /* keep null */ }
+    }
+
     const tests = await db.riisheTest.findMany({
       where: { documentId: id },
       orderBy: { createdAt: 'desc' },
@@ -60,6 +85,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       createdAt: fresh.createdAt.toISOString(),
       updatedAt: fresh.updatedAt.toISOString(),
       analysis: fresh.status === 'READY' ? analysis : null,
+      analysisState,
+      analysisPct,
+      coverage,
       topics: analysis?.topics.map(t => t.name) ?? [],
       tests: tests.map(t => ({
         id: t.id,

@@ -12,10 +12,14 @@ import type {
   MaterialDetailDTO,
   MaterialsResponseDTO,
   ProgressDTO,
+  QuestionCategoryDTO,
   ResourceMetaDTO,
   RevisionCheckDTO,
+  RiisheChatResponseDTO,
+  RiisheChatTurnDTO,
   RiisheExplanationsDTO,
   RiisheTestDetailDTO,
+  RiisheTopicsResponseDTO,
   RiisheWeakTopicDTO,
   TopicDetailDTO,
 } from './types'
@@ -183,11 +187,19 @@ export const api = {
   // ─── Riishe — tests ───
   generateRiisheTest: (body: {
     guestId: string
-    documentId: string
+    /** Multi-document practice — every id must belong to the guest. */
+    documentIds?: string[]
+    /** Single-document (workspace) form. */
+    documentId?: string
     focusTopics?: string[]
     weakFocus?: boolean
     timed?: boolean
+    /** Explicit per-question timing; 0 = untimed. Default: 1 min/question. */
+    durationMin?: number
     count?: number
+    difficultyFocus?: 'MIXED' | 'FOUNDATIONAL' | 'INTERMEDIATE' | 'ADVANCED'
+    categories?: QuestionCategoryDTO[]
+    scoring?: { marksPerQuestion: number; negativeMark: number }
   }) =>
     jsonFetch<{ testId: string; existing?: boolean }>('/api/riishe/generate', {
       method: 'POST',
@@ -215,6 +227,41 @@ export const api = {
 
   riisheExplanations: (attemptId: string, guestId: string) =>
     jsonFetch<RiisheExplanationsDTO>(`/api/riishe/attempts/${encodeURIComponent(attemptId)}/explanations?guestId=${encodeURIComponent(guestId)}`),
+
+  // ─── Riishe — follow-up chat (persisted, grounded) ───
+  riisheChat: (body: {
+    guestId: string
+    messages: { role: 'user' | 'assistant'; content: string }[]
+    documentId?: string
+    documentIds?: string[]
+    attemptId?: string
+    questionId?: string
+    topic?: string
+    style?: 'exam-focused' | 'simple' | 'detailed'
+  }) =>
+    jsonFetch<RiisheChatResponseDTO>('/api/riishe/chat', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  riisheChatHistory: (guestId: string, scope: { documentId?: string; attemptId?: string; questionId?: string }) => {
+    const p = new URLSearchParams({ guestId })
+    if (scope.documentId) p.set('documentId', scope.documentId)
+    if (scope.attemptId) p.set('attemptId', scope.attemptId)
+    if (scope.questionId) p.set('questionId', scope.questionId)
+    return jsonFetch<{ turns: RiisheChatTurnDTO[] }>(`/api/riishe/chat?${p.toString()}`)
+  },
+
+  // ─── Riishe — topics discovered across the library ───
+  riisheTopics: (guestId: string) =>
+    jsonFetch<RiisheTopicsResponseDTO>(`/api/riishe/topics?guestId=${encodeURIComponent(guestId)}`),
+
+  // ─── Account (settings) ───
+  deleteAccountData: (guestId: string) =>
+    jsonFetch<{ ok: boolean; deleted: { documents: number; tests: number; attempts: number; explanations: number; chatTurns: number; files: number } }>(
+      '/api/account',
+      { method: 'DELETE', body: JSON.stringify({ guestId }) },
+    ),
 
   // ─── Attempt autosave (refresh-safe) ───
   autosaveAttempt: (attemptId: string, guestId: string, answers: Record<string, number>) =>

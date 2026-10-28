@@ -8,7 +8,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { RiisheTopicsResponseDTO } from '@/lib/types'
-import { AnalysisStateBadge } from '@/components/bean/views/materials-view'
 import { EmptyState } from '@/components/bean/empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,8 +16,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import {
   BookOpen,
+  CheckCircle2,
   ClipboardList,
   FileText,
+  Info,
   ListChecks,
   Play,
   RotateCcw,
@@ -287,5 +288,22 @@ export function TopicsView() {
         </>
       )}
     </div>
+  )
+}
+
+/** Honest analysis-state badge: COMPLETE only when every readable page was
+ *  analysed and nothing failed; otherwise PARTIAL with the analysed share. */
+function AnalysisStateBadge({ state, pct }: { state: 'COMPLETE' | 'PARTIAL'; pct?: number }) {
+  if (state === 'COMPLETE') {
+    return (
+      <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
+        <CheckCircle2 className="h-3 w-3" aria-hidden /> Fully analysed
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold">
+      <Info className="h-3 w-3" aria-hidden /> Partially analysed{typeof pct === 'number' ? ` · ${pct}%` : ''}
+    </Badge>
   )
 }

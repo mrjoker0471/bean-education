@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import type { AttemptResultDTO, RiisheExplanationsDTO } from '@/lib/types'
 import { useAppStore } from '@/lib/store'
 import { formatClock, optionLetter, pct } from '@/components/bean/format'
+import { RiisheChatPanel } from '@/components/bean/riishe-chat'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -636,6 +637,24 @@ export function ResultView({ attemptId }: { attemptId: string }) {
                       <blockquote className="rounded-r-lg border-l-2 border-gold/40 bg-elevated px-3 py-2 text-xs italic leading-relaxed text-muted-foreground">
                         From your material: &ldquo;{q.evidence}&rdquo;
                       </blockquote>
+                    )}
+                    {isRiishe && (
+                      <details className="rounded-lg border border-border bg-elevated/60 px-3 py-2">
+                        <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wider text-gold">
+                          <Sparkles className="mr-1 inline h-3 w-3" aria-hidden /> Ask Riishe about this question
+                        </summary>
+                        <div className="mt-3">
+                          <RiisheChatPanel
+                            guestId={guestId}
+                            scope={{ attemptId, questionId: q.id }}
+                            greeting="Ask a follow-up about this question — Riishe answers from your material and cites the pages it used."
+                            onOpenPage={(page, docId) => {
+                              if (docId) navigate({ view: 'riishe', docId, page })
+                            }}
+                            compact
+                          />
+                        </div>
+                      </details>
                     )}
                     {bankTopic && q.topicId && (
                       <div className="flex flex-wrap gap-2">

@@ -207,8 +207,7 @@ export function RiisheChatPanel({
     if (!guestId) return
     let alive = true
     api
-      .riisheChatHistory({
-        guestId,
+      .riisheChatHistory(guestId, {
         documentId: scope.documentId,
         attemptId: scope.attemptId,
         questionId: scope.questionId,
@@ -253,7 +252,7 @@ export function RiisheChatPanel({
         setTurns(prev => [
           ...(prev ?? []),
           {
-            id: r.turnId,
+            id: r.turnId ?? `local-${Date.now()}`,
             role: 'assistant',
             content: r.reply,
             pagesCited: r.pagesCited,

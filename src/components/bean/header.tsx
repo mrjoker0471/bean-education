@@ -87,7 +87,7 @@ export function Header() {
           <Button
             size="sm"
             className="ml-2 bg-gold text-primary-foreground hover:bg-gold-hover"
-            onClick={() => go('#/catalog')}
+            onClick={() => go('#/practice')}
           >
             <FlaskConical className="mr-1.5 h-4 w-4" /> Start practising
           </Button>
@@ -106,7 +106,7 @@ export function Header() {
               </SheetTitle>
               <nav className="mt-4 flex flex-col gap-1" aria-label="Mobile">
                 {MOBILE_NAV.map(item => navButton(item, true))}
-                <Button className="mt-3 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => go('#/catalog')}>
+                <Button className="mt-3 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => go('#/practice')}>
                   <FlaskConical className="mr-1.5 h-4 w-4" /> Start practising
                 </Button>
               </nav>

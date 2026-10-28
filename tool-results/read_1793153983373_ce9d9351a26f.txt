@@ -1,0 +1,536 @@
+     1→import { NextRequest, NextResponse } from 'next/server'
+     2→import { db } from '@/lib/db'
+     3→import { z } from 'zod'
+     4→import { safeParse } from '@/lib/serialize'
+     5→import { chat, fenceDocumentText, parseSourceTag, flagsOutsideMaterial, stylePrompt, webSearch, TIME_SENSITIVE_RE, type WebResult, type SourceState } from '@/lib/riishe/ai'
+     6→import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
+     7→import { SectionIndex } from '@/lib/riishe/index'
+     8→import type { RiisheChatSourceDTO } from '@/lib/types'
+     9→
+    10→export const dynamic = 'force-dynamic'
+    11→export const runtime = 'nodejs'
+    12→
+    13→// ─── Lightweight in-memory rate limit: 20 chats / 10 min / guest ─────────────
+    14→const RATE = { windowMs: 10 * 60_000, max: 20 }
+    15→const rateMap = new Map<string, number[]>()
+    16→function rateLimited(guestId: string): boolean {
+    17→  const now = Date.now()
+    18→  const arr = (rateMap.get(guestId) ?? []).filter(t => now - t < RATE.windowMs)
+    19→  if (arr.length >= RATE.max) return true
+    20→  arr.push(now)
+    21→  rateMap.set(guestId, arr)
+    22→  return false
+    23→}
+    24→
+    25→const messageSchema = z.object({
+    26→  role: z.enum(['user', 'assistant']),
+    27→  content: z.string().min(1).max(6000),
+    28→})
+    29→
+    30→/** Sections must show at least this much query signal to enter the grounding
+    31→ *  window. Zero-signal sections are noise, not grounding — including them made
+    32→ *  every question look "in scope" and invited mis-citation. */
+    33→const MIN_RELEVANCE = 0.05
+    34→
+    35→const bodySchema = z.object({
+    36→  guestId: z.string().min(8).max(64),
+    37→  messages: z.array(messageSchema).min(1).max(24),
+    38→  /** Document-scoped chat (workspace). */
+    39→  documentId: z.string().optional(),
+    40→  /** Explicit material scope from the hub chat's document selector (1–8 docs). */
+    41→  documentIds: z.array(z.string().min(1).max(64)).max(8).optional(),
+    42→  /** Per-question review chat — full context loaded server-side. */
+    43→  attemptId: z.string().optional(),
+    44→  questionId: z.string().optional(),
+    45→  /** Topic focus (discovered topic / chapter name) — steers retrieval only. */
+    46→  topic: z.string().max(160).optional(),
+    47→  /** Presentation style — depth/wording only, never the sources. */
+    48→  style: z.enum(['exam-focused', 'simple', 'detailed']).optional(),
+    49→})
+    50→
+    51→/** Legacy rows may carry 'external' or null — both display honestly as general knowledge. */
+    52→function normalizeGrounding(raw: string | null | undefined): 'document' | 'mixed' | 'general' | null {
+    53→  if (raw === 'document' || raw === 'mixed' || raw === 'general') return raw
+    54→  return 'general'
+    55→}
+    56→
+    57→interface ChatTurnDTO {
+    58→  id: string
+    59→  role: 'user' | 'assistant'
+    60→  content: string
+    61→  pagesCited: number[]
+    62→  grounding: 'document' | 'mixed' | 'general' | null
+    63→  sources: RiisheChatSourceDTO[]
+    64→  createdAt: string
+    65→}
+    66→
+    67→// GET — load the persisted conversation (owner only, newest last)
+    68→export async function GET(req: NextRequest) {
+    69→  try {
+    70→    const params = Object.fromEntries(new URL(req.url).searchParams)
+    71→    const parsed = z.object({
+    72→      guestId: z.string().min(8).max(64),
+    73→      documentId: z.string().optional(),
+    74→      attemptId: z.string().optional(),
+    75→      questionId: z.string().optional(),
+    76→    }).safeParse(params)
+    77→    if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    78→    const { guestId, documentId, attemptId, questionId } = parsed.data
+    79→
+    80→    const where: Record<string, unknown> = { guestId }
+    81→    if (attemptId && questionId) {
+    82→      where.attemptId = attemptId
+    83→      where.questionId = questionId
+    84→    } else if (documentId) {
+    85→      where.documentId = documentId
+    86→      where.attemptId = null
+    87→    } else {
+    88→      where.documentId = null
+    89→      where.attemptId = null
+    90→    }
+    91→
+    92→    const turns = await db.riisheChatTurn.findMany({
+    93→      where,
+    94→      orderBy: { createdAt: 'desc' },
+    95→      take: 30,
+    96→    })
+    97→    const ordered = turns.reverse()
+    98→
+    99→    const list: ChatTurnDTO[] = ordered.map(t => ({
+   100→      id: t.id,
+   101→      role: t.role as 'user' | 'assistant',
+   102→      content: t.content,
+   103→      pagesCited: safeParse<number[]>(t.pagesCitedJson ?? '[]', []),
+   104→      grounding: t.role === 'assistant' ? normalizeGrounding(t.grounding) : null,
+   105→      sources: t.role === 'assistant' ? safeParse<RiisheChatSourceDTO[]>(t.sourcesJson ?? '[]', []) : [],
+   106→      createdAt: t.createdAt.toISOString(),
+   107→    }))
+   108→    return NextResponse.json({ turns: list })
+   109→  } catch (err) {
+   110→    console.error('[api/riishe/chat GET]', err)
+   111→    return NextResponse.json({ error: 'Failed to load the conversation' }, { status: 500 })
+   112→  }
+   113→}
+   114→
+   115→/** Normalised text used for verbatim-containment checks between a reply and a source window. */
+   116→function normalizeForContainment(text: string): string {
+   117→  return text.toLowerCase().replace(/\[page \d+\]/g, ' ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+   118→}
+   119→
+   120→/** True when the reply quotes a source window verbatim (≥ 60 normalized chars). */
+   121→function replyQuotesWindow(reply: string, windowText: string): boolean {
+   122→  const normReply = normalizeForContainment(reply)
+   123→  const normWindow = normalizeForContainment(windowText)
+   124→  if (normReply.length < 60 || normWindow.length < 60) return false
+   125→  // Check reply sentences (and sliding chunks) against the window text.
+   126→  const sentences = normReply.split(/(?<=[.!?])\s+/).filter(s => s.length >= 60)
+   127→  for (const s of sentences) {
+   128→    if (normWindow.includes(s)) return true
+   129→  }
+   130→  return false
+   131→}
+   132→
+   133→// POST — ask Riishe a follow-up question (document-grounded when possible)
+   134→export async function POST(req: NextRequest) {
+   135→  try {
+   136→    const parsed = bodySchema.safeParse(await req.json())
+   137→    if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+   138→    const { guestId, messages, documentId, documentIds, attemptId, questionId, topic, style } = parsed.data
+   139→
+   140→    if (rateLimited(guestId)) {
+   141→      return NextResponse.json({ error: 'You are sending questions very quickly — please wait a minute and try again.' }, { status: 429 })
+   142→    }
+   143→
+   144→    // ── Ownership checks (never answer across accounts) ──
+   145→    let questionContext = ''
+   146→    let questionEvidence: { documentId: string; title: string; pages: number[]; excerpt: string } | null = null
+   147→    let groundingDocIds: string[] = []
+   148→    // Pages the reviewed question itself cites — always part of the window
+   149→    let pinnedPagesByDoc = new Map<string, Set<number>>()
+   150→    let isPerQuestion = false
+   151→    if (attemptId && questionId) {
+   152→      isPerQuestion = true
+   153→      const attempt = await db.attempt.findUnique({ where: { id: attemptId } })
+   154→      if (!attempt || attempt.guestId !== guestId || attempt.source !== 'RIISHE') {
+   155→        return NextResponse.json({ error: 'Attempt not found' }, { status: 404 })
+   156→      }
+   157→      const questionIds = safeParse<string[]>(attempt.questionIdsJson, [])
+   158→      if (!questionIds.includes(questionId)) {
+   159→        return NextResponse.json({ error: 'Question not found' }, { status: 404 })
+   160→      }
+   161→      const q = await db.riisheQuestion.findUnique({ where: { id: questionId } })
+   162→      if (!q) return NextResponse.json({ error: 'Question not found' }, { status: 404 })
+   163→      const answers = safeParse<Record<string, number>>(attempt.answersJson ?? '{}', {})
+   164→      const selected = answers[q.id]
+   165→      const explanation = await db.riisheExplanation.findUnique({
+   166→        where: { attemptId_questionId: { attemptId, questionId } },
+   167→      })
+   168→      const payload = explanation?.status === 'READY' ? safeParse<Record<string, unknown>>(explanation.payloadJson ?? '{}', {}) : null
+   169→      // Pin the question's own evidence pages so the tutor always sees them
+   170→      const qRefs = safeParse<number[]>(q.pageRefsJson ?? '[]', [])
+   171→      if (qRefs.length > 0) pinnedPagesByDoc.set(q.documentId, new Set(qRefs))
+   172→      questionContext = [
+   173→        `The student is reviewing this practice question:`,
+   174→        `Question: ${q.text}`,
+   175→        `Options: ${safeParse<string[]>(q.optionsJson, []).map((o, i) => `${'ABCD'[i]}. ${o}`).join(' | ')}`,
+   176→        `Correct answer: ${'ABCD'[q.correctIndex]}. ${q.explanation}`,
+   177→        `Student's answer: ${selected === undefined || selected < 0 ? 'no answer (skipped)' : `${'ABCD'[selected]}. ${safeParse<string[]>(q.optionsJson, [])[selected] ?? ''}`} — ${selected === q.correctIndex ? 'correct' : 'incorrect'}`,
+   178→        `Evidence recorded for this question: "${(q.evidence ?? '').slice(0, 300)}" (source pages: ${safeParse<number[]>(q.pageRefsJson ?? '[]', []).join(', ') || 'none'})`,
+   179→        payload ? `Already-shown explanation: ${String(payload.correctReasoning ?? '').slice(0, 600)}` : '',
+   180→        `Answer follow-up questions about THIS question from its source document. When you explain why an option is right or wrong, answer from the recorded evidence and cite its source pages. If part of your explanation is not supported by the material, say so explicitly. The question and the option text stay in front of you — never lose them when the follow-up is short ("why?", "explain step by step").`,
+   181→      ].filter(Boolean).join('\n')
+   182→      groundingDocIds = [...new Set([q.documentId])]
+   183→      // The question's own recorded evidence is always a citable source — even
+   184→      // when it carries no page refs (then the panel shows it without chips).
+   185→      questionEvidence = {
+   186→        documentId: q.documentId,
+   187→        title: '', // filled after doc lookup below
+   188→        pages: qRefs.length > 0 ? [Math.min(...qRefs), Math.max(...qRefs)] : [],
+   189→        excerpt: (q.evidence ?? q.explanation ?? '').slice(0, 260),
+   190→      }
+   191→    } else if (documentId) {
+   192→      const doc = await db.studyDocument.findUnique({ where: { id: documentId }, select: { id: true, guestId: true } })
+   193→      if (!doc || doc.guestId !== guestId) {
+   194→        return NextResponse.json({ error: 'Material not found' }, { status: 404 })
+   195→      }
+   196→      groundingDocIds = [documentId]
+   197→    } else if (documentIds && documentIds.length > 0) {
+   198→      // Hub chat with an explicit material scope. Every id must belong to the
+   199→      // student and be analysable — stranger or unknown ids are a 404, never a
+   200→      // silent fallback to a wider (or someone else's) context.
+   201→      const docs = await db.studyDocument.findMany({
+   202→        where: { id: { in: documentIds }, guestId },
+   203→        select: { id: true, status: true },
+   204→      })
+   205→      const usable = docs.filter(d => d.status === 'READY')
+   206→      if (usable.length === 0) {
+   207→        return NextResponse.json({ error: 'Material not found' }, { status: 404 })
+   208→      }
+   209→      groundingDocIds = usable.map(d => d.id)
+   210→    } else {
+   211→      // Hub chat, whole library: ground across the guest's READY documents (bounded)
+   212→      const ready = await db.studyDocument.findMany({
+   213→        where: { guestId, status: 'READY' },
+   214→        select: { id: true },
+   215→        orderBy: { updatedAt: 'desc' },
+   216→        take: 8,
+   217→      })
+   218→      groundingDocIds = ready.map(d => d.id)
+   219→    }
+   220→
+   221→    // ── Build the grounded retrieval window from the documents ──
+   222→    // Follow-up inheritance: the retrieval query carries the current question
+   223→    // AND the previous user turn, so short follow-ups ("why?") still retrieve
+   224→    // what the conversation is actually about. The topic focus always rides along.
+   225→    const userMsgs = messages.filter(m => m.role === 'user')
+   226→    const lastUser = userMsgs[userMsgs.length - 1]?.content ?? ''
+   227→    const prevUser = userMsgs.length > 1 ? userMsgs[userMsgs.length - 2]?.content ?? '' : ''
+   228→    // The previous assistant answer anchors short follow-ups ("explain the
+   229→    // second point", "why?") to what the conversation is actually about.
+   230→    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')?.content ?? ''
+   231→    const retrievalQuery = [lastUser, prevUser].filter(Boolean).join(' ').slice(0, 1200)
+   232→
+   233→    interface GroundWindow { label: string; text: string; docId: string; docTitle: string; fromPage: number; toPage: number }
+   234→    const windows: GroundWindow[] = []
+   235→    let maxPageOf: Map<string, number> = new Map()
+   236→    const docTitleOf = new Map<string, string>()
+   237→    if (groundingDocIds.length > 0) {
+   238→      const docs = await db.studyDocument.findMany({ where: { id: { in: groundingDocIds } } })
+   239→      const perDoc = Math.max(3, Math.floor(30 / Math.max(1, docs.length)))
+   240→      type PageRec = ExtractedPage
+   241→      for (const d of docs) {
+   242→        docTitleOf.set(d.id, d.title)
+   243→        const pages = safeParse<PageRec[]>(d.extractionJson ?? '[]', []).filter(p => p.outcome === 'extracted' || (!p.outcome && p.chars > 0))
+   244→        maxPageOf.set(d.id, d.pageCount ?? pages.reduce((m, p) => Math.max(m, p.page), 0))
+   245→        if (pages.length === 0) continue
+   246→        const secs = sectionPages(pages, { maxChars: 5000, maxSections: perDoc })
+   247→        const index = secs.length > 0 ? new SectionIndex(secs) : null
+   248→        const phrases = [retrievalQuery, topic, lastAssistant.slice(0, 400)]
+   249→          .map(s => (s ?? '').trim())
+   250→          .filter((s): s is string => s.length > 0)
+   251→        const scored = index && phrases.length > 0 ? index.retrieveWithScores(phrases, 8) : []
+   252→        // Relevance floor: sections that matched nothing stay out of the
+   253→        // grounding window — the model must never receive filler excerpts that
+   254→        // make an unrelated question look in-scope.
+   255→        const top = scored.filter(x => x.score >= MIN_RELEVANCE).slice(0, 3).map(x => x.section)
+   256→        const seen = new Set<string>()
+   257→        for (const s of top) {
+   258→          seen.add(s.label)
+   259→          windows.push({
+   260→            label: `${d.title} · ${s.label}`,
+   261→            text: s.text,
+   262→            docId: d.id,
+   263→            docTitle: d.title,
+   264→            fromPage: s.fromPage,
+   265→            toPage: s.toPage,
+   266→          })
+   267→        }
+   268→        // Pinned pages (the reviewed question's own evidence) are always included
+   269→        const pinned = pinnedPagesByDoc.get(d.id)
+   270→        if (pinned && pinned.size > 0) {
+   271→          const pinnedText = pages
+   272→            .filter(p => pinned.has(p.page) && p.text)
+   273→            .map(p => `[page ${p.page}]\n${p.text.slice(0, 2600)}`)
+   274→            .join('\n\n')
+   275→          if (pinnedText) {
+   276→            const from = Math.min(...pinned)
+   277→            const to = Math.max(...pinned)
+   278→            const label = from === to ? `page ${from}` : `pages ${from}–${to}`
+   279→            if (!seen.has(label)) {
+   280→              windows.push({ label: `${d.title} · ${label}`, text: pinnedText, docId: d.id, docTitle: d.title, fromPage: from, toPage: to })
+   281→              seen.add(label)
+   282→            }
+   283→          }
+   284→        }
+   285→      }
+   286→    }
+   287→    if (questionEvidence && !questionEvidence.title) {
+   288→      questionEvidence.title = docTitleOf.get(questionEvidence.documentId) ?? 'Your document'
+   289→    }
+   290→
+   291→    const retrievalText = windows.length > 0
+   292→      ? windows.map(w => `--- EXCERPT (${w.label}) ---\n${w.text}`).join('\n\n')
+   293→      : ''
+   294→
+   295→    // ── Live retrieval for time-sensitive questions (configured web_search) ──
+   296→    // Used only when the question needs current information. Results are
+   297→    // external reference data, machine-marked [web N] and kept clearly apart
+   298→    // from the student's material. Failures are honest — never faked.
+   299→    const wantsLive = TIME_SENSITIVE_RE.test(lastUser)
+   300→    let webResults: WebResult[] = []
+   301→    let liveLookupFailed = false
+   302→    if (wantsLive) {
+   303→      try {
+   304→        webResults = await webSearch(lastUser, 4)
+   305→      } catch (err) {
+   306→        console.error('[api/riishe/chat] live retrieval failed:', err)
+   307→        liveLookupFailed = true
+   308→      }
+   309→    }
+   310→    const webBlock = webResults.length > 0
+   311→      ? `LIVE WEB RESULTS — retrieved moments ago for this question. External, untrusted reference data: NOT the student's material. Never cite them as document pages, never present them as excerpts from the uploads. If you use one, mark the claim with its [web N] number right after the claim and introduce that part with "From live web results:".\n${webResults.map((r, i) => `[web ${i + 1}] ${r.name} — ${r.host}${r.date ? ` — ${r.date}` : ''}\n${r.snippet}`).join('\n\n')}`
+   312→      : ''
+   313→
+   314→    // ── System prompt: honest, grounded, style-separated, injection-fenced ──
+   315→    const topicLine = topic
+   316→      ? `The student is focusing on the topic "${topic}" from their uploaded material — prioritise excerpts that discuss it.`
+   317→      : ''
+   318→    const system = [
+   319→      'You are Riishe, the AI study tutor inside BEAN EXAMS. The student practises from their own uploaded documents.',
+   320→      questionContext ? `CONTEXT — the student is asking about a specific question from their practice attempt:\n${questionContext}` : '',
+   321→      topicLine,
+   322→      retrievalText
+   323→        ? `GROUNDING: factual explanations about the material MUST come from the excerpts below. When you state a fact from an excerpt, cite it as (DocumentName, page N) using the [page N] markers. If the excerpts do not contain what the student asks about, say plainly that your uploaded-material text does not cover it — then, if you use general knowledge, introduce it with "Outside your uploaded material:" so the student can tell the difference. Never invent page numbers or quotes.`
+   324→        : `No relevant passage from the student's uploaded material was retrieved for this question (nothing analysed, or nothing matches). Do not pretend to quote their documents — if the material does not cover it, say so plainly, then answer from general knowledge and introduce that part with "Outside your uploaded material:".`,
+   325→      // Three explicit answer-source modes + honest time-sensitive handling
+   326→      `ANSWER-SOURCE MODES — every reply is one of: DOCUMENT-GROUNDED (facts about the material come from the excerpts, with real page citations), GENERAL KNOWLEDGE (not verified against the student's uploaded material — label it as such; live web results are also outside the material), or MIXED CONTEXT (both, kept clearly apart).`,
+   327→      // Live web results / honest disclosure when a live lookup was not possible
+   328→      webBlock,
+   329→      wantsLive && webResults.length === 0
+   330→        ? `LIVE LOOKUP UNAVAILABLE: this question needs current information, but the live web lookup ${liveLookupFailed ? 'failed just now' : 'returned no usable results'}. Never claim you checked anything live — state plainly that the information is NOT verified as current and recommend checking an official source.`
+   331→        : '',
+   332→      // Presentation style — depth only, never sources
+   333→      stylePrompt(style),
+   334→      'Keep answers concise (2-6 sentences unless asked for step-by-step), exam-useful and encouraging. You may quiz the student with a short follow-up question when that helps.',
+   335→      // Machine-readable source tag protocol (stripped server-side before display)
+   336→      'Start every reply with exactly one source tag on its own first line: [SOURCES: DOCUMENT] if the material facts come from the provided excerpts with page citations, [SOURCES: MIXED] if you combine excerpts with outside knowledge (live web results count as outside knowledge), [SOURCES: GENERAL] if you used neither — web-only answers are GENERAL because the web is not the student\'s material. The tag is interface metadata — never mention it inside the answer. Choose honestly: DOCUMENT requires real citations from the excerpts you were actually given.',
+   337→      retrievalText ? fenceDocumentText('student study material', retrievalText) : '',
+   338→    ].filter(Boolean).join('\n\n')
+   339→
+   340→    // ── Provider call (plain text reply; provider failures are honest) ──
+   341→    const history = messages.slice(-12).map(m => ({ role: m.role, content: m.content }))
+   342→    let reply: string
+   343→    try {
+   344→      reply = await chat([{ role: 'assistant', content: system }, ...history])
+   345→    } catch (err) {
+   346→      console.error('[api/riishe/chat POST]', err)
+   347→      return NextResponse.json({ error: 'Riishe could not reach the AI provider just now. Your question was not lost — try again in a moment.' }, { status: 502 })
+   348→    }
+   349→
+   350→    // Strip the self-reported source tag; it is metadata, never user-visible.
+   351→    const { tag, body } = parseSourceTag(reply)
+   352→    let replyBody = body.trim().slice(0, 6000)
+   353→
+   354→    // Which numbered web results did the answer actually use? Machine markers
+   355→    // are verified against the results that were really provided, then stripped
+   356→    // from the visible text — the sources panel carries them instead.
+   357→    const webUsedIdx = new Set<number>()
+   358→    const scanWebMarkers = (text: string) => {
+   359→      webUsedIdx.clear()
+   360→      const wmRe = /\[web (\d+)\]/gi
+   361→      let wmx: RegExpExecArray | null
+   362→      while ((wmx = wmRe.exec(text)) !== null) {
+   363→        const idx = Number(wmx[1])
+   364→        if (webResults[idx - 1]) webUsedIdx.add(idx - 1)
+   365→      }
+   366→    }
+   367→    scanWebMarkers(replyBody)
+   368→    replyBody = replyBody.replace(/\s*\[web \d+\]/gi, '').trim()
+   369→
+   370→    // A tag-only reply ("[SOURCES: GENERAL]" with nothing after it) carries no
+   371→    // answer at all. One honest retry, then a real error — never store or show
+   372→    // an empty reply as if it were an answer.
+   373→    if (!replyBody) {
+   374→      try {
+   375→        const retry = await chat([
+   376→          { role: 'assistant', content: system },
+   377→          ...history,
+   378→          { role: 'user', content: `${lastUser}\n\nIMPORTANT: Your previous reply was empty. Answer the question above in plain text now.` },
+   379→        ])
+   380→        const retryBody = parseSourceTag(retry).body.trim().slice(0, 6000)
+   381→        if (retryBody) {
+   382→          scanWebMarkers(retryBody)
+   383→          replyBody = retryBody.replace(/\s*\[web \d+\]/gi, '').trim()
+   384→        }
+   385→      } catch (err) {
+   386→        console.error('[api/riishe/chat] empty-reply retry failed:', err)
+   387→      }
+   388→    }
+   389→    if (!replyBody) {
+   390→      return NextResponse.json({ error: 'The AI provider returned an empty response. Please try again in a moment.' }, { status: 502 })
+   391→    }
+   392→    const webUsed = webUsedIdx.size > 0
+   393→
+   394→    // ── Verify document use INDEPENDENTLY of the model's tag ──
+   395→    // 1. Page citations count only when the cited page marker really exists in
+   396→    //    that document's retrieved window (no invented citations).
+   397→    const pagesByDoc = new Map<string, Set<number>>()
+   398→    const pagePattern = /\(page (\d+)\)|\[page (\d+)\]|page (\d+)\b/gi
+   399→    let m: RegExpExecArray | null
+   400→    while ((m = pagePattern.exec(replyBody)) !== null) {
+   401→      const p = Number(m[1] ?? m[2] ?? m[3])
+   402→      if (!Number.isFinite(p) || p < 1) continue
+   403→      // Attribute to the window whose text actually contains that page marker.
+   404→      for (const w of windows) {
+   405→        const maxPage = maxPageOf.get(w.docId) ?? 99999
+   406→        if (p <= maxPage && w.text.includes(`[page ${p}]`)) {
+   407→          let set = pagesByDoc.get(w.docId)
+   408→          if (!set) { set = new Set(); pagesByDoc.set(w.docId, set) }
+   409→          set.add(p)
+   410→        }
+   411→      }
+   412→    }
+   413→    // 2. Verbatim-quote containment catches material use without page markers.
+   414→    let quoted = false
+   415→    if (windows.length > 0 && replyBody.length >= 60) {
+   416→      for (const w of windows) {
+   417→        if (replyQuotesWindow(replyBody, w.text)) { quoted = true; break }
+   418→      }
+   419→    }
+   420→    const verifiedCitations = [...pagesByDoc.values()].reduce((s, set) => s + set.size, 0)
+   421→
+   422→    // 3. Question-review scope: the pinned question + recorded evidence are
+   423→    //    stored document data — an explanation drawn from them is material use.
+   424→    const usedStoredEvidence = isPerQuestion && tag !== 'general'
+   425→
+   426→    const usedMaterial = verifiedCitations > 0 || quoted || usedStoredEvidence
+   427→    const outside = flagsOutsideMaterial(replyBody)
+   428→    let grounding: SourceState
+   429→    if (usedMaterial && (outside || tag === 'mixed' || webUsed)) grounding = 'mixed'
+   430→    else if (usedMaterial) grounding = 'document'
+   431→    else grounding = 'general' // web-only and fully external answers stay 'general'
+   432→    // A 'document' claim with zero verifiable citations and no question context
+   433→    // is downgraded — never present unverified material claims as grounded.
+   434→    if (tag === 'document' && !usedMaterial) grounding = 'general'
+   435→
+   436→    // Deterministic disclosure — the badge and sources panel always label the
+   437→    // source state, and the visible text must say it too, even when the model
+   438→    // forgets. Applied only to pure-external answers (never mixed/document):
+   439→    //   1. web-only answers get the live-web origin line,
+   440→    //   2. answers with nothing from the uploads get the outside-material line,
+   441→    //   3. time-sensitive answers whose live lookup failed get an explicit
+   442→    //      "not verified as current" note instead of silent stale facts.
+   443→    const saysOutside =
+   444→      flagsOutsideMaterial(replyBody) ||
+   445→      /general knowledge|not verified|cannot verif|can't verif|not covered|your (?:uploaded )?(?:material|notes?|documents?) (?:do|does) not|doesn't cover|does not cover|no live data|official source/i.test(replyBody)
+   446→    const saysWeb = /live web|web results/i.test(replyBody)
+   447→    const saysUnverified =
+   448→      /not verified|cannot verif|can't verif|unable to verif|no live|live (?:data|lookup|results|web)|not be current|may (?:be|have) (?:changed|outdated)|outdated|official source|up.to.date|real.?time/i.test(replyBody)
+   449→    if (grounding === 'general' && !isPerQuestion && !webUsed) {
+   450→      if (wantsLive && !saysUnverified) {
+   451→        replyBody = `(Not verified as current — the live lookup was unavailable just now; confirm time-sensitive facts with an official source.) ${replyBody}`
+   452→      }
+   453→      if (!saysOutside && groundingDocIds.length > 0) {
+   454→        replyBody = `Outside your uploaded material (general knowledge — not verified against your documents): ${replyBody}`
+   455→      }
+   456→    } else if (grounding === 'general' && !isPerQuestion && webUsed && !saysWeb) {
+   457→      replyBody = `From live web results (external — not from your uploaded material): ${replyBody}`
+   458→    }
+   459→
+   460→    // ── Sources actually behind this answer (for the truthful context panel) ──
+   461→    const sources: RiisheChatSourceDTO[] = []
+   462→    if (grounding === 'document' || grounding === 'mixed') {
+   463→      for (const w of windows) {
+   464→        const cited = [...(pagesByDoc.get(w.docId) ?? [])].filter(p => p >= w.fromPage && p <= w.toPage)
+   465→        // Include windows whose pages were cited, or (when use was verified by
+   466→        // quote/question-context instead of page markers) the retrieved windows.
+   467→        const relevant = cited.length > 0 || ((quoted || usedStoredEvidence) && verifiedCitations === 0)
+   468→        if (!relevant) continue
+   469→        const excerpt = w.text.replace(/\[page \d+\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240)
+   470→        sources.push({
+   471→          documentId: w.docId,
+   472→          title: w.docTitle,
+   473→          pages: cited.length > 0 ? [Math.min(...cited), Math.max(...cited)] : [w.fromPage, w.toPage],
+   474→          excerpt,
+   475→        })
+   476→        if (sources.length >= 6) break
+   477→      }
+   478→      // Per-question scope with no page markers: the recorded question evidence IS the source.
+   479→      if (sources.length === 0 && questionEvidence) {
+   480→        sources.push(questionEvidence)
+   481→      }
+   482→    }
+   483→    // Live web sources the answer verifiably used (via [web N] markers) —
+   484→    // shown even for 'general' answers, since they are the real sources used.
+   485→    for (const i of [...webUsedIdx].slice(0, 4)) {
+   486→      const r = webResults[i]
+   487→      if (!r) continue
+   488→      sources.push({
+   489→        documentId: '',
+   490→        title: r.name,
+   491→        pages: [],
+   492→        excerpt: r.snippet,
+   493→        kind: 'web',
+   494→        url: r.url,
+   495→        detail: `${r.host}${r.date ? ` · ${r.date}` : ''} · retrieved live just now`,
+   496→      })
+   497→    }
+   498→
+   499→    // Persist the conversation (guest-scoped)
+   500→    await db.riisheChatTurn.create({
+   501→      data: {
+   502→        guestId,
+   503→        documentId: documentId ?? null,
+   504→        attemptId: attemptId ?? null,
+   505→        questionId: questionId ?? null,
+   506→        role: 'user',
+   507→        content: (lastUser || '').slice(0, 6000),
+   508→      },
+   509→    })
+   510→    const saved = await db.riisheChatTurn.create({
+   511→      data: {
+   512→        guestId,
+   513→        documentId: documentId ?? null,
+   514→        attemptId: attemptId ?? null,
+   515→        questionId: questionId ?? null,
+   516→        role: 'assistant',
+   517→        content: replyBody,
+   518→        pagesCitedJson: JSON.stringify([...pagesByDoc.values()].flatMap(s => [...s]).sort((a, b) => a - b).slice(0, 12)),
+   519→        grounding,
+   520→        sourcesJson: JSON.stringify(sources),
+   521→      },
+   522→    })
+   523→
+   524→    return NextResponse.json({
+   525→      reply: replyBody,
+   526→      pagesCited: [...pagesByDoc.values()].flatMap(s => [...s]).sort((a, b) => a - b).slice(0, 12),
+   527→      grounding,
+   528→      sources,
+   529→      turnId: saved.id,
+   530→    })
+   531→  } catch (err) {
+   532→    console.error('[api/riishe/chat POST]', err)
+   533→    return NextResponse.json({ error: 'Could not answer that just now — please try again.' }, { status: 500 })
+   534→  }
+   535→}
+   536→

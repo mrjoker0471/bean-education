@@ -26,6 +26,7 @@ export function Footer() {
             <button className="hover:text-gold" onClick={() => navigate({ view: 'catalog' })}>All examinations</button>
             <button className="hover:text-gold" onClick={() => window.location.assign('#/bean')}>BEAN Intelligence</button>
             <button className="hover:text-gold" onClick={() => navigate({ view: 'progress' })}>My progress</button>
+            <button className="hover:text-gold" onClick={() => navigate({ view: 'settings' })}>Settings</button>
           </nav>
         </div>
         <div className="mt-6 flex flex-col gap-2 border-t border-border/60 pt-5 text-[11px] leading-relaxed text-muted-foreground md:flex-row md:items-center md:justify-between">

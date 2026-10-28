@@ -10,12 +10,15 @@ export type Route =
   | { view: 'exam'; slug: string; tab?: string }
   | { view: 'topic'; topicId: string }
   | { view: 'test'; attemptId: string }
-  | { view: 'result'; attemptId: string }
+  | { view: 'result'; attemptId: string; questionId?: string }
   | { view: 'bean'; seeded?: boolean }
   | { view: 'progress' }
   | { view: 'pdf'; resourceId: string }
   | { view: 'materials' }
-  | { view: 'riishe'; docId?: string }
+  | { view: 'riishe'; docId?: string; page?: number; topic?: string }
+  | { view: 'practice'; doc?: string; topics?: string }
+  | { view: 'topics' }
+  | { view: 'settings' }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -35,7 +38,7 @@ export function parseHash(hash: string): Route {
     case 'test':
       return parts[1] ? { view: 'test', attemptId: parts[1] } : { view: 'not-found' }
     case 'result':
-      return parts[1] ? { view: 'result', attemptId: parts[1] } : { view: 'not-found' }
+      return parts[1] ? { view: 'result', attemptId: parts[1], questionId: params.get('q') ?? undefined } : { view: 'not-found' }
     case 'bean':
       return { view: 'bean', seeded: params.get('seeded') === '1' }
     case 'progress':
@@ -45,7 +48,18 @@ export function parseHash(hash: string): Route {
     case 'materials':
       return { view: 'materials' }
     case 'riishe':
-      return { view: 'riishe', docId: parts[1] ? decodeURIComponent(parts[1]) : undefined }
+      return {
+        view: 'riishe',
+        docId: parts[1] ? decodeURIComponent(parts[1]) : undefined,
+        page: params.get('page') ? Number(params.get('page')) || undefined : undefined,
+        topic: params.get('topic') ?? undefined,
+      }
+    case 'practice':
+      return { view: 'practice', doc: params.get('doc') ?? undefined, topics: params.get('topics') ?? undefined }
+    case 'topics':
+      return { view: 'topics' }
+    case 'settings':
+      return { view: 'settings' }
     default:
       return { view: 'not-found' }
   }
@@ -64,12 +78,28 @@ export function routeToHash(route: Route): string {
     case 'exam': return `#/exam/${route.slug}${route.tab ? `?tab=${route.tab}` : ''}`
     case 'topic': return `#/topic/${route.topicId}`
     case 'test': return `#/test/${route.attemptId}`
-    case 'result': return `#/result/${route.attemptId}`
+    case 'result': return `#/result/${route.attemptId}${route.questionId ? `?q=${encodeURIComponent(route.questionId)}` : ''}`
     case 'bean': return `#/bean${route.seeded ? '?seeded=1' : ''}`
     case 'progress': return '#/progress'
     case 'pdf': return `#/pdf/${encodeURIComponent(route.resourceId)}`
     case 'materials': return '#/materials'
-    case 'riishe': return route.docId ? `#/riishe/${encodeURIComponent(route.docId)}` : '#/riishe'
+    case 'riishe': {
+      const p = new URLSearchParams()
+      if (route.page) p.set('page', String(route.page))
+      if (route.topic) p.set('topic', route.topic)
+      const qs = p.toString()
+      const base = route.docId ? `#/riishe/${encodeURIComponent(route.docId)}` : '#/riishe'
+      return `${base}${qs ? '?' + qs : ''}`
+    }
+    case 'practice': {
+      const p = new URLSearchParams()
+      if (route.doc) p.set('doc', route.doc)
+      if (route.topics) p.set('topics', route.topics)
+      const qs = p.toString()
+      return `#/practice${qs ? '?' + qs : ''}`
+    }
+    case 'topics': return '#/topics'
+    case 'settings': return '#/settings'
     default: return '#/'
   }
 }
@@ -140,4 +170,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 export function navigateExam(slug: string, tab?: string) {
   useAppStore.getState().navigate({ view: 'exam', slug, tab })
+}
+
+/**
+ * Privacy control (Settings): discard the device's guest identity and start a
+ * fresh, empty session. Updates BOTH the stored identity and the live store so
+ * the running app immediately uses the new session. Only affects the LOCAL
+ * identity — server-side records are deleted separately via DELETE /api/account
+ * (the Settings UI makes both steps explicit).
+ */
+export function resetGuestIdentity(): void {
+  const fresh = uuidv4()
+  try {
+    localStorage.setItem(GUEST_KEY, fresh)
+  } catch {
+    // Non-fatal: without localStorage the app already runs an ephemeral session.
+  }
+  useAppStore.setState({ guestId: fresh, beanContext: null })
 }

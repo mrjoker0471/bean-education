@@ -260,9 +260,9 @@ export function PreTestSummaryCard({
                   {' · '}
                   {q.difficulty.toLowerCase()}
                 </span>
-                {q.pageRefs.length > 0 && (
+                {(q.pageRefs ?? []).length > 0 && (
                   <PageRefChips
-                    pages={q.pageRefs}
+                    pages={q.pageRefs ?? []}
                     onOpenPage={page => onOpenPage(page, q.documentId)}
                     compact
                   />
