@@ -183,7 +183,7 @@ function BeanMethod() {
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-gold/30 bg-gold/10">
                   <s.icon className="h-4 w-4 text-gold" />
                 </span>
-                <span className="text-xs font-bold uppercase tracking-[0.14em] text-gold">
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-gold">
                   {i + 1}. {s.step}
                 </span>
               </div>

@@ -313,6 +313,10 @@ export interface CoverageMetricsDTO {
   unanalysedPages: number
   /** readable pages in sections skipped with a recorded reason (terminal) */
   skippedPages: number
+  /** pages the PDF extractor could not read at all (renderer failure) */
+  failedExtractionPages?: number
+  /** pages beyond the extraction safety cap that were never read */
+  notExtractedPages?: number
   unitsTotal: number
   unitsOk: number
   unitsFailed: number

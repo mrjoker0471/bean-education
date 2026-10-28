@@ -61,12 +61,19 @@ export interface CoverageMetrics {
    *  (e.g. the provider's safety filter refuses dense name lists) — terminal,
    *  never retried silently, always disclosed */
   skippedPages: number
+  /** pages that exist in the PDF but could not be read by the extractor at all
+   *  (a renderer error) — kept distinct from image-only pages */
+  failedExtractionPages: number
+  /** pages beyond the extraction safety cap that were never read — always
+   *  disclosed; a document larger than the cap can never count as complete */
+  notExtractedPages: number
   unitsTotal: number
   unitsOk: number
   unitsFailed: number
   unitsSkipped: number
   /** true only when no readable page is left unaccounted: every page sits in
-   *  a successful unit or a skipped-with-reason unit, and nothing failed */
+   *  a successful unit or a skipped-with-reason unit, nothing failed, and no
+   *  page was left un-extracted */
   complete: boolean
 }
 

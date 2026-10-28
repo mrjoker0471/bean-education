@@ -204,7 +204,7 @@ function mergeUnreadable(parts: (SectionAnalysis | null)[], cap: number): string
 }
 
 function buildCoverage(
-  extraction: { numPages: number; scannedPages: number },
+  extraction: { numPages: number; scannedPages: number; pages: ExtractedPage[] },
   readablePages: ExtractedPage[],
   units: AnalysisUnit[],
   outcomes: SectionOutcome[],
@@ -219,6 +219,11 @@ function buildCoverage(
   for (const u of skippedUnits) for (const p of unitPages(u)) skippedPageSet.add(p)
   const readableSet = new Set(readablePages.map(p => p.page))
   const unanalysed = [...readableSet].filter(p => !accountedPageSet.has(p) && !skippedPageSet.has(p)).length
+  // Extraction-level honesty: pages the extractor could not read at all, and
+  // pages that were never attempted because the document exceeds the safety
+  // cap. Both are distinct from image-only pages and both block "complete".
+  const failedExtractionPages = extraction.pages.filter(p => p.outcome === 'failed').length
+  const notExtractedPages = Math.max(0, extraction.numPages - extraction.pages.length)
   return {
     totalPages: extraction.numPages,
     readablePages: readablePages.length,
@@ -226,11 +231,14 @@ function buildCoverage(
     analysedPages: accountedPageSet.size,
     unanalysedPages: unanalysed,
     skippedPages: [...readableSet].filter(p => skippedPageSet.has(p)).length,
+    failedExtractionPages,
+    notExtractedPages,
     unitsTotal: units.length,
     unitsOk: okUnits.length,
     unitsFailed: failedUnits.length,
     unitsSkipped: skippedUnits.length,
-    complete: unanalysed === 0 && failedUnits.length === 0 && units.length > 0,
+    complete: unanalysed === 0 && failedUnits.length === 0 && units.length > 0 &&
+      failedExtractionPages === 0 && notExtractedPages === 0,
   }
 }
 
@@ -243,8 +251,14 @@ function buildCoverageNote(cov: CoverageMetrics): string {
   } else {
     bits.push(`All ${cov.readablePages} readable page${cov.readablePages === 1 ? '' : 's'} analysed across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}.`)
   }
+  if (cov.failedExtractionPages > 0) {
+    bits.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor at all (renderer failure) — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} reported separately from image-only pages and excluded from the analysis.`)
+  }
+  if (cov.notExtractedPages > 0) {
+    bits.push(`The document has ${cov.totalPages} pages but only the first ${cov.totalPages - cov.notExtractedPages} could be processed in this environment — the remaining ${cov.notExtractedPages} were never read and are not part of this analysis.`)
+  }
   if (cov.scannedPages > 0) {
-    bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} would need OCR, which is not available yet — they are excluded from the analysis.`)
+    bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} would need OCR, which is not available yet — ${cov.scannedPages === 1 ? 'it is' : 'they are'} excluded from the analysis.`)
   }
   return bits.join(' ')
 }
@@ -333,6 +347,8 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       textChars: readable.reduce((s, p) => s + p.text.length, 0),
       scannedPages: storedPages.filter(p => p.scanned).length,
       titleGuess: null,
+      failedPages: storedPages.filter(p => p.outcome === 'failed').length,
+      extractionLimited: false, // a stored extraction was already accepted in full
     }
   } else {
     try {
@@ -351,6 +367,9 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   }
 
   const readablePages = extraction.pages.filter(p => !p.scanned && p.text.length > 0)
+  const extractionNote = extraction.failedPages > 0
+    ? ` ${extraction.failedPages} page${extraction.failedPages === 1 ? ' could' : 's could'} not be read by the PDF extractor and ${extraction.failedPages === 1 ? 'is' : 'are'} excluded from the analysis.`
+    : ''
   await db.studyDocument.update({
     where: { id: documentId },
     data: {
@@ -358,8 +377,8 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       extractionJson: JSON.stringify(extraction.pages),
       status: readablePages.length === 0 ? 'NEEDS_OCR' : 'ANALYSING',
       statusDetail: readablePages.length === 0
-        ? 'No extractable text found — every page looks like a scanned image. OCR is not available in BEAN EXAMS yet, so Riishe cannot read this document. Questions cannot be generated from it.'
-        : 'Riishe is mapping the document structure…',
+        ? `No extractable text found — every page looks like a scanned image or could not be read (${extraction.scannedPages} image-only, ${extraction.failedPages} extraction failures). OCR is not available in BEAN EXAMS yet, so Riishe cannot read this document. Questions cannot be generated from it.`
+        : `Riishe is mapping the document structure…${extractionNote}`,
     },
   })
 
@@ -509,7 +528,7 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   }
 
   const cov = buildCoverage(
-    { numPages: extraction.numPages, scannedPages: extraction.scannedPages },
+    { numPages: extraction.numPages, scannedPages: extraction.scannedPages, pages: extraction.pages },
     readablePages,
     units,
     outcomes,
@@ -737,6 +756,8 @@ function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics): string[] {
   if (a.formulas.length === 0) gaps.push('No formulas or rules were detected — calculation-based questions will not be generated.')
   if (a.unreadableSections.length > 0) gaps.push(`${a.unreadableSections.length} section${a.unreadableSections.length === 1 ? '' : 's'} were unreadable and excluded from the analysis.`)
   if (cov.scannedPages > 0) gaps.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' needs' : 's need'} OCR to be analysed — OCR is not available yet.`)
+  if (cov.failedExtractionPages > 0) gaps.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} not part of this analysis.`)
+  if (cov.notExtractedPages > 0) gaps.push(`The document has ${cov.notExtractedPages} page${cov.notExtractedPages === 1 ? '' : 's'} beyond what this environment can process — they were never read, so this analysis does not cover them.`)
   if (cov.unitsFailed > 0) gaps.push(`${cov.unanalysedPages} readable page${cov.unanalysedPages === 1 ? ' is' : 's are'} not yet covered (failed sections) — retry the analysis to include them.`)
   if (cov.unitsSkipped > 0) gaps.push(`${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} page${cov.skippedPages === 1 ? '' : 's'}) were skipped because the AI provider's safety filter refused their text — see the section breakdown for the exact reason.`)
   return gaps

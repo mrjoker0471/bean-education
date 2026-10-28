@@ -1195,6 +1195,20 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                     : `${cov.unitsTotal} analysed`
                 }
               />
+              {(cov.failedExtractionPages ?? 0) > 0 && (
+                <CoverageStat
+                  label="Extraction failures"
+                  value={cov.failedExtractionPages ?? 0}
+                  sub="unreadable pages, excluded"
+                />
+              )}
+              {(cov.notExtractedPages ?? 0) > 0 && (
+                <CoverageStat
+                  label="Never read"
+                  value={cov.notExtractedPages ?? 0}
+                  sub="beyond the processing cap"
+                />
+              )}
             </dl>
             {cov.skippedPages > 0 && (
               <p className="mt-3 text-xs text-muted-foreground">
@@ -1237,6 +1251,12 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                   : null,
                 skippedOutcomes.length > 0
                   ? `${skippedOutcomes.length} skipped with a recorded reason`
+                  : null,
+                (cov?.failedExtractionPages ?? 0) > 0
+                  ? `${cov?.failedExtractionPages} page${(cov?.failedExtractionPages ?? 0) === 1 ? ' could not be read' : 's could not be read'} by the extractor`
+                  : null,
+                (cov?.notExtractedPages ?? 0) > 0
+                  ? `${cov?.notExtractedPages} page${(cov?.notExtractedPages ?? 0) === 1 ? ' was' : 's were'} never read (beyond the processing cap)`
                   : null,
               ]
                 .filter((s): s is string => !!s)

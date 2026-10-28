@@ -20,6 +20,11 @@ export interface ExtractionResult {
   textChars: number
   scannedPages: number
   titleGuess: string | null
+  /** pages pdf.js could not render at all (distinct from image-only pages) */
+  failedPages: number
+  /** true when the document has more pages than the extraction safety cap —
+   *  the un-read tail must be reported, never silently dropped */
+  extractionLimited: boolean
 }
 
 // A page with fewer readable characters than this is treated as image-only.
@@ -40,27 +45,49 @@ export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResul
   const numPages = Math.min(doc.numPages, MAX_PAGES)
   const pages: ExtractedPage[] = []
   let titleGuess: string | null = null
+  let failedPages = 0
 
   for (let p = 1; p <= numPages; p++) {
-    const page = await doc.getPage(p)
-    const tc = await page.getTextContent()
-    // pdf.js text items are positioned fragments. Rebuild REAL lines using the
-    // hasEOL flag so headings, TOC entries and page numbers survive as lines —
-    // this is what makes deterministic structure detection possible later.
-    const lines: string[] = []
-    let line = ''
-    for (const it of tc.items) {
-      if (!('str' in it)) continue
-      line += it.str ?? ''
-      if (it.hasEOL) {
-        const l = line.replace(/\s+/g, ' ').trim()
-        if (l) lines.push(l)
-        line = ''
-      }
+    // One unreadable page must not fail the document: record it honestly and
+    // continue — the rest of the document still gets analysed and the failure
+    // is reported in the coverage accounting.
+    let page
+    try {
+      page = await doc.getPage(p)
+    } catch (err) {
+      console.error(`[riishe extract] page ${p} could not be read:`, err)
+      failedPages++
+      pages.push({ page: p, chars: 0, text: '', scanned: false, outcome: 'failed' })
+      continue
     }
-    const tail = line.replace(/\s+/g, ' ').trim()
-    if (tail) lines.push(tail)
-    let text = lines.join('\n').trim()
+    let text = ''
+    let lines: string[] = []
+    try {
+      const tc = await page.getTextContent()
+      // pdf.js text items are positioned fragments. Rebuild REAL lines using the
+      // hasEOL flag so headings, TOC entries and page numbers survive as lines —
+      // this is what makes deterministic structure detection possible later.
+      lines = []
+      let line = ''
+      for (const it of tc.items) {
+        if (!('str' in it)) continue
+        line += it.str ?? ''
+        if (it.hasEOL) {
+          const l = line.replace(/\s+/g, ' ').trim()
+          if (l) lines.push(l)
+          line = ''
+        }
+      }
+      const tail = line.replace(/\s+/g, ' ').trim()
+      if (tail) lines.push(tail)
+      text = lines.join('\n').trim()
+    } catch (err) {
+      console.error(`[riishe extract] page ${p} text extraction failed:`, err)
+      failedPages++
+      pages.push({ page: p, chars: 0, text: '', scanned: false, outcome: 'failed' })
+      page.cleanup()
+      continue
+    }
     const chars = text.length
     const scanned = chars < SCANNED_PAGE_THRESHOLD
     if (!scanned) {
@@ -81,7 +108,15 @@ export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResul
   const scannedPages = pages.filter(p => p.scanned).length
 
   await task.destroy()
-  return { pages, numPages: doc.numPages ?? numPages, textChars, scannedPages, titleGuess }
+  return {
+    pages,
+    numPages: doc.numPages ?? numPages,
+    textChars,
+    scannedPages,
+    titleGuess,
+    failedPages,
+    extractionLimited: doc.numPages > MAX_PAGES,
+  }
 }
 
 // ─── Sectioning for long documents ────────────────────────────────────────────
