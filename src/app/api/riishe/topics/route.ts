@@ -33,8 +33,13 @@ export async function GET(req: NextRequest) {
         const analysis = safeParse<DocumentAnalysisDTO | null>(d.analysisJson, null)
         if (!analysis) return null
         const coverage = analysis.coverage
+        // v6: COMPLETE only when the CONTENT analysis is complete (no skipped
+        // pages, nothing awaiting OCR, no failures) — page accounting is a
+        // separate axis reported beside it.
         const complete = !!coverage?.complete
-        const total = coverage?.readablePages ?? 0
+        // percentage over ALL physical pages — pages awaiting OCR or skipped
+        // count against completeness, the denominator is never trimmed
+        const total = coverage?.totalPages ?? 0
         const analysed = coverage?.analysedPages ?? 0
         // Question styles are only claimed when the structure really is a
         // question paper — never invented for ordinary documents.

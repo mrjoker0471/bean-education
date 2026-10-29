@@ -12,6 +12,7 @@ import type {
   AnalyzedTopicDTO,
   DocStructureInfoDTO,
   DocumentAnalysisDTO,
+  ListExtractionDTO,
   MaterialDetailDTO,
   MaterialListItemDTO,
   MaterialStatus,
@@ -946,16 +947,24 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
   const tocUnmatched =
     structure?.tocUnmatched ?? (structure?.toc ? structure.toc.filter(e => !e.matched).length : 0)
 
-  // v5 — honest page accounting: every physical page sits in exactly one bucket.
+  // v5/v6 — honest page accounting: every physical page sits in exactly one bucket.
   const contentlessCount = cov?.contentlessPages ?? 0
   const contentPages = cov ? Math.max(0, cov.readablePages - contentlessCount) : 0
   const groupStats = structure?.groupStats ?? null
+  const imageContentCount = structure?.imageContentPages?.length ?? (cov ? contentlessCount : 0)
+  const nonContentCount = structure?.nonContentPages?.length ?? 0
   const pageAccounting: { label: string; count: number; pct: number }[] | null = cov
     ? [
-        { label: 'pages with text, analysed', count: cov.analysedPages },
+        { label: 'pages with text, analysed', count: cov.analysedPages - (cov.deterministicPages ?? 0) },
+        ...(cov.deterministicPages ?? 0) > 0
+          ? [{ label: 'pages analysed by deterministic list extraction (provider refused the text)', count: cov.deterministicPages ?? 0 }]
+          : [],
         { label: 'pages with text, pending (failed sections)', count: cov.unanalysedPages },
         { label: 'pages with text, skipped with reason', count: cov.skippedPages },
-        { label: 'pages carrying only headers/footers (image content)', count: contentlessCount },
+        { label: 'image-content pages (only headers/footers in the text layer — content is an image, needs OCR)', count: imageContentCount },
+        ...(nonContentCount > 0
+          ? [{ label: 'verified non-content pages (no text, no images — blank/decorative)', count: nonContentCount }]
+          : []),
         { label: 'image-only pages needing OCR', count: cov.scannedPages },
         { label: 'pages the extractor could not read', count: cov.failedExtractionPages ?? 0 },
         { label: 'pages never read (beyond the processing cap)', count: cov.notExtractedPages ?? 0 },
@@ -966,7 +975,33 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
 
   const failedOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'FAILED') ?? []
   const skippedOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'SKIPPED') ?? []
+  const recoveredOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'OK' && o.method === 'DETERMINISTIC') ?? []
   const incomplete = !!cov && !cov.complete
+
+  // v6 — the exact pages and sections still requiring processing, each with
+  // its reason. Nothing is summarised away: every page number is listed.
+  const pendingGroups: { reason: string; pages: number[] }[] = cov
+    ? (
+        [
+          ...skippedOutcomes.map(o => ({
+            reason: o.error
+              ? `in skipped section "${o.title ?? o.label}" — ${o.error}`
+              : `in skipped section "${o.title ?? o.label}"`,
+            pages: cov.skippedPageNumbers?.filter(p => p >= o.fromPage && p <= o.toPage) ?? [],
+          })),
+          ...failedOutcomes.map(o => ({
+            reason: `failed section "${o.title ?? o.label}" (retryable)`,
+            pages: Array.from({ length: Math.max(0, o.toPage - o.fromPage + 1) }, (_, k) => o.fromPage + k),
+          })),
+          (cov.scannedPageNumbers ?? []).length > 0
+            ? [{ reason: 'image-only page(s) awaiting OCR', pages: cov.scannedPageNumbers ?? [] }]
+            : [],
+          (structure?.imageContentPages ?? []).length > 0
+            ? [{ reason: 'image-content page(s) awaiting OCR (only headers/footers in the text layer)', pages: structure?.imageContentPages ?? [] }]
+            : [],
+        ] as { reason: string; pages: number[] }[]
+      ).filter(g => g.pages.length > 0)
+    : []
 
   const hasNotes =
     analysis.keyFacts.length > 0 ||
@@ -1110,17 +1145,68 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
             </p>
           </div>
 
-      {/* Key facts */}
+      {/* Key facts — every claim page-grounded and verification-statused (v6) */}
       {analysis.keyFacts.length > 0 && (
         <section aria-label="Key facts" className="rounded-xl border border-border bg-card p-5 sm:p-6">
           <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
             <CheckCircle2 className="h-4 w-4 text-gold" aria-hidden /> Key facts
           </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Each fact cites the page it was read from and says whether it is an exact source statement or a summary.
+            Facts Riishe could not verify against any page are flagged — check them before relying on them.
+          </p>
           <ul className="mt-4 max-h-96 space-y-2 overflow-y-auto pr-2">
             {analysis.keyFacts.map((fact, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm leading-relaxed text-muted-foreground">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
-                {fact}
+              <li
+                key={i}
+                className={cn(
+                  'flex items-start gap-2 rounded-lg border px-3 py-2 text-sm leading-relaxed',
+                  fact.status === 'UNVERIFIED'
+                    ? 'border-gold/30 bg-gold/5 text-foreground/90'
+                    : 'border-transparent bg-elevated/60 text-muted-foreground',
+                )}
+              >
+                <span
+                  className={cn(
+                    'mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full',
+                    fact.status === 'UNVERIFIED' ? 'bg-gold' : 'bg-gold/70',
+                  )}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1">
+                  {fact.text}
+                  <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {fact.kind && (
+                      <span
+                        title={fact.kind === 'verbatim' ? 'Exact source statement — wording/numbers copied from the document.' : 'Condensed by Riishe from the source text — not a verbatim quote.'}
+                        className="inline-flex cursor-help items-center rounded-full border border-border px-1.5 py-px text-[10px] text-muted-foreground"
+                      >
+                        {fact.kind === 'verbatim' ? 'exact source statement' : 'summary'}
+                      </span>
+                    )}
+                    {fact.status === 'UNVERIFIED' && (
+                      <span
+                        title={fact.note ?? 'No page of the extracted text supports this claim.'}
+                        className="inline-flex cursor-help items-center gap-1 rounded-full border border-gold/40 px-1.5 py-px text-[10px] text-gold"
+                      >
+                        <AlertTriangle className="h-2.5 w-2.5" aria-hidden /> not verified
+                      </span>
+                    )}
+                    {fact.note && fact.status === 'VERIFIED' && fact.note.startsWith('page reference corrected') && (
+                      <span title={fact.note} className="inline-flex cursor-help items-center gap-1 rounded-full border border-border px-1.5 py-px text-[10px] text-muted-foreground">
+                        <Info className="h-2.5 w-2.5" aria-hidden /> page corrected
+                      </span>
+                    )}
+                    {fact.page != null && fact.page >= 1 && (
+                      <PageRefChips
+                        pages={[fact.page]}
+                        onOpenPage={onOpenPage}
+                        printedOffset={structure?.printedPageOffset ?? null}
+                        compact
+                      />
+                    )}
+                  </span>
+                </span>
               </li>
             ))}
           </ul>
@@ -1153,19 +1239,59 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
         </section>
       )}
 
-      {/* Formulas */}
+      {/* Formulas — verbatim transcriptions, page-cited, verification-statused (v6) */}
       {analysis.formulas.length > 0 && (
         <section aria-label="Formulas" className="rounded-xl border border-border bg-card p-5 sm:p-6">
           <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
             <Sigma className="h-4 w-4 text-gold" aria-hidden /> Formulas
           </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Transcribed exactly as the document prints them (its own symbols and typos preserved), each with its source
+            page. Formulas Riishe could not verify against the extracted text — typically equations printed as images —
+            are flagged for review instead of being trusted.
+          </p>
           <ul className="mt-4 space-y-2">
             {analysis.formulas.map((f, i) => (
               <li
                 key={i}
-                className="overflow-x-auto rounded-lg border border-border bg-elevated px-4 py-2.5 font-mono text-sm text-gold"
+                className={cn(
+                  'rounded-lg border px-4 py-2.5',
+                  f.status === 'NEEDS_REVIEW' ? 'border-gold/30 bg-gold/5' : 'border-border bg-elevated',
+                )}
               >
-                {f}
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+                  <p className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-sm text-gold" title={f.note ?? (f.status === 'NEEDS_REVIEW' ? 'Could not be verified against the extracted text.' : undefined)}>
+                    {f.text}
+                  </p>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {f.status === 'VERIFIED' ? (
+                      <span
+                        title={f.note ?? 'The transcription was found on the cited page of the extracted text.'}
+                        className="inline-flex cursor-help items-center gap-1 rounded-full border border-success/40 px-1.5 py-px text-[10px] text-success"
+                      >
+                        <CheckCircle2 className="h-2.5 w-2.5" aria-hidden /> verified
+                      </span>
+                    ) : (
+                      <span
+                        title={f.note ?? 'Could not be verified against the extracted text — review before relying on it.'}
+                        className="inline-flex cursor-help items-center gap-1 rounded-full border border-gold/40 px-1.5 py-px text-[10px] text-gold"
+                      >
+                        <AlertTriangle className="h-2.5 w-2.5" aria-hidden /> needs review
+                      </span>
+                    )}
+                    {f.page != null && f.page >= 1 && (
+                      <PageRefChips
+                        pages={[f.page]}
+                        onOpenPage={onOpenPage}
+                        printedOffset={structure?.printedPageOffset ?? null}
+                        compact
+                      />
+                    )}
+                  </span>
+                </div>
+                {f.note && f.status === 'NEEDS_REVIEW' && (
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{f.note}</p>
+                )}
               </li>
             ))}
           </ul>
@@ -1228,8 +1354,27 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                     : 'border-gold/50 bg-gold/10 text-gold'
                 }
               >
-                {cov.complete ? 'Full document analysed' : 'Partially analysed'}
+                {cov.complete ? 'Fully analysed' : 'Partially analysed'}
               </Badge>
+              {cov.pageAccountingComplete != null && (
+                <Badge
+                  variant="outline"
+                  className={
+                    cov.pageAccountingComplete
+                      ? 'border-border text-muted-foreground'
+                      : 'border-destructive/40 text-destructive'
+                  }
+                >
+                  {cov.pageAccountingComplete
+                    ? 'Every page accounted for'
+                    : 'Page accounting incomplete'}
+                </Badge>
+              )}
+              {!cov.complete && cov.pageAccountingComplete && (
+                <span className="text-xs text-muted-foreground">
+                  every page has an explicit disposition — but meaningful content remains unanalysed (below)
+                </span>
+              )}
               {structure?.kind && (
                 <Badge variant="outline" className="border-border text-muted-foreground">
                   {STRUCTURE_KIND_LABEL[structure.kind]}
@@ -1254,11 +1399,18 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                 value={cov.scannedPages}
                 sub={cov.scannedPages > 0 ? 'image-only, need OCR' : 'none'}
               />
-              {contentlessCount > 0 && (
+              {imageContentCount > 0 && (
                 <CoverageStat
-                  label="Header-only pages"
-                  value={contentlessCount}
-                  sub="image content, nothing to analyse"
+                  label="Image-content pages"
+                  value={imageContentCount}
+                  sub="text layer is only headers/footers — content is an image, needs OCR"
+                />
+              )}
+              {nonContentCount > 0 && (
+                <CoverageStat
+                  label="Verified non-content"
+                  value={nonContentCount}
+                  sub="no text, no images — blank/decorative"
                 />
               )}
               <CoverageStat
@@ -1340,6 +1492,42 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
               </div>
             )}
 
+            {/* v6 — the exact pages still requiring processing, each with its
+                reason. Click a chip to see the page itself. */}
+            {pendingGroups.length > 0 && (
+              <div className="mt-4 rounded-lg border border-gold/30 bg-gold/5 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-gold">
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Pages still requiring processing
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {pendingGroups.map((g, i) => (
+                    <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px] leading-relaxed text-muted-foreground">
+                      <PageRefChips pages={g.pages} onOpenPage={onOpenPage} printedOffset={structure?.printedPageOffset ?? null} compact />
+                      <span className="min-w-0 flex-1">{g.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                  These pages carry meaningful content that was not analysed — the document is intentionally not labelled
+                  fully analysed while they remain.
+                </p>
+              </div>
+            )}
+
+            {/* v6 — deterministic recovery is honest about its method */}
+            {recoveredOutcomes.length > 0 && (
+              <div className="mt-3 rounded-lg border border-border bg-elevated p-3">
+                <p className="text-xs font-semibold text-foreground">Recovered without the AI provider</p>
+                <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {recoveredOutcomes.map(o => (
+                    <li key={`r-${o.index}`}>
+                      <span className="font-medium text-foreground/80">{o.label}</span> — {o.note ?? 'entries extracted deterministically from the PDF text layer'}.{o.note && /gaps|could not be parsed/i.test(o.note) ? ' See the study gaps below.' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* v5 — per-group processing (chapters / appendices / front matter) */}
             {groupStats && groupStats.length > 0 && (
               <div className="mt-3 rounded-lg border border-border bg-elevated p-3">
@@ -1417,13 +1605,15 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
             </p>
             <SectionOutcomeRows failed={failedOutcomes} skipped={skippedOutcomes} />
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                className="bg-gold text-primary-foreground hover:bg-gold-hover"
-                onClick={() => onReanalyse(false)}
-              >
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry failed sections
-              </Button>
+              {(failedOutcomes.length > 0 || skippedOutcomes.length > 0) && (
+                <Button
+                  size="sm"
+                  className="bg-gold text-primary-foreground hover:bg-gold-hover"
+                  onClick={() => onReanalyse(false)}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Retry unprocessed sections
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -1593,7 +1783,8 @@ function SourceHeadingRow({ topic, index, structure, subsections, onOpenPage }: 
       {topic.aliases.length > 0 && (
         <p className="mt-1 text-xs text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
       )}
-      {topic.subtopics.length > 0 && (
+      {topic.list && <RecoveredListBlock list={topic.list} onOpenPage={onOpenPage} topicPages={topic.pages} />}
+      {!topic.list && topic.subtopics.length > 0 && (
         <div className="mt-2">
           <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground/60">
             Keywords &amp; entities — extracted terms, not document sections
@@ -1615,6 +1806,68 @@ function SourceHeadingRow({ topic, index, structure, subsections, onOpenPage }: 
         </ul>
       )}
     </li>
+  )
+}
+
+/**
+ * A reference list recovered DETERMINISTICALLY from the PDF text layer (the
+ * AI provider refused the raw text). Entries are verbatim, in source order,
+ * grouped exactly as the source groups them; unreadable rows and serial gaps
+ * are disclosed — never hidden.
+ */
+function RecoveredListBlock({ list, onOpenPage, topicPages }: {
+  list: ListExtractionDTO
+  onOpenPage: (page: number) => void
+  topicPages: number[]
+}) {
+  return (
+    <div className="mt-2 rounded-lg border border-border/70 bg-card/70 p-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Badge variant="outline" className="gap-1 border-border text-muted-foreground">
+          <ListTree className="h-3 w-3" aria-hidden /> Extracted from the PDF text layer
+        </Badge>
+        <span className="text-[11px] text-muted-foreground">
+          {list.totalEntries} {list.totalEntries === 1 ? 'entry' : 'entries'}
+          {list.groups.filter(g => g.label).length > 0
+            ? ` in ${list.groups.filter(g => g.label).length} group${list.groups.filter(g => g.label).length === 1 ? '' : 's'} (as the document groups them)`
+            : ''}
+          {' — '}read directly from {' '}
+          <PageRefChips pages={topicPages.slice(0, 6)} onOpenPage={onOpenPage} compact />
+        </span>
+      </div>
+      {list.header && (
+        <p className="mt-2 font-mono text-[11px] text-muted-foreground/70">header row: {list.header}</p>
+      )}
+      {list.unreadableRows.length > 0 && (
+        <p className="mt-2 text-[11px] leading-relaxed text-gold">
+          {list.unreadableRows.length} row{list.unreadableRows.length === 1 ? '' : 's'} could not be parsed and are
+          reported rather than dropped: {list.unreadableRows.join(' · ')}
+        </p>
+      )}
+      {list.serialGaps.length > 0 && (
+        <p className="mt-2 text-[11px] leading-relaxed text-gold">
+          Serial-number gaps detected (possible missed rows): {list.serialGaps.join('; ')}
+        </p>
+      )}
+      <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
+        {list.groups.map((g, gi) => (
+          <div key={gi}>
+            {g.label && (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+                {g.label} <span className="font-mono text-[10px] font-normal text-muted-foreground/60">({g.entries.length})</span>
+              </p>
+            )}
+            <ul className={cn('mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs text-foreground/90 sm:grid-cols-2', g.label && 'border-l border-gold/20 pl-2.5')}>
+              {g.entries.map((e, ei) => (
+                <li key={`${gi}-${ei}`} className="truncate" title={e}>
+                  {e}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

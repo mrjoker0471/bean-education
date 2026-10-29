@@ -15,7 +15,7 @@ import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
 import { sectionPages, type ExtractedPage } from './extract'
 import { detectStructure } from './structure'
-import { normalizeTitle } from './dedupe'
+import { normalizeTitle, titleTokens } from './dedupe'
 import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isRateLimitError } from './ai'
 import {
   DEFAULT_DISTRIBUTION, CATEGORY_LABELS,
@@ -73,7 +73,7 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 function evidenceInText(evidence: string, text: string): boolean {
   const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   const ev = norm(evidence)
-  if (ev.length < 12) return false
+  if (ev.length < 20) return false
   const hay = norm(text)
   if (hay.includes(ev)) return true
   // Sliding window: evidence may reflow across line breaks
@@ -85,6 +85,27 @@ function evidenceInText(evidence: string, text: string): boolean {
   return false
 }
 
+/**
+ * A section heading alone is a map label, never evidence for a factual answer.
+ * True when the evidence's tokens are a subset of one of the document's own
+ * heading titles ("the document has a section called X" carries no facts).
+ */
+function evidenceIsHeadingOnly(evidence: string, headingKeys: Set<string> | undefined): boolean {
+  if (!headingKeys || headingKeys.size === 0) return false
+  const ev = normalize(evidence)
+  if (!ev) return true
+  const evTokens = tokenSet(evidence)
+  if (evTokens.size === 0) return true
+  for (const key of headingKeys) {
+    const keyTokens = new Set(key.split(' ').filter(w => w.length > 2))
+    if (keyTokens.size === 0) continue
+    let inside = true
+    for (const t of evTokens) if (!keyTokens.has(t)) { inside = false; break }
+    if (inside) return true
+  }
+  return false
+}
+
 // ─── Retrieval: which sections feed each batch? ────────────────────────────────
 
 interface BaseGenSection {
@@ -92,6 +113,9 @@ interface BaseGenSection {
   text: string
   fromPage: number
   toPage: number
+  /** normalized token-sets of the document's own section headings — evidence
+   *  that merely restates a heading is NEVER sufficient grounding (v6) */
+  headingKeys?: Set<string>
 }
 
 interface GenSection extends BaseGenSection {
@@ -125,11 +149,23 @@ export function buildGenerationSections(
   const fromUnits = (): BaseGenSection[] => {
     const structure = detectStructure(pages, numPages, { maxUnitChars: GEN_SECTION_CHARS })
     if (structure.units.length === 0) return []
+    const headings = new Set<string>()
+    // the document's own section titles (contents layer + body headings) —
+    // quoting one of these back is quoting a map label, not evidence
+    for (const t of analysis?.topics ?? []) {
+      if (t.origin !== 'SOURCE_HEADING') continue
+      if (titleTokens(t.name).length <= 12) headings.add(normalizeTitle(t.name))
+    }
+    for (const e of analysis?.structure?.toc ?? []) {
+      const t = normalizeTitle(e.title)
+      if (t && titleTokens(e.title).length <= 12) headings.add(t)
+    }
     return structure.units.map(u => ({
       label: u.title ? `${u.title} — pages ${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}` : u.fromPage === u.toPage ? `page ${u.fromPage}` : `pages ${u.fromPage}–${u.toPage}`,
       text: textOf(u.fromPage, u.toPage),
       fromPage: u.fromPage,
       toPage: u.toPage,
+      headingKeys: headings,
     }))
   }
 
@@ -323,6 +359,10 @@ function programmaticValidate(
   // Evidence must actually exist in the fed sections (grounding check)
   const covered = sections.find(s => evidenceInText(evidence, s.text))
   if (!covered) return { reject: 'evidence not found in source text' }
+  // A section heading alone is never sufficient evidence for a factual answer
+  if (evidenceIsHeadingOnly(evidence, covered.headingKeys)) {
+    return { reject: 'evidence is only a section heading' }
+  }
   // Page refs must point into the fed section range
   const validPages = pageRefs.filter(p => covered.fromPage <= p && p <= covered.toPage)
   if (validPages.length === 0) return { reject: 'page refs out of range' }

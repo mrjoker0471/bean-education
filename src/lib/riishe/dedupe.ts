@@ -20,7 +20,7 @@
 // The same input always produces the same output, so re-analysis cannot
 // re-introduce duplicates.
 
-import type { AnalyzedTopic, TopicOrigin, TitleSource, TopicItemClass, StructureGroup } from './types'
+import type { AnalyzedTopic, TopicOrigin, TitleSource, TopicItemClass, StructureGroup, ListExtraction } from './types'
 import { extractNumberToken } from './structure'
 
 // ─── Title normalisation ──────────────────────────────────────────────────────
@@ -130,6 +130,8 @@ export interface TopicInput {
   tocPrintedEndPage?: number | null
   /** human-readable boundary evidence for this section's page span */
   boundaryEvidence?: string
+  /** v6: a reference list deterministically recovered from this topic's pages */
+  list?: ListExtraction
 }
 
 export interface CanonicalizeOptions {
@@ -212,6 +214,7 @@ interface WorkingTopic {
   group: StructureGroup | null
   parentTitle: string | null
   boundaryEvidence: string | null
+  list: ListExtraction | null
   aliases: string[]
   subtopics: string[]
   pages: number[]
@@ -302,6 +305,7 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
       group: input.group ?? null,
       parentTitle: input.parentTitle ?? null,
       boundaryEvidence: input.boundaryEvidence ?? null,
+      list: input.list ?? null,
       aliases: [],
       subtopics: [],
       pages: [],
@@ -419,6 +423,7 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
       group: t.group ?? undefined,
       boundaryEvidence: t.boundaryEvidence ?? undefined,
       tocPrintedEndPage: t.tocPrintedEndPage,
+      list: t.list ?? undefined,
     } satisfies AnalyzedTopic
   })
   const topicOf = new Map<WorkingTopic, AnalyzedTopic>(kept.map((t, i) => [t, topics[i]]))
@@ -639,6 +644,7 @@ function mergeInto(target: WorkingTopic, input: TopicInput, maxSubs: number): vo
   target.subtopics = mergeSubtopicLists(target.subtopics, input.subtopics ?? [], maxSubs)
   target.pages = [...new Set([...target.pages, ...input.pages])].sort((a, b) => a - b)
   if (input.anchored && target.anchoredPage === null) target.anchoredPage = input.unitFromPage
+  if (input.list && !target.list) target.list = input.list
   if (target.origin === 'SOURCE_HEADING') {
     target.numbering = input.numbering ?? target.numbering
     target.tocPrintedPage = input.tocPrintedPage ?? target.tocPrintedPage
@@ -673,6 +679,7 @@ function absorbInto(target: WorkingTopic, other: WorkingTopic): void {
   target.subtopics = mergeSubtopicLists(target.subtopics, other.subtopics, 12)
   target.pages = [...new Set([...target.pages, ...other.pages])].sort((a, b) => a - b)
   target.anchoredPage = target.anchoredPage ?? other.anchoredPage
+  if (other.list && !target.list) target.list = other.list
   for (const u of other.units) target.units.add(u)
   target.unitRefs.push(...other.unitRefs)
   // document-derived metadata survives absorption

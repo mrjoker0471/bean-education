@@ -1,14 +1,15 @@
 import { PrismaClient } from '@prisma/client'
 const db = new PrismaClient()
-const doc = await db.studyDocument.findFirst({ orderBy: { createdAt: 'desc' } })
-const a = JSON.parse(doc!.analysisJson!)
-console.log('== topics:', a.topics.length, '==')
+const doc = await db.studyDocument.findUnique({ where: { id: 'cmvt43wu7000nqf5b4swj43zs' } })
+const a = JSON.parse(doc.analysisJson!)
+const byClass: Record<string, number> = {}
 for (const t of a.topics) {
-  console.log(`L${t.level} [${t.id}] "${t.name}" parent=${t.parentId ?? '-'} pages=[${t.pages.slice(0,8).join(',')}${t.pages.length>8?'…':''}]${t.aliases?.length?` aliases=[${t.aliases.join('|')}]`:''}${t.printedPages?` printed=[${t.printedPages.slice(0,4).join(',')}]`:''}${t.pageVerified===false?' ⚠UNVERIFIED':''}`)
+  const k = `${t.origin}/${t.itemClass ?? '—'}/${t.group ?? '—'}`
+  byClass[k] = (byClass[k] ?? 0) + 1
 }
-console.log('\n== failed sections ==')
-for (const o of a.sectionOutcomes ?? []) if (o.status === 'FAILED') console.log(JSON.stringify(o))
-console.log('\n== subtopic counts ==')
-const many = a.topics.filter((t:any)=>t.subtopics.length>0)
-console.log(many.slice(0,10).map((t:any)=>`${t.name}: ${t.subtopics.slice(0,5).join(' | ')}`).join('\n'))
+console.log('topic classes:', JSON.stringify(byClass, null, 1))
+const interesting = a.topics.filter((t: any) => ['Total subjects', 'Duration', 'Metal detectors', 'Registration Process'].includes(t.name))
+for (const t of interesting) console.log('CHIP:', JSON.stringify({ name: t.name, origin: t.origin, itemClass: t.itemClass, pages: t.pages, parent: t.parentId, level: t.level, unit: t.unitTitle ?? null }))
+console.log('════ keyFacts (80) ════')
+for (const f of a.keyFacts) console.log('•', f.slice(0, 150))
 await db.$disconnect()

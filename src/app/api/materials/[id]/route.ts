@@ -37,17 +37,18 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const analysis = safeAnalysis(fresh.analysisJson)
 
     // Honest analysis-state accounting derived from the stored coverage —
-    // COMPLETE only when every readable page was analysed and nothing failed.
+    // COMPLETE only when the content analysis itself is complete (no skipped
+    // pages, nothing awaiting OCR, no failures). Page accounting is a separate
+    // axis and is reported alongside, never folded into this label.
     const cov = analysis?.coverage ?? null
     const analysisState: 'COMPLETE' | 'PARTIAL' | null = fresh.status === 'READY' && analysis
       ? cov?.complete ? 'COMPLETE' : 'PARTIAL'
       : null
-    // Semantic-analysis percentage: denominator is CONTENT pages (readable
-    // pages minus header/footer-only pages) — never inflated by pages that
-    // never had analysable text.
-    const contentPages = cov ? cov.readablePages - (cov.contentlessPages ?? 0) : 0
-    const analysisPct: number | null = cov && contentPages > 0
-      ? Math.round((cov.analysedPages / contentPages) * 100)
+    // Semantic-analysis percentage over ALL physical pages: pages awaiting
+    // OCR, skipped or unread count against completeness — the denominator is
+    // never trimmed to flatter the result.
+    const analysisPct: number | null = cov && cov.totalPages > 0
+      ? Math.round((cov.analysedPages / cov.totalPages) * 100)
       : null
     // NEEDS_OCR documents have no analysis — their coverage comes straight
     // from the extraction stats (total vs image-only pages).
@@ -170,7 +171,10 @@ function safeAnalysis(json: string | null): DocumentAnalysis | null {
 }
 
 /** Bring older stored analyses up to the current DTO shape so the client can
- * rely on the hierarchical topic fields (old flat analyses get defaults). */
+ * rely on the hierarchical topic fields (old flat analyses get defaults).
+ * v6 also normalizes legacy string keyFacts/formulas into page-grounded
+ * notes: legacy entries carry no verified page, so they are kept visible
+ * but explicitly UNVERIFIED — never silently presented as source-backed. */
 function normalizeAnalysis(a: DocumentAnalysis): DocumentAnalysis {
   const topics = (a.topics ?? []).map((t, i) => ({
     ...t,
@@ -183,7 +187,17 @@ function normalizeAnalysis(a: DocumentAnalysis): DocumentAnalysis {
   // repair parent links that point at dropped/missing ids
   const ids = new Set(topics.map(t => t.id))
   for (const t of topics) if (t.parentId && !ids.has(t.parentId)) t.parentId = null
-  return { ...a, topics }
+  const keyFacts = ((a.keyFacts ?? []) as unknown[]).map(f =>
+    typeof f === 'string'
+      ? { text: f, page: null, status: 'UNVERIFIED' as const, note: 'extracted by an earlier pipeline version — no page reference recorded' }
+      : f as DocumentAnalysis['keyFacts'][number],
+  )
+  const formulas = ((a.formulas ?? []) as unknown[]).map(f =>
+    typeof f === 'string'
+      ? { text: f, page: null, status: 'NEEDS_REVIEW' as const, note: 'extracted by an earlier pipeline version — transcription not verified' }
+      : f as DocumentAnalysis['formulas'][number],
+  )
+  return { ...a, topics, keyFacts, formulas }
 }
 function safeArr(json: string | null): string[] {
   if (!json) return []

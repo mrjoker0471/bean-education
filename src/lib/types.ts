@@ -298,6 +298,32 @@ export type TopicItemClassDTO =
 /** How a page mapping was established (v5). */
 export type PageMappingStatusDTO = 'VERIFIED' | 'INFERRED' | 'UNRESOLVED'
 
+/** A formula in Riishe's study notes (v6): verbatim transcription + page + verification. */
+export interface FormulaNoteDTO {
+  text: string
+  page: number | null
+  status: 'VERIFIED' | 'NEEDS_REVIEW'
+  note?: string
+}
+
+/** One factual claim in Riishe's study notes (v6): page-grounded + typed. */
+export interface StudyFactDTO {
+  text: string
+  page: number | null
+  kind?: 'verbatim' | 'summary'
+  status: 'VERIFIED' | 'UNVERIFIED'
+  note?: string
+}
+
+/** Deterministic recovery of a reference list from the PDF text layer (v6). */
+export interface ListExtractionDTO {
+  header: string | null
+  groups: { label: string | null; entries: string[] }[]
+  totalEntries: number
+  unreadableRows: string[]
+  serialGaps: string[]
+}
+
 /** Which part of the document's organisation an entry belongs to (v5). */
 export type StructureGroupDTO = 'FRONT' | 'CHAPTER' | 'APPENDIX' | 'OTHER'
 
@@ -325,6 +351,8 @@ export interface AnalyzedTopicDTO {
   pageMapping?: PageMappingStatusDTO
   boundaryEvidence?: string
   tocPrintedEndPage?: number | null
+  /** v6 — a reference list deterministically recovered for this topic */
+  list?: ListExtractionDTO
 }
 
 export interface CoverageMetricsDTO {
@@ -337,6 +365,13 @@ export interface CoverageMetricsDTO {
   unanalysedPages: number
   /** readable pages in sections skipped with a recorded reason (terminal) */
   skippedPages: number
+  /** the exact physical pages inside skipped sections (v6) */
+  skippedPageNumbers?: number[]
+  /** the exact physical pages that are image-only (v6) */
+  scannedPageNumbers?: number[]
+  /** pages recovered by deterministic list extraction (v6) */
+  deterministicPages?: number
+  deterministicUnits?: number
   /** pages the PDF extractor could not read at all (renderer failure) */
   failedExtractionPages?: number
   /** pages beyond the extraction safety cap that were never read */
@@ -345,7 +380,12 @@ export interface CoverageMetricsDTO {
   unitsOk: number
   unitsFailed: number
   unitsSkipped: number
+  /** v6 — CONTENT-analysis completeness: no meaningful content remains
+   *  unanalysed (no skipped pages, nothing awaiting OCR, no failures).
+   *  Page-accounting completeness is the separate flag below. */
   complete: boolean
+  /** v6 — every physical page sits in exactly one explicit bucket */
+  pageAccountingComplete?: boolean
   /** v5 — contents-entry matching accounting (never a proxy for analysis coverage) */
   tocDiscovered?: number
   tocMatchedHeadings?: number
@@ -363,6 +403,9 @@ export interface SectionOutcomeDTO {
   status: 'OK' | 'FAILED' | 'SKIPPED'
   /** FAILED: what went wrong (retryable). SKIPPED: why it was skipped (terminal). */
   error?: string
+  /** v6 — how the section was analysed (AI or deterministic recovery) */
+  method?: 'AI' | 'DETERMINISTIC'
+  note?: string
 }
 
 /** One entry of the document's own table of contents (original wording kept). */
@@ -410,6 +453,10 @@ export interface DocStructureInfoDTO {
   tocPages?: number[]
   /** v5 — grouping + honest page accounting */
   contentlessPages?: number[]
+  /** v6 — furniture-text pages that carry image plates (content awaiting OCR) */
+  imageContentPages?: number[]
+  /** v6 — furniture-text pages verified to have no images (blank/decorative) */
+  nonContentPages?: number[]
   groupStats?: { group: StructureGroupDTO; total: number; ok: number; partial: number; failed: number; notAnalysable: number }[]
 }
 
@@ -418,8 +465,8 @@ export interface DocumentAnalysisDTO {
   summary: string
   topics: AnalyzedTopicDTO[]
   definitions: { term: string; meaning: string; page: number }[]
-  keyFacts: string[]
-  formulas: string[]
+  keyFacts: StudyFactDTO[]
+  formulas: FormulaNoteDTO[]
   misconceptions: { misconception: string; correction: string; page?: number }[]
   keyPages: number[]
   unreadableSections: string[]

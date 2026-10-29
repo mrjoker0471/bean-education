@@ -12,6 +12,11 @@ export interface ExtractedPage {
   /** Per-page extraction outcome. Older stored extractions lack the field —
    *  consumers treat a missing outcome with chars > 0 as 'extracted'. */
   outcome?: 'extracted' | 'scanned' | 'failed'
+  /** v6: true when the page's content stream paints image XObjects — probed
+   *  only for low-text pages, where it distinguishes "image-content page
+   *  awaiting OCR" (form facsimiles, Gazette reprints) from a genuinely
+   *  blank/decorative page. undefined = unknown (probe failed / legacy data). */
+  imagePlates?: boolean
 }
 
 export interface ExtractionResult {
@@ -29,6 +34,10 @@ export interface ExtractionResult {
 
 // A page with fewer readable characters than this is treated as image-only.
 const SCANNED_PAGE_THRESHOLD = 32
+// Low-text pages at or below this size are probed for image XObjects so the
+// coverage report can separate "the content is an image (needs OCR)" from
+// "the page is genuinely blank/decorative" — evidence, not assumption.
+const IMAGE_PLATE_PROBE_CHARS = 200
 const MAX_PAGES = 400 // hard safety cap for very large files
 
 export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResult> {
@@ -99,7 +108,8 @@ export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResul
     } else {
       text = ''
     }
-    pages.push({ page: p, chars, text, scanned, outcome: scanned ? 'scanned' : 'extracted' })
+    const imagePlates = chars < IMAGE_PLATE_PROBE_CHARS ? await probeImagePlates(page) : undefined
+    pages.push({ page: p, chars, text, scanned, outcome: scanned ? 'scanned' : 'extracted', imagePlates })
     // Release page resources eagerly for large documents
     page.cleanup()
   }
@@ -116,6 +126,30 @@ export async function extractPdfPages(data: Uint8Array): Promise<ExtractionResul
     titleGuess,
     failedPages,
     extractionLimited: doc.numPages > MAX_PAGES,
+  }
+}
+
+/**
+ * Does this page's content stream actually paint image XObjects? Probed for
+ * low-text pages only: a furniture-text page that paints images is an
+ * image-CONTENT page (its real content is a scanned facsimile awaiting OCR),
+ * while a furniture-text page with no images is verified non-content (blank
+ * or purely decorative). A probe failure records "unknown" — never a guess.
+ */
+async function probeImagePlates(page: { getOperatorList: () => Promise<{ fnArray?: unknown[] }> }): Promise<boolean | undefined> {
+  try {
+    const ops = await page.getOperatorList()
+    const { OPS } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const imageOps = new Set<number>([
+      OPS.paintImageXObject,
+      OPS.paintImageXObjectRepeat,
+      OPS.paintInlineImageXObject,
+      OPS.paintInlineImageXObjectGroup,
+    ].filter((n): n is number => typeof n === 'number'))
+    if (imageOps.size === 0) return undefined
+    return (ops.fnArray ?? []).some(fn => typeof fn === 'number' && imageOps.has(fn))
+  } catch {
+    return undefined // unknown — callers stay conservative
   }
 }
 

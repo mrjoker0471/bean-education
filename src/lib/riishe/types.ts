@@ -6,7 +6,14 @@
 // status). Topic chips carry an item CLASS so keywords can never masquerade as
 // official headings, and page references for source headings come from the
 // section's own validated span, not from model-claimed subsets.
-export const PIPELINE_VERSION = 5
+// v6: study-note grounding upgrade — every key fact and formula carries the
+// page it was read from plus a deterministic verification status; formulas are
+// transcribed verbatim (the document's own symbols and typos preserved) or
+// flagged NEEDS_REVIEW; content-filter-refused reference lists are recovered
+// by deterministic extraction; "complete" means CONTENT-analysis completeness
+// (pages awaiting OCR or skipped meaningful content block it) and page
+// accounting is reported as its own flag.
+export const PIPELINE_VERSION = 6
 
 /** What a topic's TITLE represents in the source document. */
 export type TopicOrigin =
@@ -25,6 +32,53 @@ export type TopicItemClass =
   | 'TABLE_OR_LIST' // entry of a table or reference list
   | 'QUESTION_GROUP' // question or question group
   | 'UNCLASSIFIED' // could not be classified — needs review
+
+/** A formula in Riishe's study notes (v6): verbatim transcription + page + verification. */
+export interface FormulaNote {
+  /** the formula exactly as the document prints it (symbols, brackets and even
+   *  the document's own typos preserved) — never a cleaned-up reconstruction */
+  text: string
+  /** physical PDF page the formula was read from (null when never verified) */
+  page: number | null
+  /** VERIFIED = the transcription's tokens were found on the cited page of the
+   *  extracted text; NEEDS_REVIEW = could not be verified (e.g. the formula is
+   *  an embedded image) — flagged for review, never silently trusted */
+  status: 'VERIFIED' | 'NEEDS_REVIEW'
+  /** why a formula is flagged, or how its page was established */
+  note?: string
+}
+
+/** One factual claim in Riishe's study notes (v6): page-grounded + typed. */
+export interface StudyFact {
+  text: string
+  /** physical PDF page the fact was read from (null when unverified) */
+  page: number | null
+  /** verbatim = exact statement/numbers copied from the source;
+   *  summary = condensed by Riishe but strictly from the source text */
+  kind?: 'verbatim' | 'summary'
+  /** VERIFIED = distinctive tokens of the fact appear on the cited page;
+   *  UNVERIFIED = no page of the document supports it — flagged, kept visible */
+  status: 'VERIFIED' | 'UNVERIFIED'
+  /** how the page was established (e.g. corrected from a wrong claim) */
+  note?: string
+}
+
+/** Deterministic extraction of a reference list (v6) — city rosters, fee
+ *  tables, abbreviation lists — recovered straight from the PDF text layer
+ *  when the AI provider refuses the raw text. Entries are verbatim, source
+ *  order preserved, geographical grouping kept when the source prints it. */
+export interface ListExtraction {
+  /** the table's own header row, exactly as printed (when detected) */
+  header: string | null
+  /** entries grouped as the source groups them (consecutive repeated labels);
+   *  label null = the source prints no separable group label on the row */
+  groups: { label: string | null; entries: string[] }[]
+  totalEntries: number
+  /** rows that carry a code-like token but could not be parsed — reported, never dropped silently */
+  unreadableRows: string[]
+  /** serial-number continuity check ("rows 24-26 missing") when the source numbers its rows */
+  serialGaps: string[]
+}
 
 /** How a page mapping was established (v5). */
 export type PageMappingStatus =
@@ -78,6 +132,8 @@ export interface AnalyzedTopic {
   boundaryEvidence?: string
   /** printed end page claimed by the contents row ("18-20" → 20), when the row carried a range */
   tocPrintedEndPage?: number | null
+  /** v6: a reference list deterministically recovered from this topic's pages */
+  list?: ListExtraction
 }
 
 export interface CoverageMetrics {
@@ -98,6 +154,15 @@ export interface CoverageMetrics {
    *  (e.g. the provider's safety filter refuses dense name lists) — terminal,
    *  never retried silently, always disclosed */
   skippedPages: number
+  /** the physical pages inside skipped units — the UI lists them exactly (v6) */
+  skippedPageNumbers?: number[]
+  /** the physical pages that are image-only (no text layer) — listed exactly (v6) */
+  scannedPageNumbers?: number[]
+  /** pages whose content was recovered by DETERMINISTIC extraction (the AI
+   *  provider refused the raw text) — analysed, but by a different method,
+   *  disclosed rather than blended into the AI-analysis number (v6) */
+  deterministicPages?: number
+  deterministicUnits?: number
   /** pages that exist in the PDF but could not be read by the extractor at all
    *  (a renderer error) — kept distinct from image-only pages */
   failedExtractionPages: number
@@ -108,10 +173,18 @@ export interface CoverageMetrics {
   unitsOk: number
   unitsFailed: number
   unitsSkipped: number
-  /** true only when no readable page is left unaccounted: every page sits in
-   *  a successful unit or a skipped-with-reason unit, nothing failed, and no
-   *  page was left un-extracted */
+  /** CONTENT-analysis completeness (v6): true only when every page carrying
+   *  meaningful content was actually analysed — no skipped pages, no pages
+   *  awaiting OCR (image-only or image-content), no failed units, no
+   *  extraction failures, nothing unread. Pages verified to carry NO content
+   *  (blank/decorative: furniture text and no image plates) do not block it.
+   *  Page ACCOUNTING completeness is the separate flag below. */
   complete: boolean
+  /** true when every physical page 1..N sits in exactly one explicit bucket
+   *  (analysed / pending / skipped / image-only / image-content /
+   *  verified-non-content / extraction-failure / never-read) — reported
+   *  separately from content-analysis completeness (v6) */
+  pageAccountingComplete?: boolean
   // ── v5: contents-entry matching accounting (kept beside page coverage so a
   // "matched" count can never be mistaken for full-analysis evidence) ──
   /** contents entries discovered in the document's own contents table */
@@ -135,6 +208,12 @@ export interface SectionOutcome {
   status: 'OK' | 'FAILED' | 'SKIPPED'
   /** FAILED: what went wrong (retryable). SKIPPED: why it was skipped (terminal). */
   error?: string
+  /** v6: how this section was analysed — AI (default) or DETERMINISTIC
+   *  (the provider refused the text; a reference-list parser recovered the
+   *  entries straight from the PDF text layer). Disclosed, never blended. */
+  method?: 'AI' | 'DETERMINISTIC'
+  /** human-readable note for non-standard processing (e.g. deterministic recovery) */
+  note?: string
 }
 
 /** One entry of the document's own table of contents (original wording kept). */
@@ -174,6 +253,8 @@ export interface StructureTocEntry {
   boundaryEvidence?: string
   /** number of body pages carrying this entry's words (duplicate-heading detection) */
   occurrences?: number
+  /** v6: a reference list deterministically recovered from this entry's pages */
+  list?: ListExtraction
 }
 
 /** A heading found in the document body (original wording kept). */
@@ -211,6 +292,12 @@ export interface DocStructureInfo {
    *  (image-like content: form facsimiles, Gazette reprints). Evidence list —
    *  they stay accounted, never hidden inside a success count. */
   contentlessPages?: number[]
+  /** v6: the furniture-text pages that DO paint image plates — their real
+   *  content is an image awaiting OCR (they block "fully analysed") */
+  imageContentPages?: number[]
+  /** v6: the furniture-text pages with NO images — verified blank/decorative
+   *  (they do not block "fully analysed") */
+  nonContentPages?: number[]
   /** per-group processing accounting over the contents entries
    *  (an entry is OK when every page of its span sits in a successful unit;
    *  notAnalysable = the span holds no analysable content at all — image-only) */
@@ -222,8 +309,10 @@ export interface DocumentAnalysis {
   summary: string
   topics: AnalyzedTopic[]
   definitions: { term: string; meaning: string; page: number }[]
-  keyFacts: string[]
-  formulas: string[]
+  /** v6: page-grounded, verification-statused factual claims (was string[]) */
+  keyFacts: StudyFact[]
+  /** v6: verbatim formula transcriptions with page + status (was string[]) */
+  formulas: FormulaNote[]
   misconceptions: { misconception: string; correction: string; page?: number }[]
   keyPages: number[]
   unreadableSections: string[]

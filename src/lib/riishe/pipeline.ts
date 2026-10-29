@@ -16,21 +16,31 @@ import { readFile, unlink } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { extractPdfPages, type ExtractedPage } from './extract'
 import { detectStructure, detectContentlessPages, extractNumberToken, stripEntryTitle, type AnalysisUnit } from './structure'
-import { canonicalizeTopics, normalizeTitle, type TopicInput } from './dedupe'
+import { canonicalizeTopics, normalizeTitle, jaccard, titleTokens, type TopicInput } from './dedupe'
+import { extractReferenceList } from './reference-list'
 import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isContentFilterError, isRateLimitError } from './ai'
-import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics, type StructureTocEntry, type StructureGroup, type TopicItemClass } from './types'
+import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics, type StructureTocEntry, type StructureGroup, type TopicItemClass, type FormulaNote, type StudyFact, type ListExtraction } from './types'
 
 const UNIT_CHARS = 6000 // per-model-call section budget
 
 const SYSTEM = `You are Riishe, the document-analysis engine of BEAN EXAMS, a document-first study platform. You analyse student-uploaded study material and produce precise, grounded structured analyses. Never invent content that is not in the provided text. If a field has no content, return an empty array.`
 
 interface SectionAnalysis {
-  topics: { name: string; subtopics: string[]; pages: number[] }[]
+  topics: { name: string; subtopics: string[]; pages: number[]; list?: ListExtraction }[]
   definitions: { term: string; meaning: string; page: number }[]
-  keyFacts: string[]
-  formulas: string[]
+  /** v6: facts are page-grounded claims; entries may still arrive as bare
+   *  strings (older prompt / model drift) and are normalized at merge time. */
+  keyFacts: (string | { text?: string; fact?: string; page?: number; kind?: string })[]
+  /** v6: formulas are verbatim transcriptions with their page; bare strings
+   *  are normalized at merge time. */
+  formulas: (string | { text?: string; formula?: string; page?: number })[]
   misconceptions: { misconception: string; correction: string; page?: number }[]
   unreadable: string[]
+  /** v6: true when this section was recovered by the deterministic reference-
+   *  list parser after the provider refused the text (recorded in outcomes) */
+  deterministic?: boolean
+  /** v6: human-readable note attached to deterministic recovery */
+  deterministicNote?: string
 }
 
 /** Analysis JSON including private retry state (_parts is aligned with sectionOutcomes). */
@@ -114,6 +124,36 @@ export function collectTopicInputs(
         boundaryEvidence: info?.boundaryEvidence ?? undefined,
       })
     }
+  }
+  // v6: a deterministically recovered reference list is attached to the
+  // section's own heading topic — the entries ARE that section's content.
+  for (const u of units) {
+    const part = parts[u.index]
+    if (!part?.deterministic) continue
+    const listTopic = (part.topics ?? []).find(t => t.list)
+    if (!listTopic?.list) continue
+    const headingTopic = inputs.find(
+      i => i.origin === 'SOURCE_HEADING' && i.unitIndex === u.index,
+    )
+    if (headingTopic) {
+      headingTopic.list = listTopic.list
+      continue
+    }
+    inputs.push({
+      name: u.title ?? 'Reference list',
+      subtopics: listTopic.subtopics ?? [],
+      pages: pagesBetween(u.fromPage, u.toPage),
+      unitIndex: u.index,
+      unitTitle: u.title,
+      unitFromPage: u.fromPage,
+      unitToPage: u.toPage,
+      origin: 'SOURCE_HEADING',
+      titleSource: 'body',
+      numbering: u.title ? extractNumberToken(u.title) : null,
+      structureVerified: true,
+      itemClass: 'TABLE_OR_LIST',
+      list: listTopic.list,
+    })
   }
   // Source SUBSECTIONS: numbered x.y rows of the document's own contents
   // table. They are part of the original structure — surfaced as topics so
@@ -214,18 +254,187 @@ function pagesBetween(from: number, to: number): number[] {
   return out
 }
 
-function mergeFacts(parts: (SectionAnalysis | null)[], cap: number, pick: (p: SectionAnalysis) => string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
+// ─── Study-note verification (v6): page-grounded facts and verbatim formulas ─
+
+const FACT_TOKEN_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were', 'have', 'has', 'will', 'shall', 'must', 'may', 'can', 'not', 'their', 'they', 'who', 'whom', 'which', 'candidates', 'candidate'])
+
+/** Alphanumeric tokens of a note that are distinctive evidence: numbers (any)
+ *  and non-stopword words of ≥4 characters. */
+function noteTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(w => w.length >= 2)
+    .filter(w => /^\d+$/.test(w) || (w.length >= 4 && !FACT_TOKEN_STOP.has(w)))
+}
+
+/** Share of `tokens` found on `pageText` (already normalized). */
+function tokenSupport(tokens: string[], pageText: string): number {
+  if (tokens.length === 0) return 0
+  let hit = 0
+  for (const t of tokens) if (pageText.includes(t)) hit++
+  return hit / tokens.length
+}
+
+function normalizeFactEntry(raw: SectionAnalysis['keyFacts'][number]): { text: string; page: number | null; kind: 'verbatim' | 'summary' | undefined } | null {
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    return text ? { text, page: null, kind: undefined } : null
+  }
+  if (!raw || typeof raw !== 'object') return null
+  const text = String(raw.text ?? raw.fact ?? '').trim()
+  if (!text) return null
+  const page = Number.isFinite(raw.page) && Number(raw.page) >= 1 ? Number(raw.page) : null
+  const kind = raw.kind === 'verbatim' ? 'verbatim' : raw.kind === 'summary' ? 'summary' : undefined
+  return { text: text.slice(0, 500), page, kind }
+}
+
+function normalizeFormulaEntry(raw: SectionAnalysis['formulas'][number]): { text: string; page: number | null } | null {
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    return text ? { text: text.slice(0, 400), page: null } : null
+  }
+  if (!raw || typeof raw !== 'object') return null
+  const text = String(raw.text ?? raw.formula ?? '').trim()
+  if (!text) return null
+  const page = Number.isFinite(raw.page) && Number(raw.page) >= 1 ? Number(raw.page) : null
+  return { text: text.slice(0, 400), page }
+}
+
+/**
+ * Merge per-section facts into verified study notes (v6):
+ *  • duplicates removed by token similarity (near-identical wording merged,
+ *    genuinely different facts kept);
+ *  • every fact's claimed page is VERIFIED against the extracted page text —
+ *    when the claimed page does not support it, the page that does is used
+ *    (with a note); when no page supports it the fact is kept but flagged
+ *    UNVERIFIED so nothing unsupported ever looks source-backed.
+ */
+function mergeStudyFacts(
+  parts: (SectionAnalysis | null)[],
+  cap: number,
+  pageTextIndex: Map<number, string>,
+): StudyFact[] {
+  const out: StudyFact[] = []
+  const seenTokens: Set<string>[] = []
+  const push = (fact: StudyFact) => {
+    const tokens = new Set(noteTokens(fact.text))
+    for (const kept of seenTokens) {
+      if (jaccard(tokens, kept) >= 0.8) return // duplicated fact — dropped
+    }
+    seenTokens.push(tokens)
+    out.push(fact)
+  }
   for (const part of parts) {
     if (!part) continue
-    for (const raw of pick(part)) {
-      const f = String(raw ?? '').trim()
-      if (!f) continue
-      const key = normalizeTitle(f).slice(0, 100)
-      if (key && seen.has(key)) continue
-      seen.add(key)
-      out.push(f.slice(0, 400))
+    for (const raw of part.keyFacts ?? []) {
+      const entry = normalizeFactEntry(raw)
+      if (!entry || !entry.text) continue
+      const fact = verifyFact(entry, pageTextIndex)
+      push(fact)
+      if (out.length >= cap) return out
+    }
+  }
+  return out
+}
+
+function verifyFact(
+  entry: { text: string; page: number | null; kind: 'verbatim' | 'summary' | undefined },
+  pageTextIndex: Map<number, string>,
+): StudyFact {
+  const tokens = noteTokens(entry.text)
+  const best = bestSupportPage(tokens, entry.page, pageTextIndex)
+  if (best && best.page === entry.page) {
+    return { text: entry.text, page: entry.page, kind: entry.kind, status: 'VERIFIED' }
+  }
+  if (best) {
+    // the claim is real but the model cited the wrong page — correct it, say so
+    return {
+      text: entry.text,
+      page: best.page,
+      kind: entry.kind,
+      status: best.support >= 0.6 ? 'VERIFIED' : 'UNVERIFIED',
+      note: `page reference corrected: the model cited page ${entry.page ?? '?'}; this text was found on page ${best.page}`,
+    }
+  }
+  return {
+    text: entry.text,
+    page: entry.page,
+    kind: entry.kind,
+    status: 'UNVERIFIED',
+    note: 'no page of the extracted text supports this claim — flagged for review',
+  }
+}
+
+/** Find the page with the strongest token support, preferring the claimed page. */
+function bestSupportPage(
+  tokens: string[],
+  claimedPage: number | null,
+  pageTextIndex: Map<number, string>,
+): { page: number; support: number } | null {
+  if (tokens.length === 0) return null
+  let best: { page: number; support: number } | null = null
+  for (const [page, text] of pageTextIndex) {
+    const support = tokenSupport(tokens, text)
+    if (support <= 0) continue
+    if (page === claimedPage && support >= 0.5) return { page, support } // claimed page wins early
+    if (!best || support > best.support || (support === best.support && page === claimedPage)) {
+      best = { page, support }
+    }
+  }
+  return best && best.support >= 0.5 ? best : null
+}
+
+/**
+ * Merge per-section formulas into verified notes (v6):
+ *  • duplicates removed (the same formula transcribed twice keeps the VERIFIED
+ *    verbatim variant);
+ *  • every transcription is verified against the extracted page text — a
+ *    formula whose tokens never appear (typically an embedded equation IMAGE)
+ *    is flagged NEEDS_REVIEW and never silently trusted.
+ */
+function mergeFormulas(
+  parts: (SectionAnalysis | null)[],
+  cap: number,
+  pageTextIndex: Map<number, string>,
+): FormulaNote[] {
+  const out: FormulaNote[] = []
+  const seenTokens: Set<string>[] = []
+  for (const part of parts) {
+    if (!part) continue
+    for (const raw of part.formulas ?? []) {
+      const entry = normalizeFormulaEntry(raw)
+      if (!entry || !entry.text) continue
+      const tokens = new Set(noteTokens(entry.text))
+      if (tokens.size === 0) continue
+      let duplicate = false
+      for (const kept of seenTokens) {
+        if (jaccard(tokens, kept) >= 0.7) { duplicate = true; break }
+      }
+      if (duplicate) continue
+      const best = bestSupportPage([...tokens], entry.page, pageTextIndex)
+      if (best) {
+        seenTokens.push(tokens)
+        out.push({
+          text: entry.text,
+          page: best.page,
+          status: 'VERIFIED',
+          note: best.page !== entry.page
+            ? `page reference corrected: the model cited page ${entry.page ?? '?'}; this text was found on page ${best.page}`
+            : undefined,
+        })
+      } else {
+        // could not be verified anywhere in the extracted text — the formula is
+        // likely an embedded image or a reconstruction. Flagged, never trusted.
+        seenTokens.push(tokens)
+        out.push({
+          text: entry.text,
+          page: entry.page,
+          status: 'NEEDS_REVIEW',
+          note: 'this transcription could not be verified against the extracted page text — the source may print it as an image; review before relying on it',
+        })
+      }
       if (out.length >= cap) return out
     }
   }
@@ -300,6 +509,7 @@ function buildCoverage(
   const okUnits = units.filter((u, i) => outcomes[i]?.status === 'OK')
   const failedUnits = units.filter((u, i) => outcomes[i]?.status === 'FAILED')
   const skippedUnits = units.filter((u, i) => outcomes[i]?.status === 'SKIPPED')
+  const deterministicUnits = units.filter((u, i) => outcomes[i]?.status === 'OK' && outcomes[i]?.method === 'DETERMINISTIC')
   const accountedPageSet = new Set<number>()
   for (const u of okUnits) for (const p of unitPages(u)) accountedPageSet.add(p)
   const skippedPageSet = new Set<number>()
@@ -308,6 +518,15 @@ function buildCoverage(
   // v5: pages whose extracted text is only running furniture are counted in
   // their own bucket — they were never analysable content, so counting them
   // as "analysed pages" inflated semantic coverage.
+  // v6: furniture-only pages split by EVIDENCE into image-content pages (the
+  // page paints image plates — a form facsimile / Gazette reprint awaiting
+  // OCR) and verified non-content pages (no images — genuinely blank or
+  // decorative). Only the former block "fully analysed".
+  const imageContentPages = [...contentlessSet].filter(p => {
+    const page = extraction.pages.find(x => x.page === p)
+    return page ? page.imagePlates !== false : true // unknown probe → conservative
+  })
+  const nonContentPages = [...contentlessSet].filter(p => !imageContentPages.includes(p))
   const contentPages = [...readableSet].filter(p => !contentlessSet.has(p))
   const contentlessInUnits = [...contentlessSet].filter(p => readableSet.has(p)).length
   const unanalysed = contentPages.filter(p => !accountedPageSet.has(p) && !skippedPageSet.has(p)).length
@@ -316,7 +535,33 @@ function buildCoverage(
   // cap. Both are distinct from image-only pages and both block "complete".
   const failedExtractionPages = extraction.pages.filter(p => p.outcome === 'failed').length
   const notExtractedPages = Math.max(0, extraction.numPages - extraction.pages.length)
+  const scannedPageNumbers = extraction.pages.filter(p => p.scanned).map(p => p.page)
+  const skippedPageNumbers = contentPages.filter(p => skippedPageSet.has(p))
   const matchedEntries = tocLayer.filter(e => e.matched)
+  // v6 — page-accounting completeness: every physical page sits in exactly one
+  // explicit bucket. Guard-checked, never assumed.
+  const accountedSum =
+    (accountedPageSet.size - [...contentlessSet].filter(p => accountedPageSet.has(p)).length) +
+    unanalysed +
+    skippedPageNumbers.length +
+    contentlessInUnits +
+    scannedPageNumbers.length +
+    failedExtractionPages +
+    notExtractedPages
+  const pageAccountingComplete = accountedSum === extraction.numPages
+  // v6 — CONTENT-analysis completeness: no meaningful content left unanalysed.
+  // Skipped pages, pages awaiting OCR (image-only or image-content), failed
+  // units, extraction failures and un-read pages all block it. Verified
+  // non-content pages (blank/decorative) do not.
+  const complete =
+    unanalysed === 0 &&
+    failedUnits.length === 0 &&
+    skippedPageNumbers.length === 0 &&
+    scannedPageNumbers.length === 0 &&
+    imageContentPages.length === 0 &&
+    failedExtractionPages === 0 &&
+    notExtractedPages === 0 &&
+    units.length > 0
   return {
     totalPages: extraction.numPages,
     readablePages: readablePages.length,
@@ -324,15 +569,19 @@ function buildCoverage(
     contentlessPages: contentlessInUnits,
     analysedPages: accountedPageSet.size - [...contentlessSet].filter(p => accountedPageSet.has(p)).length,
     unanalysedPages: unanalysed,
-    skippedPages: contentPages.filter(p => skippedPageSet.has(p)).length,
+    skippedPages: skippedPageNumbers.length,
+    skippedPageNumbers,
+    scannedPageNumbers,
+    deterministicPages: deterministicUnits.reduce((s, u) => s + unitPages(u).filter(p => contentPages.includes(p)).length, 0),
+    deterministicUnits: deterministicUnits.length,
     failedExtractionPages,
     notExtractedPages,
     unitsTotal: units.length,
     unitsOk: okUnits.length,
     unitsFailed: failedUnits.length,
     unitsSkipped: skippedUnits.length,
-    complete: unanalysed === 0 && failedUnits.length === 0 && units.length > 0 &&
-      failedExtractionPages === 0 && notExtractedPages === 0,
+    complete,
+    pageAccountingComplete,
     tocDiscovered: tocLayer.length,
     tocMatchedHeadings: matchedEntries.length,
     tocVerifiedStarts: matchedEntries.filter(e => e.startStatus === 'VERIFIED').length,
@@ -341,7 +590,7 @@ function buildCoverage(
   }
 }
 
-function buildCoverageNote(cov: CoverageMetrics): string {
+function buildCoverageNote(cov: CoverageMetrics, counts: { imageContent: number; nonContent: number }): string {
   const bits: string[] = []
   if (cov.unitsFailed > 0) {
     bits.push(`Analysed ${cov.analysedPages} of ${cov.readablePages - (cov.contentlessPages ?? 0)} content page${cov.readablePages - (cov.contentlessPages ?? 0) === 1 ? '' : 's'} — ${cov.unitsFailed} section${cov.unitsFailed === 1 ? '' : 's'} failed and can be retried without losing the sections that succeeded.`)
@@ -350,8 +599,14 @@ function buildCoverageNote(cov: CoverageMetrics): string {
   } else {
     bits.push(`All ${cov.analysedPages} content page${cov.analysedPages === 1 ? '' : 's'} analysed across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}.`)
   }
+  if ((cov.deterministicPages ?? 0) > 0) {
+    bits.push(`${cov.deterministicPages} page${(cov.deterministicPages ?? 0) === 1 ? ' was' : 's were'} recovered by deterministic list extraction after the AI provider refused the raw text — the entries are read straight from the PDF text layer, not invented.`)
+  }
   if ((cov.contentlessPages ?? 0) > 0) {
-    bits.push(`${cov.contentlessPages} page${(cov.contentlessPages ?? 0) === 1 ? ' carries' : 's carry'} only running headers/footers (the content itself is an image) — accounted separately, never counted as analysed content.`)
+    const parts: string[] = []
+    if (counts.imageContent > 0) parts.push(`${counts.imageContent} page${counts.imageContent === 1 ? ' carries' : 's carry'} image content that needs OCR`)
+    if (counts.nonContent > 0) parts.push(`${counts.nonContent} page${counts.nonContent === 1 ? ' is' : 's are'} verified to carry no content at all (no text, no images)`)
+    if (parts.length > 0) bits.push(`${parts.join('; ')} — accounted separately, never counted as analysed content.`)
   }
   if (cov.failedExtractionPages > 0) {
     bits.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor at all (renderer failure) — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} reported separately from image-only pages and excluded from the analysis.`)
@@ -518,22 +773,19 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     return
   }
 
-  // ── Partial retry: reuse stored successful parts, re-run only failures.
-  // Previously SKIPPED units are terminal (their refusal reason is recorded);
-  // carrying the decision over keeps retries convergent instead of re-asking
-  // the provider to refuse the same text again.
-  const skipReasons = new Map<number, string>()
+  // ── Partial retry: reuse stored successful parts, re-run the rest.
+  // v6: previously SKIPPED units are re-attempted too — the deterministic
+  // reference-list fallback makes retries convergent (the provider refusal no
+  // longer dead-ends the section), so a carried-over skip would permanently
+  // withhold recoverable content.
   let storedParts: (SectionAnalysis | null)[] | null = null
   if (canPartialRetry && stored) {
     const prev = stored._parts ?? []
     const prevOutcomes = stored.sectionOutcomes ?? []
     if (prev.length === units.length && prevOutcomes.length === units.length) {
-      storedParts = prev
-      for (let i = 0; i < prevOutcomes.length; i++) {
-        if (prevOutcomes[i]?.status === 'SKIPPED' && prevOutcomes[i]?.error) {
-          skipReasons.set(i, prevOutcomes[i].error as string)
-        }
-      }
+      // keep only parts whose unit still counts as OK — everything else
+      // (failed OR skipped) is re-attempted under the current pipeline
+      storedParts = units.map((u, i) => (prevOutcomes[i]?.status === 'OK' ? prev[i] ?? null : null))
     }
   }
 
@@ -541,12 +793,12 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   const parts: (SectionAnalysis | null)[] = new Array(units.length).fill(null)
   if (storedParts) for (let i = 0; i < units.length; i++) parts[i] = storedParts[i]
 
+  const skipReasons = new Map<number, string>()
   let done = 0
   let failedCount = 0
   let skippedCount = 0
   for (const unit of units) {
     if (parts[unit.index]) continue // preserved from the previous run
-    if (skipReasons.has(unit.index)) continue // terminal skip carried over
     const res = await analyseSection(doc.title, unit, units.length)
     if (res.part) {
       parts[unit.index] = res.part
@@ -577,7 +829,15 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   const outcomes: SectionOutcome[] = units.map((u, i) => {
     const range = `${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}`
     const label = u.title ? `${u.title} (${range})` : `pages ${range}`
-    if (parts[i]) return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'OK' as const }
+    if (parts[i]) {
+      return parts[i]!.deterministic
+        ? {
+            index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage,
+            status: 'OK' as const, method: 'DETERMINISTIC' as const,
+            note: parts[i]!.deterministicNote,
+          }
+        : { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'OK' as const, method: 'AI' as const }
+    }
     if (skipReasons.has(i)) return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'SKIPPED' as const, error: skipReasons.get(i) }
     return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'FAILED' as const, error: 'AI analysis failed for this section' }
   })
@@ -658,6 +918,14 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     structure.tocLayer,
   )
 
+  // v6: furniture-only pages split by evidence — image plates present (form
+  // facsimiles, Gazette reprints: awaiting OCR) vs verified non-content.
+  const imageContentPages = contentlessPages.filter(p => {
+    const page = extraction.pages.find(x => x.page === p)
+    return page ? page.imagePlates !== false : true
+  })
+  const nonContentPages = contentlessPages.filter(p => !imageContentPages.includes(p))
+
   // v5: per-group processing accounting — an entry is OK when every one of
   // its analysable pages sits in a successful unit; partial when some do.
   const groupStats = buildGroupStats(structure.tocLayer, outcomes, extraction.pages, contentlessSet)
@@ -667,13 +935,13 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     summary: '',
     topics,
     definitions: mergeDefinitions(parts, 60),
-    keyFacts: mergeFacts(parts, 80, p => p.keyFacts ?? []),
-    formulas: mergeFacts(parts, 50, p => p.formulas ?? []),
+    keyFacts: mergeStudyFacts(parts, 80, pageTextIndex),
+    formulas: mergeFormulas(parts, 50, pageTextIndex),
     misconceptions: mergeMisconceptions(parts, 40),
     keyPages: [...new Set(topics.flatMap(t => t.pages.slice(0, 3)))].filter(p => p >= 1).sort((a, b) => a - b).slice(0, 60),
     unreadableSections: mergeUnreadable(parts, 16),
     studyGaps: [],
-    coverageNote: buildCoverageNote(cov),
+    coverageNote: buildCoverageNote(cov, { imageContent: imageContentPages.length, nonContent: nonContentPages.length }),
     pipelineVersion: PIPELINE_VERSION,
     coverage: cov,
     sectionOutcomes: outcomes,
@@ -694,6 +962,9 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       printedLabels: structure.printed.labels,
       tocPages: structure.tocPages,
       contentlessPages,
+      // v6: evidence split of the furniture-text pages (see coverage note)
+      imageContentPages,
+      nonContentPages,
       groupStats,
     },
     _parts: parts, // retained so a partial retry keeps every successful section
@@ -703,13 +974,17 @@ export async function processDocument(documentId: string, opts?: { force?: boole
 
   const partial = !cov.complete
   const contentPages = cov.readablePages - (cov.contentlessPages ?? 0)
+  const pendingBits: string[] = []
+  if (cov.unitsFailed > 0) pendingBits.push(`${cov.unitsFailed} failed section${cov.unitsFailed === 1 ? '' : 's'}`)
+  if (cov.unitsSkipped > 0) pendingBits.push(`${cov.unitsSkipped} skipped section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} pages)`)
+  if (cov.scannedPages > 0) pendingBits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} awaiting OCR`)
   await db.studyDocument.update({
     where: { id: documentId },
     data: {
       status: 'READY',
       statusDetail: partial
-        ? `Ready (partial) — analysed ${cov.unitsOk}/${cov.unitsTotal} sections covering ${cov.analysedPages} of ${contentPages} content pages${cov.unitsSkipped > 0 ? `; ${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} skipped with reason` : ''}. ${cov.unitsFailed > 0 ? 'Retry analysis to cover the rest.' : ''}`.trim()
-        : `Ready — ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; all ${contentPages} content page${contentPages === 1 ? '' : 's'} accounted for${cov.unitsSkipped > 0 ? ` (${cov.unitsSkipped} skipped with reason)` : ''}${(cov.contentlessPages ?? 0) > 0 ? `; ${(cov.contentlessPages ?? 0)} image-content page${(cov.contentlessPages ?? 0) === 1 ? '' : 's'} accounted separately` : ''}.`,
+        ? `Ready (partially analysed) — analysed ${cov.analysedPages} of ${cov.totalPages} pages across ${cov.unitsOk}/${cov.unitsTotal} sections${pendingBits.length > 0 ? `; still requiring processing: ${pendingBits.join(', ')}` : ''}.`
+        : `Ready — fully analysed: ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; every one of the ${cov.totalPages} pages was analysed or verified to carry no content.`,
       analysisJson: JSON.stringify(merged),
     },
   })
@@ -815,10 +1090,7 @@ async function analyseSection(docTitle: string, unit: AnalysisUnit, totalUnits: 
   // Content-filter refusal → try smaller page-range sub-chunks of this unit.
   const subChunks = splitUnitPages(unit)
   if (subChunks.length <= 1) {
-    return {
-      part: null,
-      skippedReason: 'The AI provider\'s safety filter refused to process this section\'s text (dense lists of names or categories are a known trigger). Its pages are accounted as skipped, not analysed — no content was invented for them.',
-    }
+    return recoverRefusedUnit(unit)
   }
   console.warn(`[riishe analyse unit ${unit.index + 1}/${totalUnits}] content-filtered — retrying as ${subChunks.length} sub-chunks`)
   const mergedParts: SectionAnalysis[] = []
@@ -833,12 +1105,55 @@ async function analyseSection(docTitle: string, unit: AnalysisUnit, totalUnits: 
     }
   }
   if (mergedParts.length === 0) {
-    return {
-      part: null,
-      skippedReason: `The AI provider's safety filter refused this section's text in full and in ${subChunks.length} smaller parts (dense lists of names or categories are a known trigger). Its pages are accounted as skipped, not analysed — no content was invented for them.`,
-    }
+    return recoverRefusedUnit(unit, subChunks.length)
   }
   return { part: mergeSectionAnalyses(mergedParts) }
+}
+
+/**
+ * v6 — a provider refusal must not prevent ordinary document extraction when
+ * the source contains benign lists of examination locations (or any similar
+ * reference table). Before giving up, the unit's pages are parsed by the
+ * DETERMINISTIC reference-list extractor: entries come verbatim from the PDF
+ * text layer, source order and grouping preserved, unreadable rows reported.
+ * The recovered section is marked as a different METHOD in the outcomes —
+ * never presented as AI analysis, never blended into its numbers.
+ */
+function recoverRefusedUnit(unit: AnalysisUnit, refusedParts?: number): SectionResult {
+  const list = extractReferenceList(unit.text)
+  if (!list || list.totalEntries === 0) {
+    return {
+      part: null,
+      skippedReason: refusedParts
+        ? `The AI provider's safety filter refused this section's text in full and in ${refusedParts} smaller parts (dense lists of names or categories are a known trigger), and no structured list could be recovered deterministically. Its pages are accounted as skipped, not analysed — no content was invented for them.`
+        : 'The AI provider\'s safety filter refused to process this section\'s text (dense lists of names or categories are a known trigger), and no structured list could be recovered deterministically. Its pages are accounted as skipped, not analysed — no content was invented for them.',
+    }
+  }
+  const title = unit.title ?? 'Reference list'
+  const deterministicNote = list.unreadableRows.length > 0 || list.serialGaps.length > 0
+    ? `Recovered ${list.totalEntries} entries deterministically from the PDF text layer after the AI provider refused the raw text${list.serialGaps.length > 0 ? `; serial gaps: ${list.serialGaps.join('; ')}` : ''}${list.unreadableRows.length > 0 ? `; ${list.unreadableRows.length} row(s) could not be parsed` : ''}.`
+    : `Recovered ${list.totalEntries} entries in ${list.groups.length} group(s) deterministically from the PDF text layer after the AI provider refused the raw text.`
+  return {
+    part: {
+      topics: [{
+        name: title,
+        subtopics: list.groups.flatMap(g => g.entries).slice(0, 12),
+        pages: pagesBetween(unit.fromPage, unit.toPage),
+        list,
+      }],
+      definitions: [],
+      keyFacts: [{
+        text: deterministicNote,
+        page: unit.fromPage,
+        kind: 'summary',
+      }],
+      formulas: [],
+      misconceptions: [],
+      unreadable: list.unreadableRows,
+      deterministic: true,
+      deterministicNote,
+    },
+  }
 }
 
 /** Split a unit into 2–4 page-range sub-chunks (halves, quarters for 8+ pages). */
@@ -870,6 +1185,8 @@ export function mergeSectionAnalyses(parts: SectionAnalysis[]): SectionAnalysis 
     formulas: parts.flatMap(p => p.formulas ?? []).slice(0, 10),
     misconceptions: parts.flatMap(p => p.misconceptions ?? []).slice(0, 10),
     unreadable: parts.flatMap(p => p.unreadable ?? []).slice(0, 10),
+    deterministic: parts.some(p => p.deterministic) || undefined,
+    deterministicNote: parts.map(p => p.deterministicNote).find(Boolean) || undefined,
   }
 }
 
@@ -890,8 +1207,8 @@ Return JSON with this exact shape:
 {
   "topics": [{"name": string, "subtopics": string[], "pages": number[]}],
   "definitions": [{"term": string, "meaning": string, "page": number}],
-  "keyFacts": string[],
-  "formulas": string[],
+  "keyFacts": [{"text": string, "page": number, "kind": "verbatim"|"summary"}],
+  "formulas": [{"text": string, "page": number}],
   "misconceptions": [{"misconception": string, "correction": string, "page": number}],
   "unreadable": string[]
 }
@@ -901,10 +1218,14 @@ Rules:
 - REFERENCE LISTS (abbreviations, glossaries, indexes, rosters, fee/centre/name tables): return exactly ONE topic named after the section's own heading or the list's own title, with the ACTUAL entries from the list as its subtopics (up to 12, verbatim, most study-relevant). NEVER invent thematic groupings the document did not write (e.g. "Government Bodies", "Educational Abbreviations" for an abbreviations list).
 - "subtopics": concepts or key terms under each topic, found in this text — they are verified against the pages and invented or garbled ones are dropped.
 - "pages" must cite page numbers from the [page N] markers in the text — never other numbers.
+- "keyFacts": every fact MUST cite the [page N] it was read from, and MUST say "kind": "verbatim" when the statement/numbers are copied exactly from the text, or "summary" when you condensed it. Never state a fact the text does not support. Facts without a correct page are flagged and lose credibility — be precise.
 - If this text is from a question paper, answer key or marks scheme, extract the subject areas the questions test (not the questions themselves) and note it in keyFacts.
 - "unreadable": list page labels whose text is garbled, truncated or incomprehensible ([] if none).
 - "misconceptions": only if the text supports a correction (common wrong belief vs what the text says).
-- "formulas": mathematical/scientific formulas or rules stated in the text ([] if none).
+- "formulas": mathematical/scientific formulas or rules stated in the text ([] if none). Each entry: {"text": string, "page": number}.
+  · TRANSCRIBE VERBATIM: copy the formula exactly as the document prints it — keep its own letters, subscripts, brackets, operators and even its own typos. If the document writes "u_A, u_C" where "u_B" was clearly intended, transcribe "u_A, u_C" anyway; do not silently fix the source.
+  · If a formula appears only as an image or is described in words, return the describing sentence verbatim as the text — it will be flagged for review rather than trusted.
+  · NEVER reconstruct, simplify or re-typeset a formula that is not literally written in the text.
 
 ${fenceDocumentText(docTitle, unit.text)}`,
   })
@@ -939,9 +1260,13 @@ function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics): string[] {
   if (a.topics.length === 0) gaps.push('No clear topics were identified — the text may be too sparse for question generation.')
   if (a.definitions.length === 0) gaps.push('No key definitions were found — you may need supporting material for terminology-heavy questions.')
   if (a.formulas.length === 0) gaps.push('No formulas or rules were detected — calculation-based questions will not be generated.')
+  const unverifiedFacts = a.keyFacts.filter(f => f.status === 'UNVERIFIED').length
+  if (unverifiedFacts > 0) gaps.push(`${unverifiedFacts} study note${unverifiedFacts === 1 ? '' : 's'} could not be verified against any page of the document — ${unverifiedFacts === 1 ? 'it is' : 'they are'} flagged in the notes, do not rely on ${unverifiedFacts === 1 ? 'it' : 'them'} without checking the source.`)
+  const reviewFormulas = a.formulas.filter(f => f.status === 'NEEDS_REVIEW').length
+  if (reviewFormulas > 0) gaps.push(`${reviewFormulas} formula${reviewFormulas === 1 ? '' : 's'} could not be verified against the extracted text (likely printed as an image in the PDF) — ${reviewFormulas === 1 ? 'it is' : 'they are'} flagged for review and will not be treated as verified.`)
   if (a.unreadableSections.length > 0) gaps.push(`${a.unreadableSections.length} section${a.unreadableSections.length === 1 ? '' : 's'} were unreadable and excluded from the analysis.`)
   if (cov.scannedPages > 0) gaps.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' needs' : 's need'} OCR to be analysed — OCR is not available yet.`)
-  if ((cov.contentlessPages ?? 0) > 0) gaps.push(`${cov.contentlessPages} page${(cov.contentlessPages ?? 0) === 1 ? ' carries' : 's carry'} only running headers/footers (image-like content) — nothing could be analysed on them.`)
+  if ((cov.contentlessPages ?? 0) > 0) gaps.push(`${cov.contentlessPages} page${(cov.contentlessPages ?? 0) === 1 ? ' carries' : 's carry'} no analysable text — the content there is an image (or the page is blank) and is accounted separately.`)
   if (cov.failedExtractionPages > 0) gaps.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} not part of this analysis.`)
   if (cov.notExtractedPages > 0) gaps.push(`The document has ${cov.notExtractedPages} page${cov.notExtractedPages === 1 ? '' : 's'} beyond what this environment can process — they were never read, so this analysis does not cover them.`)
   if (cov.unitsFailed > 0) gaps.push(`${cov.unanalysedPages} content page${cov.unanalysedPages === 1 ? ' is' : 's are'} not yet covered (failed sections) — retry the analysis to include them.`)
