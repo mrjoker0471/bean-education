@@ -20,7 +20,7 @@
 // The same input always produces the same output, so re-analysis cannot
 // re-introduce duplicates.
 
-import type { AnalyzedTopic, TopicOrigin, TitleSource } from './types'
+import type { AnalyzedTopic, TopicOrigin, TitleSource, TopicItemClass, StructureGroup } from './types'
 import { extractNumberToken } from './structure'
 
 // ─── Title normalisation ──────────────────────────────────────────────────────
@@ -119,6 +119,17 @@ export interface TopicInput {
   tocMatchPage?: number | null
   /** v4: false when the section's own pages could not confirm the title */
   structureVerified?: boolean
+  // ── v5 ──
+  /** item classification (official heading / source subsection / table entry …) */
+  itemClass?: TopicItemClass
+  /** part of the document's organisation (front matter / chapters / appendices) */
+  group?: StructureGroup
+  /** for source subsections: the exact title of the containing section */
+  parentTitle?: string | null
+  /** printed END page claimed by the contents row, when the row carries a range */
+  tocPrintedEndPage?: number | null
+  /** human-readable boundary evidence for this section's page span */
+  boundaryEvidence?: string
 }
 
 export interface CanonicalizeOptions {
@@ -137,8 +148,14 @@ export interface CanonicalizeOptions {
  *    chunks of one long section keeps its full span, it is not clamped to the
  *    first chunk, AND
  *  • at least one meaningful title token occurs on that page as a whole word.
- * Heading-anchored pages are always kept. If nothing survives, fall back to
- * the unit ranges (still document-derived — never invented).
+ * Heading-anchored pages are always kept.
+ *
+ * v5: `keepSpan` — for SOURCE_HEADING topics the unit range IS the document's
+ * own section boundary (validated contents row / heading anchor), so the FULL
+ * span is kept as the page list; token verification only decides the mapping
+ * status. Without this, a section page that merely fails to repeat the title
+ * word ("Reservation" chapter's scribe-provisions page) vanished from the
+ * chips even though the contents row itself says the section covers it.
  */
 export function verifyPages(
   name: string,
@@ -146,6 +163,7 @@ export function verifyPages(
   unitRanges: { fromPage: number; toPage: number }[],
   pageTextIndex: Map<number, string>,
   anchoredPage: number | null,
+  keepSpan = false,
 ): { pages: number[]; verified: boolean } {
   const inAnyRange = (p: number) => unitRanges.some(r => p >= r.fromPage && p <= r.toPage)
   const inRange = [...new Set(claimed.filter(inAnyRange))].sort((a, b) => a - b)
@@ -160,13 +178,19 @@ export function verifyPages(
     }
     if (tokens.some(t => pageHasToken(text, t))) supported.push(p)
   }
+  const verified = supported.length > 0 || anchoredPage !== null
+  if (keepSpan) {
+    // the document's own section span — every page of it, chips included
+    const span = inRange.length > 0 ? inRange : anchoredPage !== null ? [anchoredPage] : []
+    return { pages: span.slice(0, 60), verified }
+  }
   const pages = anchoredPage !== null && !supported.includes(anchoredPage)
     ? [...supported, anchoredPage].sort((a, b) => a - b)
     : supported
   const final = pages.length > 0
     ? pages.slice(0, 30)
     : inRange.slice(0, 30)
-  return { pages: final, verified: supported.length > 0 || anchoredPage !== null }
+  return { pages: final, verified }
 }
 
 // ─── Duplicate merging ────────────────────────────────────────────────────────
@@ -181,8 +205,13 @@ interface WorkingTopic {
   titleSource: TitleSource
   numbering: string | null
   tocPrintedPage: number | null
+  tocPrintedEndPage: number | null
   tocMatchPage: number | null
   structureVerified: boolean
+  itemClass: TopicItemClass | null
+  group: StructureGroup | null
+  parentTitle: string | null
+  boundaryEvidence: string | null
   aliases: string[]
   subtopics: string[]
   pages: number[]
@@ -266,8 +295,13 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
       titleSource,
       numbering,
       tocPrintedPage: input.tocPrintedPage ?? null,
+      tocPrintedEndPage: input.tocPrintedEndPage ?? null,
       tocMatchPage: input.tocMatchPage ?? null,
       structureVerified: input.structureVerified ?? true,
+      itemClass: input.itemClass ?? null,
+      group: input.group ?? null,
+      parentTitle: input.parentTitle ?? null,
+      boundaryEvidence: input.boundaryEvidence ?? null,
       aliases: [],
       subtopics: [],
       pages: [],
@@ -298,7 +332,10 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
     let target: WorkingTopic | null = null
     for (const existing of bucket) {
       if (wt.origin === 'SOURCE_HEADING' && existing.origin === 'SOURCE_HEADING') {
-        // two source headings with the same title: chunk continuations only
+        // two source headings with the same title: chunk continuations only —
+        // different numbering (parent vs subsection) or different parent
+        // sections are DIFFERENT entries of the document
+        if (numberingDiffers(existing, wt) || parentTitlesDiffer(existing, wt)) continue
         if (sameParentSection(existing, wt) || rangesOverlap(existing, wt)) { target = existing; break }
         continue
       }
@@ -355,10 +392,16 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
     }
   }
 
-  // 3 ── page verification per topic (before hierarchy, pages drive ordering)
+  // 3 ── page verification per topic (before hierarchy, pages drive ordering).
+  // SOURCE_HEADING topics keep their FULL section span (the document's own
+  // boundary evidence); inferred topics keep only token-verified pages.
   const topics: AnalyzedTopic[] = kept.map(t => {
     const ranges = t.unitRefs.map(r => ({ fromPage: r.fromPage, toPage: r.toPage }))
-    const verified = verifyPages(t.name, [...t.pages], ranges, opts.pageTextIndex, t.anchoredPage)
+    const verified = verifyPages(t.name, [...t.pages], ranges, opts.pageTextIndex, t.anchoredPage, t.origin === 'SOURCE_HEADING')
+    const itemClass: TopicItemClass = t.itemClass
+      ?? (t.origin === 'SOURCE_HEADING'
+        ? (t.parentTitle ? 'SOURCE_SUBSECTION' : 'ORIGINAL_HEADING')
+        : verified.verified ? 'LEARNING_TOPIC' : 'UNCLASSIFIED')
     return {
       id: '', // assigned after final ordering (no remapping → no dangling parents)
       name: t.name,
@@ -372,13 +415,19 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
       tocPrintedPage: t.tocPrintedPage,
       tocMatchPage: t.tocMatchPage,
       structureVerified: t.structureVerified,
+      itemClass,
+      group: t.group ?? undefined,
+      boundaryEvidence: t.boundaryEvidence ?? undefined,
+      tocPrintedEndPage: t.tocPrintedEndPage,
     } satisfies AnalyzedTopic
   })
   const topicOf = new Map<WorkingTopic, AnalyzedTopic>(kept.map((t, i) => [t, topics[i]]))
 
-  // 4 ── hierarchy. Source headings are level 1 (the document's own skeleton).
-  // Inferred topics attach to the source heading of the unit they came from —
-  // a direct, deterministic lookup, never a fuzzy match that can self-parent.
+  // 4 ── hierarchy. Source headings are level 1 (the document's own skeleton);
+  // source subsections (they carry their containing section's exact title) are
+  // level 2 under that section. Inferred topics attach to the source heading
+  // of the unit they came from — a direct, deterministic lookup, never a fuzzy
+  // match that can self-parent.
   const headingByUnitTitle = new Map<string, WorkingTopic>()
   for (const t of kept) {
     if (t.origin !== 'SOURCE_HEADING') continue
@@ -389,8 +438,20 @@ export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptio
     const t = kept[i]
     const a = topics[i]
     if (t.origin === 'SOURCE_HEADING') {
-      a.level = 1
-      a.parentId = null
+      if (t.parentTitle) {
+        // a source subsection: parent = the exact containing section's heading
+        const parent = headingByUnitTitle.get(normalizeTitle(t.parentTitle)) ?? null
+        if (parent && parent !== t) {
+          t.parentRef = parent
+          a.level = 2
+        } else {
+          a.level = 1
+          a.parentId = null
+        }
+      } else {
+        a.level = 1
+        a.parentId = null
+      }
       continue
     }
     const unitTitle = t.unitRefs[0]?.title ?? null
@@ -456,19 +517,20 @@ function nameOrderKey(t: WorkingTopic): number {
 
 /**
  * Size ceiling that never sacrifices document coverage:
- *   • every level-1 (major section) topic is ALWAYS kept — dropping one would
- *     erase a whole region of the document from the topic list;
- *   • when level-2 concepts must be trimmed, they are dropped round-robin
- *     across parents (and within a parent in document order), so the cut is
- *     spread over the whole document instead of silently amputating its tail
- *     (a plain `slice` on the page-ordered list dropped every topic past the
- *     cap — the back half of a long document vanished).
+ *   • every level-1 (major section) topic AND every source subsection is
+ *     ALWAYS kept — dropping one would erase a real part of the document's
+ *     own organisation from the topic list (the contents layer still records
+ *     it, but the topic list would silently contradict the document);
+ *   • when AI-inferred level-2 concepts must be trimmed, they are dropped
+ *     round-robin across parents (and within a parent in document order), so
+ *     the cut is spread over the whole document instead of silently
+ *     amputating its tail.
  * Deterministic: same input, same survivors.
  */
 function capTopicsFairly(ordered: AnalyzedTopic[], max: number): AnalyzedTopic[] {
   if (ordered.length <= max) return ordered
-  const tops = ordered.filter(t => t.level !== 2)
-  const children = ordered.filter(t => t.level === 2)
+  const tops = ordered.filter(t => t.level !== 2 || t.itemClass === 'SOURCE_SUBSECTION')
+  const children = ordered.filter(t => t.level === 2 && t.itemClass !== 'SOURCE_SUBSECTION')
   const budget = Math.max(0, max - tops.length)
   if (children.length <= budget) return ordered
 
@@ -495,14 +557,34 @@ function capTopicsFairly(ordered: AnalyzedTopic[], max: number): AnalyzedTopic[]
     .filter(t => t.level !== 2 || keptIds.has(t.id))
 }
 
+/**
+ * Two source headings whose own numbering tokens differ are DIFFERENT entries
+ * of the document ("Chapter-4 Reservation" vs "4.1 Reservations" share every
+ * title token and overlap in pages, but they are parent and child, never
+ * duplicates). Guard used by both merge passes.
+ */
+function numberingDiffers(a: WorkingTopic, b: WorkingTopic): boolean {
+  const na = a.numbering?.trim() ?? ''
+  const nb = b.numbering?.trim() ?? ''
+  return na !== '' && nb !== '' && na.toLowerCase() !== nb.toLowerCase()
+}
+
+/** Subsections carry the exact title of their containing section — different parents ⇒ different entries. */
+function parentTitlesDiffer(a: WorkingTopic, b: WorkingTopic): boolean {
+  const ta = a.parentTitle?.trim() ?? ''
+  const tb = b.parentTitle?.trim() ?? ''
+  return ta !== '' && tb !== '' && normalizeTitle(ta) !== normalizeTitle(tb)
+}
+
 function similarEnough(a: WorkingTopic, b: WorkingTopic): boolean {
   const overlap = rangesOverlap(a, b)
   const sameSection = sameParentSection(a, b)
 
   if (a.origin === 'SOURCE_HEADING' && b.origin === 'SOURCE_HEADING') {
     // two source headings: only chunk continuations of the same section merge
-    // (even identical titles in different sections stay separate)
-    return overlap
+    // (even identical titles in different sections stay separate; parent and
+    // subsection never fuse even when one contains the other's words)
+    return overlap && !numberingDiffers(a, b) && !parentTitlesDiffer(a, b)
   }
 
   const j = jaccard(a.tokens, b.tokens)
@@ -533,8 +615,12 @@ function promoteToHeading(target: WorkingTopic, input: TopicInput): void {
   target.titleSource = input.titleSource ?? 'body'
   target.numbering = input.numbering ?? target.numbering
   target.tocPrintedPage = input.tocPrintedPage ?? target.tocPrintedPage
+  target.tocPrintedEndPage = input.tocPrintedEndPage ?? target.tocPrintedEndPage
   target.tocMatchPage = input.tocMatchPage ?? target.tocMatchPage
   target.structureVerified = input.structureVerified ?? target.structureVerified
+  target.group = input.group ?? target.group
+  target.parentTitle = input.parentTitle ?? target.parentTitle
+  target.boundaryEvidence = input.boundaryEvidence ?? target.boundaryEvidence
   target.anchoredPage = target.anchoredPage ?? (input.anchored ? input.unitFromPage : null)
   // the document's own wording becomes the canonical title
   const docName = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
@@ -556,8 +642,16 @@ function mergeInto(target: WorkingTopic, input: TopicInput, maxSubs: number): vo
   if (target.origin === 'SOURCE_HEADING') {
     target.numbering = input.numbering ?? target.numbering
     target.tocPrintedPage = input.tocPrintedPage ?? target.tocPrintedPage
+    target.tocPrintedEndPage = input.tocPrintedEndPage ?? target.tocPrintedEndPage
     target.tocMatchPage = input.tocMatchPage ?? target.tocMatchPage
+    target.group = input.group ?? target.group
+    target.parentTitle = input.parentTitle ?? target.parentTitle
+    target.boundaryEvidence = input.boundaryEvidence ?? target.boundaryEvidence
     if (input.structureVerified === false) target.structureVerified = false
+  } else {
+    // an inferred topic keeps the richest classification evidence it saw
+    target.itemClass = target.itemClass ?? input.itemClass ?? null
+    target.group = target.group ?? input.group ?? null
   }
 }
 
@@ -587,12 +681,19 @@ function absorbInto(target: WorkingTopic, other: WorkingTopic): void {
     target.titleSource = other.titleSource
     target.numbering = other.numbering
     target.tocPrintedPage = other.tocPrintedPage
+    target.tocPrintedEndPage = other.tocPrintedEndPage
     target.tocMatchPage = other.tocMatchPage
     target.structureVerified = other.structureVerified
+    target.group = other.group
+    target.parentTitle = other.parentTitle
+    target.boundaryEvidence = other.boundaryEvidence
+    target.itemClass = other.itemClass
   } else if (target.origin === 'SOURCE_HEADING') {
     target.numbering = target.numbering ?? other.numbering
     target.tocPrintedPage = target.tocPrintedPage ?? other.tocPrintedPage
+    target.tocPrintedEndPage = target.tocPrintedEndPage ?? other.tocPrintedEndPage
     target.tocMatchPage = target.tocMatchPage ?? other.tocMatchPage
+    target.group = target.group ?? other.group
     if (other.structureVerified === false) target.structureVerified = false
   }
 }

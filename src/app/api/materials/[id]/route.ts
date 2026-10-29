@@ -42,8 +42,12 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const analysisState: 'COMPLETE' | 'PARTIAL' | null = fresh.status === 'READY' && analysis
       ? cov?.complete ? 'COMPLETE' : 'PARTIAL'
       : null
-    const analysisPct: number | null = cov && cov.readablePages > 0
-      ? Math.round((cov.analysedPages / cov.readablePages) * 100)
+    // Semantic-analysis percentage: denominator is CONTENT pages (readable
+    // pages minus header/footer-only pages) — never inflated by pages that
+    // never had analysable text.
+    const contentPages = cov ? cov.readablePages - (cov.contentlessPages ?? 0) : 0
+    const analysisPct: number | null = cov && contentPages > 0
+      ? Math.round((cov.analysedPages / contentPages) * 100)
       : null
     // NEEDS_OCR documents have no analysis — their coverage comes straight
     // from the extraction stats (total vs image-only pages).

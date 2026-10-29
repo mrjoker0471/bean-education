@@ -15,9 +15,12 @@ import type {
   MaterialDetailDTO,
   MaterialListItemDTO,
   MaterialStatus,
+  PageMappingStatusDTO,
   RiisheTestDetailDTO,
   RiisheWeakTopicDTO,
   SectionOutcomeDTO,
+  StructureGroupDTO,
+  TopicItemClassDTO,
 } from '@/lib/types'
 import { PageRefChips, formatPageRefs } from '@/components/bean/riishe-bits'
 import { RiisheChatPanel } from '@/components/bean/riishe-chat'
@@ -891,6 +894,21 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
   // Layer partition — defensive for analyses without `origin` (see topicOrigin).
   const structureTopics = analysis.topics.filter(t => topicOrigin(t) === 'SOURCE_HEADING')
   const inferredTopics = analysis.topics.filter(t => topicOrigin(t) === 'AI_INFERRED')
+  // v5: the document's own organisation splits into major headings and their
+  // numbered subsections, and groups into front matter / main chapters /
+  // appendices — mirroring the source, never a flat keyword soup.
+  const majorHeadings = structureTopics.filter(t => t.itemClass !== 'SOURCE_SUBSECTION')
+  const subsectionTopics = structureTopics.filter(t => t.itemClass === 'SOURCE_SUBSECTION')
+  const subsByParent = new Map<string, AnalyzedTopicDTO[]>()
+  for (const s of subsectionTopics) {
+    if (!s.parentId) continue
+    const list = subsByParent.get(s.parentId)
+    if (list) list.push(s)
+    else subsByParent.set(s.parentId, [s])
+  }
+  const groupOrder: StructureGroupDTO[] = ['FRONT', 'CHAPTER', 'APPENDIX', 'OTHER']
+  const groupsPresent = groupOrder.filter(g => majorHeadings.some(t => (t.group ?? 'OTHER') === g))
+  const headingsInGroup = (g: StructureGroupDTO) => majorHeadings.filter(t => (t.group ?? 'OTHER') === g)
 
   // Layer B grouping: inferred topics sit under their parent section's own
   // heading; level-1 inferred topics (heading-less documents) and orphans
@@ -912,14 +930,39 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
     .map(parent => ({ parent, children: childrenByParent.get(parent.id) ?? [] }))
     .filter(g => g.children.length > 0)
 
+  // v5: the note says exactly what was verified — matching counts come from
+  // the coverage accounting, never a single blended "validated" number.
+  const matchedCount = cov?.tocMatchedHeadings ?? structure?.tocMatched ?? null
+  const discoveredCount = cov?.tocDiscovered ?? structure?.tocEntries ?? null
+  const verifiedStarts = cov?.tocVerifiedStarts ?? null
+  const inferredStarts = cov?.tocInferredStarts ?? null
+  const unresolvedStarts = cov?.tocUnresolved ?? null
   const structureNote = structure?.tocValidated
-    ? `Structure read from the document's own contents table — ${structure.tocEntries} entr${structure.tocEntries === 1 ? 'y' : 'ies'} validated against the body. Titles below are the document's own section titles, kept word for word.`
+    ? `Structure read from the document's own contents table — ${discoveredCount ?? structure.tocEntries} entries discovered, ${matchedCount ?? '?'} matched to the body${verifiedStarts != null ? `, ${verifiedStarts} with a body-verified start page` : ''}. Titles below are the document's own section titles, kept word for word.`
     : structure && structure.kind !== 'UNSTRUCTURED'
       ? `Structure read from ${structure.headingCount} heading${structure.headingCount === 1 ? '' : 's'} in the document itself. Titles below are the document's own section titles, kept word for word.`
       : 'No contents page or section headings were detected in the document itself.'
 
   const tocUnmatched =
     structure?.tocUnmatched ?? (structure?.toc ? structure.toc.filter(e => !e.matched).length : 0)
+
+  // v5 — honest page accounting: every physical page sits in exactly one bucket.
+  const contentlessCount = cov?.contentlessPages ?? 0
+  const contentPages = cov ? Math.max(0, cov.readablePages - contentlessCount) : 0
+  const groupStats = structure?.groupStats ?? null
+  const pageAccounting: { label: string; count: number; pct: number }[] | null = cov
+    ? [
+        { label: 'pages with text, analysed', count: cov.analysedPages },
+        { label: 'pages with text, pending (failed sections)', count: cov.unanalysedPages },
+        { label: 'pages with text, skipped with reason', count: cov.skippedPages },
+        { label: 'pages carrying only headers/footers (image content)', count: contentlessCount },
+        { label: 'image-only pages needing OCR', count: cov.scannedPages },
+        { label: 'pages the extractor could not read', count: cov.failedExtractionPages ?? 0 },
+        { label: 'pages never read (beyond the processing cap)', count: cov.notExtractedPages ?? 0 },
+      ]
+        .filter(r => r.count > 0)
+        .map(r => ({ ...r, pct: cov.totalPages > 0 ? Math.round((r.count / cov.totalPages) * 100) : 0 }))
+    : null
 
   const failedOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'FAILED') ?? []
   const skippedOutcomes = analysis.sectionOutcomes?.filter(o => o.status === 'SKIPPED') ?? []
@@ -960,17 +1003,45 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
             <p className="mt-2 text-xs text-muted-foreground">
               Page chips open the integrated reader at that exact page.
             </p>
-            <ul className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-2">
-              {structureTopics.map((topic, i) => (
-                <SourceHeadingRow
-                  key={topic.id}
-                  topic={topic}
-                  index={i + 1}
-                  structure={structure}
-                  onOpenPage={onOpenPage}
-                />
-              ))}
-            </ul>
+            <div className="mt-4 max-h-[36rem] space-y-5 overflow-y-auto pr-2">
+              {groupsPresent.length > 1
+                ? groupsPresent.map(g => (
+                    <div key={g}>
+                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {GROUP_LABELS[g]}
+                        <span className="rounded-full border border-border px-1.5 py-px font-mono text-[10px] tracking-normal normal-case">
+                          {headingsInGroup(g).length}
+                        </span>
+                      </p>
+                      <ul className="mt-2 space-y-3">
+                        {headingsInGroup(g).map((topic, i) => (
+                          <SourceHeadingRow
+                            key={topic.id}
+                            topic={topic}
+                            index={i + 1}
+                            structure={structure}
+                            subsections={subsByParent.get(topic.id) ?? []}
+                            onOpenPage={onOpenPage}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  ))
+                : (
+                    <ul className="space-y-3">
+                      {majorHeadings.map((topic, i) => (
+                        <SourceHeadingRow
+                          key={topic.id}
+                          topic={topic}
+                          index={i + 1}
+                          structure={structure}
+                          subsections={subsByParent.get(topic.id) ?? []}
+                          onOpenPage={onOpenPage}
+                        />
+                      ))}
+                    </ul>
+                  )}
+            </div>
           </>
         ) : (
           <p className="mt-4 rounded-lg border border-border bg-elevated px-4 py-3 text-sm text-muted-foreground">
@@ -1166,7 +1237,6 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
               )}
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <CoverageStat label="Pages extracted" value={cov.readablePages} sub={`${cov.totalPages} pages total`} />
               <CoverageStat
                 label="Analysed pages"
                 value={cov.analysedPages}
@@ -1176,14 +1246,21 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                     cov.skippedPages > 0 ? `${cov.skippedPages} skipped` : null,
                   ]
                     .filter((s): s is string => !!s)
-                    .join(' · ') || 'all readable'
+                    .join(' · ') || `of ${contentPages} content pages`
                 }
               />
               <CoverageStat
                 label="Scanned pages"
                 value={cov.scannedPages}
-                sub={cov.scannedPages > 0 ? 'need OCR, excluded' : 'none'}
+                sub={cov.scannedPages > 0 ? 'image-only, need OCR' : 'none'}
               />
+              {contentlessCount > 0 && (
+                <CoverageStat
+                  label="Header-only pages"
+                  value={contentlessCount}
+                  sub="image content, nothing to analyse"
+                />
+              )}
               <CoverageStat
                 label="Sections"
                 value={cov.unitsOk}
@@ -1210,6 +1287,81 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
                 />
               )}
             </dl>
+
+            {/* v5 — every physical page accounted for, in one bucket each */}
+            {pageAccounting && (
+              <div className="mt-4 rounded-lg border border-border bg-elevated p-3">
+                <p className="text-xs font-semibold text-foreground">
+                  Page accounting — all {cov.totalPages} physical pages
+                </p>
+                <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-[11px] leading-relaxed text-muted-foreground sm:grid-cols-2">
+                  {pageAccounting.map(row => (
+                    <li key={row.label} className="flex items-baseline gap-1.5">
+                      <span className="w-10 shrink-0 text-right font-mono text-foreground/80">
+                        {row.count}
+                      </span>
+                      <span className="font-mono text-muted-foreground/60">({row.pct}%)</span>
+                      <span>{row.label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                  Percentages are of the {cov.totalPages}-page PDF. A page sits in exactly one bucket.
+                </p>
+              </div>
+            )}
+
+            {/* v5 — contents-entry matching accounting: a matched count is NOT
+                evidence that pages or analysis are complete */}
+            {discoveredCount != null && discoveredCount > 0 && (
+              <div className="mt-3 rounded-lg border border-border bg-elevated p-3">
+                <p className="text-xs font-semibold text-foreground">Contents-table entries</p>
+                <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-[11px] leading-relaxed text-muted-foreground sm:grid-cols-2">
+                  <li><span className="font-mono text-foreground/80">{discoveredCount}</span> discovered in the document's own contents table</li>
+                  {matchedCount != null && (
+                    <li><span className="font-mono text-foreground/80">{matchedCount}</span> matched to a heading in the body</li>
+                  )}
+                  {verifiedStarts != null && (
+                    <li><span className="font-mono text-foreground/80">{verifiedStarts}</span> with a body-verified start page</li>
+                  )}
+                  {inferredStarts != null && inferredStarts > 0 && (
+                    <li><span className="font-mono text-foreground/80">{inferredStarts}</span> with only an inferred start page</li>
+                  )}
+                  {unresolvedStarts != null && unresolvedStarts > 0 && (
+                    <li><span className="font-mono text-foreground/80">{unresolvedStarts}</span> unresolved (no plausible page)</li>
+                  )}
+                  {tocUnmatched > 0 && (
+                    <li><span className="font-mono text-gold">{tocUnmatched}</span> not matched to the body at all</li>
+                  )}
+                </ul>
+                <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                  Matching says where sections start — it is separate from page-extraction and section-analysis coverage above.
+                </p>
+              </div>
+            )}
+
+            {/* v5 — per-group processing (chapters / appendices / front matter) */}
+            {groupStats && groupStats.length > 0 && (
+              <div className="mt-3 rounded-lg border border-border bg-elevated p-3">
+                <p className="text-xs font-semibold text-foreground">Processing by part of the document</p>
+                <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {groupStats.map(gs => (
+                    <li key={gs.group}>
+                      <span className="font-medium text-foreground/80">{GROUP_LABELS[gs.group]}:</span>{' '}
+                      <span className="font-mono text-foreground/80">{gs.total}</span> entries —{' '}
+                      <span className="text-success">{gs.ok} fully processed</span>
+                      {gs.partial > 0 && <span>, <span className="text-gold">{gs.partial} partial</span></span>}
+                      {gs.failed > 0 && <span>, <span className="text-destructive">{gs.failed} not processed</span></span>}
+                      {gs.notAnalysable > 0 && (
+                        <span>
+                          , {gs.notAnalysable} with nothing analysable (image-only content)
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {cov.skippedPages > 0 && (
               <p className="mt-3 text-xs text-muted-foreground">
                 {cov.skippedPages} readable page{cov.skippedPages === 1 ? ' sits' : 's sit'} in{' '}
@@ -1342,19 +1494,80 @@ function capPages(pages: number[], max: number): { pages: number[]; hidden: numb
 
 // ─── Layer A: the document's own section headings ───
 
+/** Labels for the document's own organisation groups (shown only when the
+ *  document actually HAS more than one group — never forced on other docs). */
+const GROUP_LABELS: Record<StructureGroupDTO, string> = {
+  FRONT: 'Front matter & preliminary information',
+  CHAPTER: 'Main chapters',
+  APPENDIX: 'Appendices & annexures',
+  OTHER: 'Other sections',
+}
+
+/** Page-mapping honesty badge: how this section's page references were established. */
+function PageMappingBadge({ topic }: { topic: AnalyzedTopicDTO }) {
+  const mapping = topic.pageMapping
+  if (!mapping || mapping === 'VERIFIED') return null
+  const tip =
+    mapping === 'INFERRED'
+      ? topic.boundaryEvidence
+        ? `Page references follow from the document's own contents claim — the body could not confirm them directly. ${topic.boundaryEvidence}`
+        : 'Page references follow from the document\'s own contents claim — the body could not confirm them directly.'
+      : 'No reliable page could be established for this section from the document itself.'
+  return (
+    <span
+      title={tip}
+      className={cn(
+        'inline-flex shrink-0 cursor-help items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]',
+        mapping === 'INFERRED' ? 'border-gold/40 text-gold' : 'border-destructive/40 text-destructive',
+      )}
+    >
+      <Info className="h-3 w-3" aria-hidden /> {mapping === 'INFERRED' ? 'pages inferred' : 'pages unresolved'}
+    </span>
+  )
+}
+
+/** Expandable page-chip row: at most `max` chips, "+N more" reveals the rest. */
+function ExpandablePageChips({ pages, onOpenPage, printedOffset, max }: {
+  pages: number[]
+  onOpenPage: (page: number) => void
+  printedOffset?: number | null
+  max: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const capped = capPages(pages, max)
+  if (capped.pages.length === 0) return null
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+      <PageRefChips pages={expanded ? [...capped.pages, ...capped.rest] : capped.pages} onOpenPage={onOpenPage} printedOffset={printedOffset} compact />
+      {capped.hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          className="text-[11px] text-muted-foreground/70 underline decoration-dotted underline-offset-2 transition-colors hover:text-gold"
+          aria-expanded={expanded}
+        >
+          {expanded ? 'show less' : `+${capped.hidden} more`}
+        </button>
+      )}
+    </span>
+  )
+}
+
 /**
  * One SOURCE_HEADING topic — the document's own section. The exact original
  * wording is rendered verbatim (never rewritten); `numbering` is shown as a
  * small mono/gold chip when the document prints one. No origin badge here:
- * these rows ARE the document.
+ * these rows ARE the document. Numbered source subsections render nested
+ * beneath their section, clearly smaller — they are part of the original
+ * structure, never mixed into the AI-inferred layer.
  */
-function SourceHeadingRow({ topic, index, structure, onOpenPage }: {
+function SourceHeadingRow({ topic, index, structure, subsections, onOpenPage }: {
   topic: AnalyzedTopicDTO
   index: number
   structure?: DocStructureInfoDTO
+  subsections: AnalyzedTopicDTO[]
   onOpenPage: (page: number) => void
 }) {
-  const capped = capPages(topic.pages, 10)
   return (
     <li className="rounded-lg border border-border bg-elevated p-4">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
@@ -1371,33 +1584,63 @@ function SourceHeadingRow({ topic, index, structure, onOpenPage }: {
             {topic.name}
           </p>
           <StructureUnverifiedBadge topic={topic} structure={structure} />
+          <PageMappingBadge topic={topic} />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {capped.pages.length > 0 && (
-            <PageRefChips pages={capped.pages} onOpenPage={onOpenPage} printedOffset={structure?.printedPageOffset ?? null} compact />
-          )}
-          {capped.hidden > 0 && (
-            <span
-              className="text-[11px] text-muted-foreground/70"
-              title={`Also ${formatPageRefs(capped.rest)}`}
-            >
-              +{capped.hidden} more
-            </span>
-          )}
+          <ExpandablePageChips pages={topic.pages} onOpenPage={onOpenPage} printedOffset={structure?.printedPageOffset ?? null} max={10} />
         </div>
       </div>
       {topic.aliases.length > 0 && (
         <p className="mt-1 text-xs text-muted-foreground/70">also found as: {topic.aliases.join(' · ')}</p>
       )}
       {topic.subtopics.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {topic.subtopics.map(sub => (
-            <Badge key={sub} variant="outline" className="border-border text-muted-foreground">
-              {sub}
-            </Badge>
-          ))}
+        <div className="mt-2">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground/60">
+            Keywords &amp; entities — extracted terms, not document sections
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {topic.subtopics.map(sub => (
+              <Badge key={sub} variant="outline" className="border-border/70 text-muted-foreground">
+                {sub}
+              </Badge>
+            ))}
+          </div>
         </div>
       )}
+      {subsections.length > 0 && (
+        <ul className="mt-3 space-y-1.5 border-l border-gold/20 pl-3">
+          {subsections.map(sub => (
+            <SubsectionRow key={sub.id} topic={sub} structure={structure} onOpenPage={onOpenPage} />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+/** One numbered source subsection ("4.1 Reservations") — original wording,
+ *  its own verified page chips, visually a child of its section. */
+function SubsectionRow({ topic, structure, onOpenPage }: {
+  topic: AnalyzedTopicDTO
+  structure?: DocStructureInfoDTO
+  onOpenPage: (page: number) => void
+}) {
+  return (
+    <li className="rounded border border-border/60 bg-card/60 px-2.5 py-2">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {topic.numbering && (
+            <Badge variant="outline" className="shrink-0 border-gold/20 font-mono text-[10px] text-gold/80">
+              {topic.numbering}
+            </Badge>
+          )}
+          <p className="min-w-0 text-xs font-medium text-foreground/90" title={topic.name}>
+            {topic.name}
+          </p>
+          <PageMappingBadge topic={topic} />
+        </div>
+        <ExpandablePageChips pages={topic.pages} onOpenPage={onOpenPage} printedOffset={structure?.printedPageOffset ?? null} max={6} />
+      </div>
     </li>
   )
 }
@@ -1449,7 +1692,8 @@ function structureNoteForTopic(topic: AnalyzedTopicDTO, structure: DocStructureI
 /**
  * Collapsed-by-default disclosure of the document's own contents entries —
  * original wording kept, each entry checked against where it actually appears
- * in the body. This is the "TOC vs body" honesty surface.
+ * in the body, with its printed range, physical span and how the boundaries
+ * were established. This is the "TOC vs body" honesty surface.
  */
 function TocDisclosure({ structure }: { structure: DocStructureInfoDTO }) {
   const entries = structure.toc ?? []
@@ -1486,15 +1730,33 @@ function TocDisclosure({ structure }: { structure: DocStructureInfoDTO }) {
                   {e.number}
                 </span>
               )}
+              {e.group && entries.length > 1 && e.level === 1 && (
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+                  {TOC_GROUP_SHORT[e.group]}
+                </span>
+              )}
               <span className="min-w-0 flex-1 truncate text-xs text-foreground/90" title={e.title}>
                 {e.title}
               </span>
               <span className="shrink-0 text-[11px] text-muted-foreground">
-                {e.printedPage != null ? `printed p. ${e.printedPage}` : 'no printed page'}
-                {e.matchPage != null ? ` → PDF p. ${e.matchPage}` : ''}
+                {e.printedPage != null
+                  ? `printed p. ${e.printedPage}${e.printedPageEnd != null ? `–${e.printedPageEnd}` : ''}`
+                  : 'no printed page'}
+                {e.startPage != null ? ` → PDF p. ${e.startPage}${e.endPage != null && e.endPage > e.startPage ? `–${e.endPage}` : ''}` : e.matchPage != null ? ` → PDF p. ${e.matchPage}` : ''}
               </span>
               {e.matched ? (
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Matched in the document body" />
+                <span
+                  className="shrink-0"
+                  title={[
+                    e.startStatus === 'VERIFIED' ? 'Start page confirmed in the document body.' : e.startStatus === 'INFERRED' ? 'Start page follows from the contents claim (not body-confirmed).' : 'No plausible page could be established.',
+                    e.boundaryEvidence ? `Boundaries: ${e.boundaryEvidence}.` : null,
+                  ].filter(Boolean).join(' ')}
+                >
+                  <CheckCircle2
+                    className={cn('h-3.5 w-3.5', e.startStatus === 'VERIFIED' ? 'text-success' : 'text-gold')}
+                    aria-label={e.startStatus === 'VERIFIED' ? 'Matched in the document body, start verified' : 'Matched, start inferred from the contents claim'}
+                  />
+                </span>
               ) : (
                 <span
                   className="shrink-0"
@@ -1511,14 +1773,76 @@ function TocDisclosure({ structure }: { structure: DocStructureInfoDTO }) {
         </ul>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           The document's own contents list, exactly as printed, checked against where each entry actually appears in
-          the body. Original wording is kept — nothing is rewritten.
+          the body. Original wording is kept — nothing is rewritten. Green: start page confirmed in the body; amber
+          check: matched but the start could only be inferred from the contents claim.
         </p>
       </CollapsibleContent>
     </Collapsible>
   )
 }
 
+const TOC_GROUP_SHORT: Record<StructureGroupDTO, string> = {
+  FRONT: 'front',
+  CHAPTER: 'chapter',
+  APPENDIX: 'appendix',
+  OTHER: 'section',
+}
+
 // ─── Layer B: what Riishe inferred ───
+
+/** Item-class label for inferred topics (kept short; tooltip explains). */
+const ITEM_CLASS_LABEL: Record<TopicItemClassDTO, string> = {
+  ORIGINAL_HEADING: 'original heading',
+  SOURCE_SUBSECTION: 'source subsection',
+  LEARNING_TOPIC: 'inferred topic',
+  KEYWORD: 'keyword / entity',
+  TABLE_OR_LIST: 'from a table or list',
+  QUESTION_GROUP: 'question group',
+  UNCLASSIFIED: 'needs review',
+}
+
+function itemClassTip(cls: TopicItemClassDTO): string {
+  switch (cls) {
+    case 'LEARNING_TOPIC': return 'A study topic Riishe identified in the content — the document does not contain it as a heading.'
+    case 'TABLE_OR_LIST': return 'Extracted from a table or reference list in the document.'
+    case 'QUESTION_GROUP': return 'Covers a question or question group in the document.'
+    case 'UNCLASSIFIED': return 'Riishe could not verify this topic against the document pages — treat with care.'
+    default: return 'Part of the document\'s own structure.'
+  }
+}
+
+/**
+ * One focus chip in the generator — sections and inferred topics look
+ * different on purpose: an inferred topic must never pass for a chapter.
+ */
+function FocusChip({ topic, active, onToggle, tone }: {
+  topic: AnalyzedTopicDTO
+  active: boolean
+  onToggle: (name: string) => void
+  tone: 'section' | 'inferred'
+}) {
+  const cls = topic.itemClass ?? (tone === 'inferred' ? 'LEARNING_TOPIC' : 'ORIGINAL_HEADING')
+  const special = tone === 'inferred' && cls !== 'LEARNING_TOPIC'
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      title={`${topic.name} — ${itemClassTip(cls)}`}
+      onClick={() => onToggle(topic.name)}
+      className={cn(
+        'min-h-9 rounded-full border px-3 py-1.5 text-xs transition-colors',
+        active
+          ? 'border-gold/60 bg-gold/15 text-gold'
+          : tone === 'section'
+            ? 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold'
+            : 'border-dashed border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+      )}
+    >
+      {tone === 'section' ? topic.name : <span className="italic">{topic.name}</span>}
+      {special && <span className="ml-1.5 text-[10px] text-muted-foreground/70">({ITEM_CLASS_LABEL[cls]})</span>}
+    </button>
+  )
+}
 
 /**
  * One AI_INFERRED study topic — always badged so it can never be mistaken for
@@ -1531,6 +1855,8 @@ function InferredTopicRow({ topic, onOpenPage, printedOffset }: {
   printedOffset?: number | null
 }) {
   const capped = capPages(topic.pages, 6)
+  const cls = topic.itemClass ?? 'LEARNING_TOPIC'
+  const needsClassLabel = cls !== 'LEARNING_TOPIC'
   return (
     <li className="rounded border border-border/60 bg-card/60 p-2.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1541,18 +1867,22 @@ function InferredTopicRow({ topic, onOpenPage, printedOffset }: {
           <p className="min-w-0 text-xs font-medium text-foreground/90" title={topic.name}>
             {topic.name}
           </p>
+          {needsClassLabel && (
+            <span
+              title={itemClassTip(cls)}
+              className={cn(
+                'mt-0.5 inline-flex shrink-0 cursor-help items-center rounded-full border px-2 py-0.5 text-[10px]',
+                cls === 'UNCLASSIFIED' ? 'border-destructive/40 text-destructive' : 'border-border text-muted-foreground',
+              )}
+            >
+              {ITEM_CLASS_LABEL[cls]}
+            </span>
+          )}
+          {cls === 'UNCLASSIFIED' && <PageMappingBadge topic={topic} />}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {capped.pages.length > 0 && (
-            <PageRefChips pages={capped.pages} onOpenPage={onOpenPage} printedOffset={printedOffset} compact />
-          )}
-          {capped.hidden > 0 && (
-            <span
-              className="text-[11px] text-muted-foreground/70"
-              title={`Also ${formatPageRefs(capped.rest)}`}
-            >
-              +{capped.hidden} more
-            </span>
+            <ExpandablePageChips pages={capped.pages} onOpenPage={onOpenPage} printedOffset={printedOffset} max={6} />
           )}
         </div>
       </div>
@@ -1637,6 +1967,10 @@ function TestsPanel({
   // Generator options — topic records keep their stable unique ids even when two
   // sections of the document share a display name (e.g. "Required Documents").
   const analysisTopics = doc.analysis?.topics ?? []
+  // Focus chips split by what the title IS: the document's own sections and
+  // subsections vs study topics Riishe inferred inside them.
+  const focusSections = analysisTopics.filter(t => topicOrigin(t) === 'SOURCE_HEADING')
+  const focusInferred = analysisTopics.filter(t => topicOrigin(t) === 'AI_INFERRED')
   const [selectedFocus, setSelectedFocus] = useState<string[]>([])
   const [timed, setTimed] = useState(true)
   const [count, setCount] = useState<100 | 50 | 30 | 20>(50)
@@ -1759,33 +2093,39 @@ function TestsPanel({
           Questions are drawn strictly from this document. Leave the focus empty for a balanced mix across it.
         </p>
 
-        {/* Topic focus */}
+        {/* Topic focus — official sections and Riishe-inferred topics are two
+            clearly separated groups so an inferred topic can never pass for a
+            chapter of the document. */}
         {analysisTopics.length > 0 ? (
           <div className="mt-4">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
               Topic focus <span className="normal-case tracking-normal">(up to 3, optional)</span>
             </p>
-            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Topic focus selector">
-              {analysisTopics.map(topic => {
-                const name = topic.name
-                const active = selectedFocus.includes(name)
-                return (
-                  <button
-                    key={topic.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => toggleFocus(name)}
-                    className={cn(
-                      'min-h-9 rounded-full border px-3 py-1.5 text-xs transition-colors',
-                      active
-                        ? 'border-gold/60 bg-gold/15 text-gold'
-                        : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
-                    )}
-                  >
-                    {name}
-                  </button>
-                )
-              })}
+            <div className="mt-2 max-h-72 space-y-3 overflow-y-auto pr-1" role="group" aria-label="Topic focus selector">
+              {focusSections.length > 0 && (
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground/70">
+                    Document sections &amp; subsections
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {focusSections.map(topic => (
+                      <FocusChip key={topic.id} topic={topic} active={selectedFocus.includes(topic.name)} onToggle={toggleFocus} tone="section" />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {focusInferred.length > 0 && (
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground/70">
+                    Riishe-inferred topics
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {focusInferred.map(topic => (
+                      <FocusChip key={topic.id} topic={topic} active={selectedFocus.includes(topic.name)} onToggle={toggleFocus} tone="inferred" />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             {selectedFocus.length === 0 && (
               <p className="mt-2 text-xs text-muted-foreground">Balanced mix across the document.</p>

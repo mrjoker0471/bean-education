@@ -285,6 +285,22 @@ export type MaterialStatus = 'QUEUED' | 'EXTRACTING' | 'ANALYSING' | 'READY' | '
 /** What a topic's title represents in the source document. */
 export type TopicOriginDTO = 'SOURCE_HEADING' | 'AI_INFERRED'
 
+/** What kind of item this entry is in the document (v5 classification). */
+export type TopicItemClassDTO =
+  | 'ORIGINAL_HEADING'
+  | 'SOURCE_SUBSECTION'
+  | 'LEARNING_TOPIC'
+  | 'KEYWORD'
+  | 'TABLE_OR_LIST'
+  | 'QUESTION_GROUP'
+  | 'UNCLASSIFIED'
+
+/** How a page mapping was established (v5). */
+export type PageMappingStatusDTO = 'VERIFIED' | 'INFERRED' | 'UNRESOLVED'
+
+/** Which part of the document's organisation an entry belongs to (v5). */
+export type StructureGroupDTO = 'FRONT' | 'CHAPTER' | 'APPENDIX' | 'OTHER'
+
 export interface AnalyzedTopicDTO {
   name: string
   subtopics: string[]
@@ -303,12 +319,20 @@ export interface AnalyzedTopicDTO {
   tocPrintedPage?: number | null
   tocMatchPage?: number | null
   structureVerified?: boolean
+  /** v5 — classification, grouping and boundary evidence */
+  itemClass?: TopicItemClassDTO
+  group?: StructureGroupDTO
+  pageMapping?: PageMappingStatusDTO
+  boundaryEvidence?: string
+  tocPrintedEndPage?: number | null
 }
 
 export interface CoverageMetricsDTO {
   totalPages: number
   readablePages: number
   scannedPages: number
+  /** pages whose extracted text is only running headers/footers (image content) */
+  contentlessPages?: number
   analysedPages: number
   unanalysedPages: number
   /** readable pages in sections skipped with a recorded reason (terminal) */
@@ -322,6 +346,12 @@ export interface CoverageMetricsDTO {
   unitsFailed: number
   unitsSkipped: number
   complete: boolean
+  /** v5 — contents-entry matching accounting (never a proxy for analysis coverage) */
+  tocDiscovered?: number
+  tocMatchedHeadings?: number
+  tocVerifiedStarts?: number
+  tocInferredStarts?: number
+  tocUnresolved?: number
 }
 
 export interface SectionOutcomeDTO {
@@ -340,11 +370,21 @@ export interface StructureTocEntryDTO {
   title: string
   number: string | null
   printedPage: number | null
+  printedPageEnd?: number | null
   physicalPage: number | null
   level: 1 | 2
   matched: boolean
   matchPage: number | null
   note?: string
+  /** v5 — group + boundary evidence */
+  group?: StructureGroupDTO
+  tocPage?: number | null
+  startPage?: number | null
+  endPage?: number | null
+  startStatus?: PageMappingStatusDTO
+  boundaryStatus?: PageMappingStatusDTO
+  boundaryEvidence?: string
+  occurrences?: number
 }
 
 export interface StructureHeadingDTO {
@@ -368,6 +408,9 @@ export interface DocStructureInfoDTO {
   tocUnmatched?: number
   printedLabels?: Record<string, string>
   tocPages?: number[]
+  /** v5 — grouping + honest page accounting */
+  contentlessPages?: number[]
+  groupStats?: { group: StructureGroupDTO; total: number; ok: number; partial: number; failed: number; notAnalysable: number }[]
 }
 
 export interface DocumentAnalysisDTO {

@@ -1,10 +1,12 @@
 // ─── Riishe backend types (mirrored for the client in src/lib/types.ts) ──────
 
-// v4: three-layer representation — the document's own structure (original
-// headings, numbering, contents-table entries with match status) is kept
-// separate from AI-inferred study topics; dedupe is origin-aware and never
-// fuses distinct sections; page labels come from detected evidence.
-export const PIPELINE_VERSION = 4
+// v5: structural honesty upgrade — the document's own organisation is grouped
+// (front matter / main chapters / appendices / other) and every contents entry
+// stores its boundary evidence (start + end page, printed range, verification
+// status). Topic chips carry an item CLASS so keywords can never masquerade as
+// official headings, and page references for source headings come from the
+// section's own validated span, not from model-claimed subsets.
+export const PIPELINE_VERSION = 5
 
 /** What a topic's TITLE represents in the source document. */
 export type TopicOrigin =
@@ -13,6 +15,25 @@ export type TopicOrigin =
 
 /** Where the title wording was found. */
 export type TitleSource = 'toc' | 'body' | 'inferred'
+
+/** What kind of item this entry is in the document (v5 classification). */
+export type TopicItemClass =
+  | 'ORIGINAL_HEADING' // the document's own major heading
+  | 'SOURCE_SUBSECTION' // a numbered subsection of the document (x.y)
+  | 'LEARNING_TOPIC' // study topic inferred from the content
+  | 'KEYWORD' // keyword / entity extracted from the text
+  | 'TABLE_OR_LIST' // entry of a table or reference list
+  | 'QUESTION_GROUP' // question or question group
+  | 'UNCLASSIFIED' // could not be classified — needs review
+
+/** How a page mapping was established (v5). */
+export type PageMappingStatus =
+  | 'VERIFIED' // body text confirms the claimed page
+  | 'INFERRED' // derived from the contents claim / offset, not body-confirmed
+  | 'UNRESOLVED' // no plausible physical page could be established
+
+/** Which part of the document's own organisation an entry belongs to (v5). */
+export type StructureGroup = 'FRONT' | 'CHAPTER' | 'APPENDIX' | 'OTHER'
 
 export interface AnalyzedTopic {
   /** Canonical title — for SOURCE_HEADING topics this is the document's own wording, never renamed */
@@ -46,6 +67,17 @@ export interface AnalyzedTopic {
   tocMatchPage?: number | null
   /** when false for a SOURCE_HEADING topic, no body page could confirm the title (e.g. unreadable pages) */
   structureVerified?: boolean
+  // ── v5 fields ──
+  /** what this item is: official heading, source subsection, inferred topic, keyword… */
+  itemClass?: TopicItemClass
+  /** part of the document's organisation: front matter, main chapters, appendices, other */
+  group?: StructureGroup
+  /** how the page mapping was established for a SOURCE_HEADING topic */
+  pageMapping?: PageMappingStatus
+  /** the evidence that established this section's boundaries (human-readable, from the contents row/body) */
+  boundaryEvidence?: string
+  /** printed end page claimed by the contents row ("18-20" → 20), when the row carried a range */
+  tocPrintedEndPage?: number | null
 }
 
 export interface CoverageMetrics {
@@ -53,6 +85,11 @@ export interface CoverageMetrics {
   readablePages: number
   /** image-only pages OCR would be needed for */
   scannedPages: number
+  /** pages whose extracted text is ONLY running headers/footers — the real
+   *  content is an image (form facsimiles, Gazette reprints). They are
+   *  extracted but carry no analysable content; counted separately so they
+   *  are neither "readable content" nor silently folded into success. */
+  contentlessPages?: number
   /** readable pages inside units that were analysed successfully */
   analysedPages: number
   /** readable pages not covered by any successful unit (failed or pending) */
@@ -75,6 +112,18 @@ export interface CoverageMetrics {
    *  a successful unit or a skipped-with-reason unit, nothing failed, and no
    *  page was left un-extracted */
   complete: boolean
+  // ── v5: contents-entry matching accounting (kept beside page coverage so a
+  // "matched" count can never be mistaken for full-analysis evidence) ──
+  /** contents entries discovered in the document's own contents table */
+  tocDiscovered?: number
+  /** entries whose words/heading line were found in the body */
+  tocMatchedHeadings?: number
+  /** matched entries whose START page is confirmed at the claimed physical page */
+  tocVerifiedStarts?: number
+  /** matched entries whose start could only be inferred (offset/claim, no body hit) */
+  tocInferredStarts?: number
+  /** entries with no plausible physical page at all */
+  tocUnresolved?: number
 }
 
 export interface SectionOutcome {
@@ -96,6 +145,8 @@ export interface StructureTocEntry {
   number: string | null
   /** printed page (or start of range) the entry claims */
   printedPage: number | null
+  /** printed END page when the contents row carries a range ("18-20" → 20) */
+  printedPageEnd?: number | null
   /** physical PDF page = printedPage + detected offset (null when no offset was provable) */
   physicalPage: number | null
   /** 1 = major entry, 2 = numbered subsection (x.y) */
@@ -106,6 +157,23 @@ export interface StructureTocEntry {
   matchPage: number | null
   /** honest note when unmatched or unverifiable (e.g. claimed page is image-only) */
   note?: string
+  // ── v5: group + boundary evidence ──
+  /** part of the document's organisation this entry belongs to */
+  group?: StructureGroup
+  /** physical page the contents ROW itself was parsed from (evidence provenance) */
+  tocPage?: number | null
+  /** verified/inferred start page used for the section span (matchPage ?? physicalPage) */
+  startPage?: number | null
+  /** physical end page of the section (contents range end or next entry's start − 1) */
+  endPage?: number | null
+  /** how the START page was established */
+  startStatus?: PageMappingStatus
+  /** how the END boundary was established */
+  boundaryStatus?: PageMappingStatus
+  /** human-readable evidence for the boundaries ("contents row prints 18-20", "next entry starts at physical 22"…) */
+  boundaryEvidence?: string
+  /** number of body pages carrying this entry's words (duplicate-heading detection) */
+  occurrences?: number
 }
 
 /** A heading found in the document body (original wording kept). */
@@ -138,6 +206,15 @@ export interface DocStructureInfo {
   printedLabels?: Record<string, string>
   /** which pages carry the document's own contents table */
   tocPages?: number[]
+  // ── v5: grouping + honest page accounting ──
+  /** physical pages whose extracted text is only running headers/footers
+   *  (image-like content: form facsimiles, Gazette reprints). Evidence list —
+   *  they stay accounted, never hidden inside a success count. */
+  contentlessPages?: number[]
+  /** per-group processing accounting over the contents entries
+   *  (an entry is OK when every page of its span sits in a successful unit;
+   *  notAnalysable = the span holds no analysable content at all — image-only) */
+  groupStats?: { group: StructureGroup; total: number; ok: number; partial: number; failed: number; notAnalysable: number }[]
 }
 
 export interface DocumentAnalysis {
