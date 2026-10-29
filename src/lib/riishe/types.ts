@@ -13,7 +13,14 @@
 // by deterministic extraction; "complete" means CONTENT-analysis completeness
 // (pages awaiting OCR or skipped meaningful content block it) and page
 // accounting is reported as its own flag.
-export const PIPELINE_VERSION = 6
+// v7: whole-section list completeness — a section long enough to be split
+// into several analysis units may have only SOME units refused and recovered;
+// the recovered list is re-parsed over the topic's ENTIRE page span so the
+// stored entries never stop at the first refused chunk. Equations the PDF
+// prints only as an image (a "calculated as:" cue followed by variable
+// definitions, with no equation in the text layer) are flagged NEEDS_REVIEW
+// deterministically instead of being silently absent from the notes.
+export const PIPELINE_VERSION = 7
 
 /** What a topic's TITLE represents in the source document. */
 export type TopicOrigin =

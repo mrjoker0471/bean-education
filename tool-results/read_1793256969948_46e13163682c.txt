@@ -1,0 +1,700 @@
+     1→// ─── Riishe test generation: 50 challenging, VALIDATED questions ─────────────
+     2→// Pipeline (all server-side, background job):
+     3→//   1. Retrieve page-aligned sections relevant to the focus topics.
+     4→//   2. Generate per-category batches (configurable distribution) with strict
+     5→//      grounding rules — every question must cite pages + a verbatim excerpt.
+     6→//   3. Programmatic validation: structure, duplicates, evidence-in-document
+     7→//      check, page-range check.
+     8→//   4. LLM validation pass: is the keyed answer actually correct and supported?
+     9→//   5. Top-up rounds until the requested count is validated or the batch
+    10→//      budget is spent.
+    11→//   6. Publish only validated questions. Short/poor sources get a smaller
+    12→//      validated test with an honest note — never 50 unchecked outputs.
+    13→
+    14→import { db } from '@/lib/db'
+    15→import { safeParse } from '@/lib/serialize'
+    16→import { sectionPages, type ExtractedPage } from './extract'
+    17→import { detectStructure } from './structure'
+    18→import { normalizeTitle, titleTokens } from './dedupe'
+    19→import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isRateLimitError } from './ai'
+    20→import {
+    21→  DEFAULT_DISTRIBUTION, CATEGORY_LABELS,
+    22→  type DocumentAnalysis, type GeneratedQuestion, type QuestionCategory, type RiisheTestStats,
+    23→} from './types'
+    24→
+    25→const GEN_SECTION_CHARS = 4200
+    26→const BATCH_SIZE = 10
+    27→const MIN_BATCHES = 9 // floor keeps small tests as generous as the original budget
+    28→const MAX_BATCHES = 30 // absolute ceiling — always bounded, never unbounded
+    29→const MIN_PUBLISHABLE = 4
+    30→const RATE_LIMIT_BACKOFF_MS = 15_000
+    31→
+    32→/**
+    33→ * Batch budget for one run: enough batches to reach the requested count plus
+    34→ * top-up headroom, bounded both ways. 50 → 9 (the original budget), 100 → 14,
+    35→ * 200 → 24. A bigger request buys more attempts; it never removes the ceiling.
+    36→ */
+    37→export function batchBudgetFor(requested: number): number {
+    38→  return Math.max(MIN_BATCHES, Math.min(MAX_BATCHES, Math.ceil(requested / BATCH_SIZE) + 4))
+    39→}
+    40→
+    41→/** Provider outages that make further batches pointless this run. */
+    42→function isProviderUnavailable(err: unknown): boolean {
+    43→  const msg = err instanceof Error ? err.message : String(err)
+    44→  return /empty provider|temporar|timeout|unavailable|ECONN|ENOTFOUND|network/i.test(msg)
+    45→}
+    46→
+    47→interface CandidateQuestion extends GeneratedQuestion {
+    48→  sectionIdx: number
+    49→  dupKey: string
+    50→  /** The document whose excerpt supports this question (multi-doc practice). */
+    51→  docId: string
+    52→  validationNote?: string
+    53→}
+    54→
+    55→// ─── Normalisation / duplicate detection ──────────────────────────────────────
+    56→
+    57→function normalize(s: string): string {
+    58→  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    59→}
+    60→
+    61→function tokenSet(s: string): Set<string> {
+    62→  return new Set(normalize(s).split(' ').filter(w => w.length > 2))
+    63→}
+    64→
+    65→function jaccard(a: Set<string>, b: Set<string>): number {
+    66→  if (a.size === 0 || b.size === 0) return 0
+    67→  let inter = 0
+    68→  for (const w of a) if (b.has(w)) inter++
+    69→  return inter / (a.size + b.size - inter)
+    70→}
+    71→
+    72→/** Loose containment check for evidence: whitespace/punctuation insensitive. */
+    73→function evidenceInText(evidence: string, text: string): boolean {
+    74→  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    75→  const ev = norm(evidence)
+    76→  if (ev.length < 20) return false
+    77→  const hay = norm(text)
+    78→  if (hay.includes(ev)) return true
+    79→  // Sliding window: evidence may reflow across line breaks
+    80→  const words = ev.split(' ')
+    81→  if (words.length >= 4) {
+    82→    const half = Math.floor(words.length / 2)
+    83→    return hay.includes(words.slice(0, half).join(' ')) || hay.includes(words.slice(half).join(' '))
+    84→  }
+    85→  return false
+    86→}
+    87→
+    88→/**
+    89→ * A section heading alone is a map label, never evidence for a factual answer.
+    90→ * True when the evidence's tokens are a subset of one of the document's own
+    91→ * heading titles ("the document has a section called X" carries no facts).
+    92→ */
+    93→function evidenceIsHeadingOnly(evidence: string, headingKeys: Set<string> | undefined): boolean {
+    94→  if (!headingKeys || headingKeys.size === 0) return false
+    95→  const ev = normalize(evidence)
+    96→  if (!ev) return true
+    97→  const evTokens = tokenSet(evidence)
+    98→  if (evTokens.size === 0) return true
+    99→  for (const key of headingKeys) {
+   100→    const keyTokens = new Set(key.split(' ').filter(w => w.length > 2))
+   101→    if (keyTokens.size === 0) continue
+   102→    let inside = true
+   103→    for (const t of evTokens) if (!keyTokens.has(t)) { inside = false; break }
+   104→    if (inside) return true
+   105→  }
+   106→  return false
+   107→}
+   108→
+   109→// ─── Retrieval: which sections feed each batch? ────────────────────────────────
+   110→
+   111→interface BaseGenSection {
+   112→  label: string
+   113→  text: string
+   114→  fromPage: number
+   115→  toPage: number
+   116→  /** normalized token-sets of the document's own section headings — evidence
+   117→   *  that merely restates a heading is NEVER sufficient grounding (v6) */
+   118→  headingKeys?: Set<string>
+   119→}
+   120→
+   121→interface GenSection extends BaseGenSection {
+   122→  /** Which uploaded document this section came from (multi-doc practice). */
+   123→  docId: string
+   124→  docTitle: string
+   125→}
+   126→
+   127→/**
+   128→ * Build the generation section pool from the WHOLE document using the same
+   129→ * deterministic structure detection the analysis pipeline uses (so retrieval
+   130→ * can never be silently limited to the first few pages). When the student
+   131→ * picked focus topics, the pool leads with the ACTUAL pages those topics sit
+   132→ * on (from the verified analysis page references), padded with balanced
+   133→ * coverage so batches always have enough material.
+   134→ */
+   135→export function buildGenerationSections(
+   136→  pages: ExtractedPage[],
+   137→  numPages: number,
+   138→  analysis: DocumentAnalysis | null,
+   139→  focus: string[],
+   140→): BaseGenSection[] {
+   141→  const readable = pages.filter(p => !p.scanned && p.text.length > 0)
+   142→  const pageByNumber = new Map(readable.map(p => [p.page, p] as const))
+   143→  const textOf = (from: number, to: number) =>
+   144→    readable
+   145→      .filter(p => p.page >= from && p.page <= to)
+   146→      .map(p => `[page ${p.page}]\n${p.text}`)
+   147→      .join('\n\n')
+   148→
+   149→  const fromUnits = (): BaseGenSection[] => {
+   150→    const structure = detectStructure(pages, numPages, { maxUnitChars: GEN_SECTION_CHARS })
+   151→    if (structure.units.length === 0) return []
+   152→    const headings = new Set<string>()
+   153→    // the document's own section titles (contents layer + body headings) —
+   154→    // quoting one of these back is quoting a map label, not evidence
+   155→    for (const t of analysis?.topics ?? []) {
+   156→      if (t.origin !== 'SOURCE_HEADING') continue
+   157→      if (titleTokens(t.name).length <= 12) headings.add(normalizeTitle(t.name))
+   158→    }
+   159→    for (const e of analysis?.structure?.toc ?? []) {
+   160→      const t = normalizeTitle(e.title)
+   161→      if (t && titleTokens(e.title).length <= 12) headings.add(t)
+   162→    }
+   163→    return structure.units.map(u => ({
+   164→      label: u.title ? `${u.title} — pages ${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}` : u.fromPage === u.toPage ? `page ${u.fromPage}` : `pages ${u.fromPage}–${u.toPage}`,
+   165→      text: textOf(u.fromPage, u.toPage),
+   166→      fromPage: u.fromPage,
+   167→      toPage: u.toPage,
+   168→      headingKeys: headings,
+   169→    }))
+   170→  }
+   171→
+   172→  const fallbackSections = (): BaseGenSection[] =>
+   173→    sectionPages(pages, { maxChars: GEN_SECTION_CHARS, maxSections: 400 }).map(s => ({
+   174→      label: s.label,
+   175→      text: s.text,
+   176→      fromPage: s.fromPage,
+   177→      toPage: s.toPage,
+   178→    }))
+   179→
+   180→  let sections = fromUnits()
+   181→  if (sections.length === 0) sections = fallbackSections()
+   182→  if (sections.length === 0) return []
+   183→
+   184→  if (focus.length > 0 && analysis?.topics?.length) {
+   185→    const normFocus = new Set(focus.map(f => normalizeTitle(f)))
+   186→    const matched = analysis.topics.filter(t =>
+   187→      normFocus.has(normalizeTitle(t.name)) ||
+   188→      (t.aliases ?? []).some(a => normFocus.has(normalizeTitle(a))),
+   189→    )
+   190→    // include children of matched sections so the focus covers the sub-topics too
+   191→    const byParent = new Map(analysis.topics.map(t => [t.id ?? '', t] as const))
+   192→    for (const t of analysis.topics) {
+   193→      if (t.parentId && byParent.get(t.parentId) && matched.some(m => m.id === t.parentId)) matched.push(t)
+   194→    }
+   195→    const pageSet = new Set<number>()
+   196→    for (const t of matched) for (const p of t.pages) if (pageByNumber.has(p)) pageSet.add(p)
+   197→    if (pageSet.size > 0) {
+   198→      // expand by one page for context, then group into contiguous runs
+   199→      for (const p of [...pageSet]) {
+   200→        if (pageByNumber.has(p - 1)) pageSet.add(p - 1)
+   201→        if (pageByNumber.has(p + 1)) pageSet.add(p + 1)
+   202→      }
+   203→      const sorted = [...pageSet].sort((a, b) => a - b)
+   204→      const runs: { from: number; to: number }[] = []
+   205→      for (const p of sorted) {
+   206→        const last = runs[runs.length - 1]
+   207→        if (last && p <= last.to + 1) last.to = p
+   208→        else runs.push({ from: p, to: p })
+   209→      }
+   210→  const focusSections: BaseGenSection[] = runs
+   211→        .map(r => ({
+   212→          label: r.from === r.to ? `page ${r.from}` : `pages ${r.from}–${r.to}`,
+   213→          text: textOf(r.from, r.to).slice(0, GEN_SECTION_CHARS * 2),
+   214→          fromPage: r.from,
+   215→          toPage: r.to,
+   216→        }))
+   217→        .filter(s => s.text.length > 0)
+   218→      const totalChars = focusSections.reduce((s, x) => s + x.text.length, 0)
+   219→      if (focusSections.length > 0 && totalChars >= 1500) {
+   220→        // top up with balanced coverage if the focus area is thin
+   221→        const out = [...focusSections]
+   222→        let chars = totalChars
+   223→        for (const sec of sections) {
+   224→          if (chars >= 6000) break
+   225→          if (out.some(o => o.fromPage <= sec.toPage && sec.fromPage <= o.toPage)) continue
+   226→          out.push(sec)
+   227→          chars += sec.text.length
+   228→        }
+   229→        return out
+   230→      }
+   231→    }
+   232→  }
+   233→  return sections
+   234→}
+   235→
+   236→function scoreSection(sectionText: string, focus: string[]): number {
+   237→  if (focus.length === 0) return 0
+   238→  const hay = normalize(sectionText)
+   239→  let score = 0
+   240→  for (const f of focus) {
+   241→    const nf = normalize(f)
+   242→    if (nf && hay.includes(nf)) score += 2
+   243→    for (const w of nf.split(' ')) {
+   244→      if (w.length > 4 && hay.includes(w)) score += 1
+   245→    }
+   246→  }
+   247→  return score
+   248→}
+   249→
+   250→function pickSections(
+   251→  sections: GenSection[],
+   252→  focus: string[],
+   253→  cursor: { i: number },
+   254→  count: number,
+   255→): GenSection[] {
+   256→  if (focus.length > 0) {
+   257→    const ranked = [...sections].sort((a, b) => scoreSection(b.text, focus) - scoreSection(a.text, focus))
+   258→    const top = ranked.slice(0, count)
+   259→    if (scoreSection(top[top.length - 1]?.text ?? '', focus) > 0) return top
+   260→  }
+   261→  // Balanced round-robin over the document
+   262→  const out: typeof sections = []
+   263→  for (let k = 0; k < count && sections.length > 0; k++) {
+   264→    out.push(sections[cursor.i % sections.length])
+   265→    cursor.i++
+   266→  }
+   267→  return out
+   268→}
+   269→
+   270→// ─── Generation prompts ────────────────────────────────────────────────────────
+   271→
+   272→const CATEGORY_RULES: Record<QuestionCategory, string> = {
+   273→  FOUNDATION: `Test direct conceptual understanding of definitions, core ideas and classifications from the material. Clear, factual, unambiguous stems. Difficulty: mostly EASY/MEDIUM with 1-2 HARD.`,
+   274→  APPLICATION: `Apply concepts from the material to NEW situations, examples, cases or short problems the student has not seen verbatim. Require a reasoning step, not recall. Difficulty: mostly MEDIUM/HARD.`,
+   275→  STATEMENT: `Use statement-based formats: give 2-3 numbered statements and ask which are correct (e.g. "Which of the following statements are correct?"), OR comparison questions between two concepts from the material, OR assertion/reasoning pairs where the subject suits it. Difficulty: MEDIUM/HARD.`,
+   276→  MULTISTEP: `Multi-step reasoning, scenario analysis, or calculation questions ONLY where the material provides enough data/rules. The stem may set up a situation requiring 2-3 chained inferences. Difficulty: HARD-leaning.`,
+   277→  MISCONCEPTION: `Target the misconceptions/ traps documented in the material: options must include the specific wrong belief as a plausible distractor alongside the correct answer. The question must still be fair and answerable purely from the material. Difficulty: MEDIUM/HARD.`,
+   278→}
+   279→
+   280→function generationPrompt(opts: {
+   281→  category: QuestionCategory
+   282→  count: number
+   283→  sections: { label: string; text: string }[]
+   284→  focus: string[]
+   285→  avoid: string[]
+   286→  examLabel: string | null
+   287→  questionPaper?: boolean
+   288→}): string {
+   289→  const docText = opts.sections
+   290→    .map(s => `--- SOURCE EXCERPT (${s.label}) ---\n${s.text}`)
+   291→    .join('\n\n')
+   292→  return `You are Riishe, the exam-question engine inside BEAN EXAMS. Generate EXACTLY ${opts.count} challenging multiple-choice questions of the category "${CATEGORY_LABELS[opts.category]}" for an Indian competitive-exam student${opts.examLabel ? ` preparing for ${opts.examLabel}` : ''}.
+   293→
+   294→${CATEGORY_RULES[opts.category]}
+   295→
+   296→STRICT GROUNDING RULES:
+   297→- Every question, every option and the correct answer MUST be supported by the SOURCE EXCERPTS below. Do not use outside facts.
+   298→- "evidence" = a verbatim quote (max 300 characters) copied EXACTLY from the excerpts that supports the correct answer.
+   299→- "pageRefs" = the [page N] numbers whose excerpts support the answer.
+   300→- If the excerpts don't contain enough for ${opts.count} good questions, generate fewer — quality over quantity.
+   301→- 4 options each, exactly ONE correct. Distractors must be plausible (same topic, subtle differences) but clearly wrong to someone who knows the material.
+   302→- "topic" = the specific subtopic this question tests.
+   303→- Language: clear English, exam-style stems, no ambiguity, no trick wording that punishes careful readers.
+   304→- Vary stems; do not reword the same question twice.
+   305→${opts.questionPaper ? '\nNOTE: this source is a question paper / marks scheme. Use its questions to inform the STYLE and difficulty of your questions only — factual support still comes from the content the paper itself contains (its questions, options, instructions and data). Never treat a question\'s wording as evidence for a fact.' : ''}
+   306→${opts.focus.length ? `\nThe student asked to focus on: ${opts.focus.join('; ')}. Skip content unrelated to these topics.` : ''}
+   307→${opts.avoid.length ? `\nDo NOT duplicate or reword these existing question stems:\n${opts.avoid.map(a => `- ${a}`).join('\n')}` : ''}
+   308→
+   309→${fenceDocumentText('student study material', docText)}
+   310→
+   311→Return ONLY a JSON array; each element:
+   312→{"text": string, "options": [string, string, string, string], "correctIndex": 0|1|2|3, "explanation": string, "difficulty": "EASY"|"MEDIUM"|"HARD", "topic": string, "pageRefs": number[], "evidence": string}
+   313→
+   314→"explanation" must teach: why the correct answer is right AND why the tempting wrong options fail (2-4 sentences).`
+   315→}
+   316→
+   317→interface RawQuestion {
+   318→  text?: string
+   319→  options?: string[]
+   320→  correctIndex?: number
+   321→  explanation?: string
+   322→  difficulty?: string
+   323→  topic?: string
+   324→  pageRefs?: number[]
+   325→  evidence?: string
+   326→}
+   327→
+   328→interface ValidationVerdict {
+   329→  index: number
+   330→  verdict: 'VALID' | 'INVALID'
+   331→  note?: string
+   332→}
+   333→
+   334→// ─── Programmatic validation ───────────────────────────────────────────────────
+   335→
+   336→function programmaticValidate(
+   337→  raw: RawQuestion,
+   338→  category: QuestionCategory,
+   339→  sections: GenSection[],
+   340→): CandidateQuestion | { reject: string } {
+   341→  const text = String(raw.text ?? '').trim()
+   342→  const options = (raw.options ?? []).map(o => String(o ?? '').trim())
+   343→  const correctIndex = Number(raw.correctIndex)
+   344→  const explanation = String(raw.explanation ?? '').trim()
+   345→  const evidence = String(raw.evidence ?? '').trim()
+   346→  const pageRefs = (raw.pageRefs ?? []).map(Number).filter(n => Number.isFinite(n))
+   347→  const difficulty = ['EASY', 'MEDIUM', 'HARD'].includes(String(raw.difficulty)) ? String(raw.difficulty) : 'MEDIUM'
+   348→  const topic = String(raw.topic ?? '').trim().slice(0, 120) || 'General'
+   349→
+   350→  if (text.length < 20 || text.length > 800) return { reject: 'stem too short/long' }
+   351→  if (options.length !== 4 || options.some(o => o.length === 0 || o.length > 300)) return { reject: 'options invalid' }
+   352→  const normed = options.map(o => normalize(o))
+   353→  if (new Set(normed).size !== 4) return { reject: 'duplicate options' }
+   354→  if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex > 3) return { reject: 'bad correctIndex' }
+   355→  if (explanation.length < 40) return { reject: 'explanation too thin' }
+   356→  if (!evidence) return { reject: 'no evidence' }
+   357→  if (evidence.length > 600) return { reject: 'evidence too long' }
+   358→
+   359→  // Evidence must actually exist in the fed sections (grounding check)
+   360→  const covered = sections.find(s => evidenceInText(evidence, s.text))
+   361→  if (!covered) return { reject: 'evidence not found in source text' }
+   362→  // A section heading alone is never sufficient evidence for a factual answer
+   363→  if (evidenceIsHeadingOnly(evidence, covered.headingKeys)) {
+   364→    return { reject: 'evidence is only a section heading' }
+   365→  }
+   366→  // Page refs must point into the fed section range
+   367→  const validPages = pageRefs.filter(p => covered.fromPage <= p && p <= covered.toPage)
+   368→  if (validPages.length === 0) return { reject: 'page refs out of range' }
+   369→
+   370→  // Page-reference precision: pin the citation to the page(s) that actually
+   371→  // carry the evidence excerpt. The model sometimes cites the section's first
+   372→  // page while quoting text from a later page of the same section — the quote
+   373→  // is real, but the chip would land one page off. Split the section into its
+   374→  // [page N] blocks and keep only cited pages that hold the evidence; when
+   375→  // none does, cite the pages where the evidence actually appears instead.
+   376→  const pageTexts = new Map<number, string>()
+   377→  for (const block of covered.text.split(/\n\n+/)) {
+   378→    const m = /^\[page (\d+)\]/.exec(block)
+   379→    if (m) pageTexts.set(Number(m[1]), block)
+   380→  }
+   381→  const evidencePages = [...pageTexts.entries()]
+   382→    .filter(([, txt]) => evidenceInText(evidence, txt))
+   383→    .map(([p]) => p)
+   384→  const refined = validPages.filter(p => evidencePages.includes(p))
+   385→  const finalPages = refined.length > 0
+   386→    ? refined
+   387→    : evidencePages.filter(p => covered.fromPage <= p && p <= covered.toPage)
+   388→
+   389→  return {
+   390→    text, options, correctIndex, explanation,
+   391→    difficulty: difficulty as GeneratedQuestion['difficulty'],
+   392→    category, topic, pageRefs: finalPages.length > 0 ? finalPages : validPages, evidence,
+   393→    sectionIdx: sections.indexOf(covered),
+   394→    docId: covered.docId,
+   395→    dupKey: normalize(text).slice(0, 140),
+   396→  }
+   397→}
+   398→
+   399→// ─── The job ───────────────────────────────────────────────────────────────────
+   400→
+   401→export async function generateTestJob(testId: string): Promise<void> {
+   402→  const test = await db.riisheTest.findUnique({ where: { id: testId } })
+   403→  if (!test || !['QUEUED', 'FAILED'].includes(test.status)) return
+   404→
+   405→  // Every source document behind this test (multi-document practice) —
+   406→  // ownership was checked by the route that created the test; here we only
+   407→  // load what was recorded. The primary document is always first.
+   408→  const docIds = [test.documentId, ...jsonIdArr(test.sourceDocIdsJson).filter(id => id !== test.documentId)]
+   409→  const docs = await db.studyDocument.findMany({ where: { id: { in: docIds } } })
+   410→  const ordered = docIds.map(id => docs.find(d => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d)
+   411→  const primary = ordered[0]
+   412→  if (!primary || primary.status !== 'READY' || !primary.extractionJson || ordered.some(d => d.status !== 'READY' || !d.extractionJson)) {
+   413→    await db.riisheTest.update({
+   414→      where: { id: testId },
+   415→      data: { status: 'FAILED', statusDetail: 'The document is not analysed yet. Wait for processing to finish, then try again.' },
+   416→    })
+   417→    return
+   418→  }
+   419→
+   420→  await db.riisheTest.update({
+   421→    where: { id: testId },
+   422→    data: { status: 'GENERATING', statusDetail: 'Selecting relevant sections…', updatedAt: new Date() },
+   423→  })
+   424→
+   425→  const focus = safeParse<string[]>(test.focusTopicsJson ?? '[]', []).filter(Boolean)
+   426→
+   427→  // Whole-document, structure-aware retrieval per source document (never
+   428→  // limited to the first pages). Sections carry their own docId so every
+   429→  // generated question is attributed to the document that actually supports it.
+   430→  const sections: GenSection[] = []
+   431→  const analysisOf = new Map<string, DocumentAnalysis | null>()
+   432→  for (const d of ordered) {
+   433→    const pages = safeParse(d.extractionJson, [] as ExtractedPage[])
+   434→    const analysis = safeParse<DocumentAnalysis | null>(d.analysisJson, null)
+   435→    analysisOf.set(d.id, analysis)
+   436→    const docSections = buildGenerationSections(pages, d.pageCount ?? pages.length, analysis, focus)
+   437→    for (const s of docSections) sections.push({ ...s, docId: d.id, docTitle: d.title })
+   438→  }
+   439→  if (sections.length === 0) {
+   440→    await db.riisheTest.update({
+   441→      where: { id: testId },
+   442→      data: { status: 'FAILED', statusDetail: 'The document has no analysable text, so questions cannot be generated from it.' },
+   443→    })
+   444→    return
+   445→  }
+   446→
+   447→  // Distribution: the route computed the student's requested mix (count +
+   448→  // category selection). Fall back to the scaled default for legacy rows.
+   449→  // Requests beyond 50 (the practice builder offers up to 200) are honoured
+   450→  // when the material supports them — the batch budget scales with the count,
+   451→  // and validation still publishes only what actually passes.
+   452→  const requested = Math.min(200, Math.max(4, test.requestedCount || 50))
+   453→  const storedDist = safeParse<Record<string, number> | null>(test.distributionJson, null)
+   454→  const dist: Record<QuestionCategory, number> = { ...DEFAULT_DISTRIBUTION }
+   455→  if (storedDist && typeof storedDist === 'object') {
+   456→    const valid = (Object.keys(dist) as QuestionCategory[]).filter(k => Number.isFinite(storedDist[k]) && storedDist[k] > 0)
+   457→    if (valid.length > 0) {
+   458→      for (const k of Object.keys(dist) as QuestionCategory[]) dist[k] = 0
+   459→      for (const k of valid) dist[k] = Math.max(1, Math.round(storedDist[k]))
+   460→    }
+   461→  } else if (requested !== 50) {
+   462→    const scale = requested / 50
+   463→    for (const k of Object.keys(dist) as QuestionCategory[]) dist[k] = Math.max(1, Math.round(dist[k] * scale))
+   464→  }
+   465→  const focusCat: QuestionCategory[] = (Object.keys(dist) as QuestionCategory[]).filter(k => dist[k] > 0)
+   466→  const maxBatches = batchBudgetFor(requested)
+   467→
+   468→  // Build the initial batch plan (category → chunk of ≤ BATCH_SIZE)
+   469→  const plan: { category: QuestionCategory; count: number }[] = []
+   470→  for (const cat of focusCat) {
+   471→    let remaining = dist[cat]
+   472→    while (remaining > 0) {
+   473→      plan.push({ category: cat, count: Math.min(BATCH_SIZE, remaining) })
+   474→      remaining -= BATCH_SIZE
+   475→    }
+   476→  }
+   477→
+   478→  const candidates: CandidateQuestion[] = []
+   479→  const seenKeys = new Set<string>()
+   480→  let llmCalls = 0
+   481→  let batches = 0
+   482→  let providerFailed = false
+   483→  /** true when batches were refused by rate limiting — the failure message must
+   484→   *  say so instead of falsely claiming the document lacks content. */
+   485→  let providerThrottled = false
+   486→
+   487→  const cursor = { i: 0 }
+   488→
+   489→  const runBatch = async (category: QuestionCategory, count: number): Promise<void> => {
+   490→    if (batches >= maxBatches) return
+   491→    batches++
+   492→    const secs = pickSections(sections, focus, cursor, category === 'MISCONCEPTION' ? 3 : 2)
+   493→    const avoid = candidates.slice(-30).map(c => c.text.slice(0, 90))
+   494→    // A batch that draws on a question-paper document only informs STYLE — the
+   495→    // prompt is told so it never treats question wording as factual evidence.
+   496→    const questionPaper = secs.some(s => analysisOf.get(s.docId)?.structure?.kind === 'QUESTION_PAPER')
+   497→    const callGenerate = async (): Promise<RawQuestion[]> => {
+   498→      llmCalls++
+   499→      const raws = await chatJson<RawQuestion[]>({
+   500→        system: 'You are Riishe, a meticulous exam-question generator. Output only valid JSON.',
+   501→        user: generationPrompt({
+   502→          category, count,
+   503→          sections: secs.map(s => ({ label: `${s.docTitle} · ${s.label}`, text: s.text })),
+   504→          focus, avoid,
+   505→          examLabel: primary.examLabel,
+   506→          questionPaper,
+   507→        }),
+   508→      })
+   509→      return Array.isArray(raws) ? raws : []
+   510→    }
+   511→    let raws: RawQuestion[]
+   512→    try {
+   513→      raws = await callGenerate()
+   514→    } catch (err) {
+   515→      if (isRateLimitError(err)) {
+   516→        // One bounded backoff per batch — sustained throttling still ends the
+   517→        // run honestly (see the publish message), it is never hidden.
+   518→        providerThrottled = true
+   519→        console.warn('[riishe generate] rate limited — backing off 15s once')
+   520→        await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS))
+   521→        try {
+   522→          raws = await callGenerate()
+   523→        } catch (err2) {
+   524→          providerFailed = providerFailed || isProviderUnavailable(err2)
+   525→          console.error('[riishe generate] batch failed after rate-limit backoff:', err2)
+   526→          return
+   527→        }
+   528→      } else {
+   529→        if (isProviderUnavailable(err)) providerFailed = true
+   530→        console.error('[riishe generate] batch failed:', err)
+   531→        return
+   532→      }
+   533→    }
+   534→
+   535→    // Programmatic validation
+   536→    const passed: CandidateQuestion[] = []
+   537→    for (const raw of raws) {
+   538→      const v = programmaticValidate(raw, category, secs)
+   539→      if ('reject' in v) continue
+   540→      if (seenKeys.has(v.dupKey)) continue
+   541→      // Near-duplicate check against everything so far
+   542→      const tokens = tokenSet(v.text)
+   543→      if (candidates.some(c => jaccard(tokenSet(c.text), tokens) > 0.78)) continue
+   544→      seenKeys.add(v.dupKey)
+   545→      candidates.push(v)
+   546→      passed.push(v)
+   547→    }
+   548→
+   549→    // LLM validation pass over the survivors of this batch
+   550→    if (passed.length > 0) {
+   551→      try {
+   552→        llmCalls++
+   553→        const verdicts = await chatJson<ValidationVerdict[]>({
+   554→          system: 'You are Riishe\'s question validator. You verify MCQs against source text. Output only valid JSON.',
+   555→          user: `Verify each question below against the SOURCE EXCERPTS. Check: (1) the keyed answer is factually correct per the source, (2) exactly one clearly correct option, (3) distractors are wrong, (4) the stem is clear and answerable from the source alone.
+   556→
+   557→Return a JSON array: [{"index": <position in the list starting at 0>, "verdict": "VALID"|"INVALID", "note": short reason}]
+   558→
+   559→${fenceDocumentText('student study material', secs.map(s => `--- (${s.docTitle} · ${s.label}) ---\n${s.text}`).join('\n\n'))}
+   560→
+   561→QUESTIONS:
+   562→${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${'ABCD'[j]}. ${o}`).join(' | ')}\nKeyed correct: ${'ABCD'[q.correctIndex]}\nEvidence: "${q.evidence.slice(0, 250)}"`).join('\n\n')}`,
+   563→        })
+   564→        const byIndex = new Map<number, ValidationVerdict>()
+   565→        for (const v of (Array.isArray(verdicts) ? verdicts : [])) {
+   566→          if (v && typeof v.index === 'number') byIndex.set(v.index, v)
+   567→        }
+   568→        for (let i = passed.length - 1; i >= 0; i--) {
+   569→          const verdict = byIndex.get(i)
+   570→          const q = passed[i]
+   571→          const idx = candidates.indexOf(q)
+   572→          if (verdict?.verdict === 'INVALID') {
+   573→            if (idx >= 0) candidates.splice(idx, 1)
+   574→          } else if (verdict?.note) {
+   575→            q.validationNote = String(verdict.note).slice(0, 200)
+   576→          }
+   577→        }
+   578→      } catch { /* validator failure keeps the programmatic verdicts — honest middle ground */ }
+   579→    }
+   580→  }
+   581→
+   582→  // Initial batches
+   583→  for (const step of plan) {
+   584→    if (countValid() >= requested) break
+   585→    await runBatch(step.category, step.count)
+   586→    await db.riisheTest.update({
+   587→      where: { id: testId },
+   588→      data: { statusDetail: `Generated ${candidates.length} candidate questions so far…` },
+   589→    }).catch(() => {})
+   590→  }
+   591→
+   592→  // Top-up rounds (categories with the largest deficits first)
+   593→  let guard = 0
+   594→  while (countValid() < requested && batches < maxBatches && guard < 4 && !providerFailed) {
+   595→    guard++
+   596→    const deficit = categoryDeficit(dist, candidates, requested)
+   597→    const cat = deficit[0]?.category ?? 'APPLICATION'
+   598→    await runBatch(cat, Math.min(BATCH_SIZE, requested - countValid()))
+   599→  }
+   600→
+   601→  function countValid(): number {
+   602→    return candidates.length
+   603→  }
+   604→
+   605→  // ── Publish ──
+   606→  const published = candidates.slice(0, requested)
+   607→  if (published.length < MIN_PUBLISHABLE) {
+   608→    const throttleNote = providerThrottled
+   609→      ? 'The AI provider kept rate-limiting generation, so no validated questions could be produced yet — this says nothing about the document itself. Your analysis is safe; please try generating again in a few minutes.'
+   610→      : `Only ${published.length} question${published.length === 1 ? '' : 's'} passed validation — the document does not contain enough reliable, testable content for a full test. Try a more detailed document or a different topic.`
+   611→    await db.riisheTest.update({
+   612→      where: { id: testId },
+   613→      data: {
+   614→        status: 'FAILED',
+   615→        statusDetail: providerFailed
+   616→          ? `Question generation failed: ${AI_UNAVAILABLE_MESSAGE}`
+   617→          : throttleNote,
+   618→        statsJson: JSON.stringify(statsSnapshot(candidates, llmCalls, batches)),
+   619→      },
+   620→    })
+   621→    return
+   622→  }
+   623→
+   624→  // Persist questions + publish (each question keeps the document that
+   625→  // actually supports it, so provenance and page chips deep-link correctly)
+   626→  await db.riisheQuestion.deleteMany({ where: { testId } })
+   627→  const rows = published.map((q, i) => ({
+   628→    testId,
+   629→    documentId: q.docId,
+   630→    order: i + 1,
+   631→    text: q.text,
+   632→    optionsJson: JSON.stringify(q.options),
+   633→    correctIndex: q.correctIndex,
+   634→    explanation: q.explanation,
+   635→    difficulty: q.difficulty,
+   636→    category: q.category,
+   637→    topic: q.topic,
+   638→    pageRefsJson: JSON.stringify(q.pageRefs),
+   639→    evidence: q.evidence.slice(0, 600),
+   640→    status: 'VALIDATED',
+   641→    validationNote: q.validationNote ?? null,
+   642→  }))
+   643→  await db.riisheQuestion.createMany({ data: rows })
+   644→  const saved = await db.riisheQuestion.findMany({ where: { testId }, select: { id: true }, orderBy: { order: 'asc' } })
+   645→
+   646→  const rejected = llmCalls > 0 ? Math.max(0, batches * BATCH_SIZE - candidates.length) : 0
+   647→  const honestNote = published.length < requested
+   648→    ? providerThrottled
+   649→      ? `${published.length} of the requested ${requested} questions validated — the AI provider rate-limited some batches, so the test is smaller than requested. Try generating again later for more.`
+   650→      : `${published.length} of the requested ${requested} questions validated — the material supports a test of this size.`
+   651→    : null
+   652→
+   653→  await db.riisheTest.update({
+   654→    where: { id: testId },
+   655→    data: {
+   656→      status: 'READY',
+   657→      statusDetail: honestNote,
+   658→      questionIdsJson: JSON.stringify(saved.map(q => q.id)),
+   659→      statsJson: JSON.stringify(statsSnapshot(published, llmCalls, batches, rejected)),
+   660→    },
+   661→  })
+   662→
+   663→  function statsSnapshot(list: CandidateQuestion[], calls: number, batchCount: number, rejectedCount?: number): RiisheTestStats {
+   664→    const byCategory: RiisheTestStats['byCategory'] = {}
+   665→    const byDifficulty = { EASY: 0, MEDIUM: 0, HARD: 0 }
+   666→    for (const q of list) {
+   667→      byCategory[q.category] = (byCategory[q.category] ?? 0) + 1
+   668→      byDifficulty[q.difficulty as 'EASY' | 'MEDIUM' | 'HARD']++
+   669→    }
+   670→    return {
+   671→      generated: list.length,
+   672→      validated: list.length,
+   673→      rejected: rejectedCount ?? Math.max(0, batchCount * BATCH_SIZE - list.length),
+   674→      byCategory,
+   675→      byDifficulty,
+   676→      llmCalls: calls,
+   677→      batches: batchCount,
+   678→    }
+   679→  }
+   680→
+   681→  function categoryDeficit(distMap: Record<QuestionCategory, number>, list: CandidateQuestion[], total: number): { category: QuestionCategory; deficit: number }[] {
+   682→    // Scale by the distribution's own total (it sums to the requested count),
+   683→    // never a hard-coded 50 — otherwise top-ups skew for 20/30/100-question runs.
+   684→    const distSum = (Object.keys(distMap) as QuestionCategory[]).reduce((s, k) => s + Math.max(0, distMap[k]), 0) || 1
+   685→    return (Object.keys(distMap) as QuestionCategory[])
+   686→      .map(cat => ({ category: cat, deficit: Math.round(distMap[cat] / distSum * total) - list.filter(q => q.category === cat).length }))
+   687→      .sort((a, b) => b.deficit - a.deficit)
+   688→  }
+   689→}
+   690→
+   691→function jsonIdArr(json: string | null | undefined): string[] {
+   692→  if (!json) return []
+   693→  try {
+   694→    const v = JSON.parse(json)
+   695→    return Array.isArray(v) ? v.map(String) : []
+   696→  } catch {
+   697→    return []
+   698→  }
+   699→}
+   700→

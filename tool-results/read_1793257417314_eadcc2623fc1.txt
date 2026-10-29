@@ -1,0 +1,707 @@
+     1→// ─── Riishe topic canonicalisation: dedupe + hierarchy + page verification ───
+     2→// Pure, deterministic post-processing over per-section model output.
+     3→//
+     4→// v4 — origin-aware merging. Every topic input carries an ORIGIN:
+     5→//   • SOURCE_HEADING — the document's own section title (from the contents
+     6→//     table or a body heading). These are the document's real structure:
+     7→//     they are kept verbatim, never renamed, and never absorbed into an
+     8→//     AI-inferred topic. Same-title chunk continuations of one long section
+     9→//     merge; different sections never do, however similar they sound.
+    10→//   • AI_INFERRED — a study topic Riishe identified INSIDE a source section.
+    11→//     These may merge with each other when they sit in the same section, or
+    12→//     merge INTO a source heading they merely echo. They must never reach
+    13→//     across the document and fuse with a different section's topic.
+    14→//
+    15→// Page verification is word-boundary based (substring checks falsely
+    16→// supported fragments like "alfunction" inside "malfunction"), with light
+    17→// plural handling. Subtopics that no supporting page evidences are dropped
+    18→// instead of being shown as invented keywords.
+    19→//
+    20→// The same input always produces the same output, so re-analysis cannot
+    21→// re-introduce duplicates.
+    22→
+    23→import type { AnalyzedTopic, TopicOrigin, TitleSource, TopicItemClass, StructureGroup, ListExtraction } from './types'
+    24→import { extractNumberToken } from './structure'
+    25→
+    26→// ─── Title normalisation ──────────────────────────────────────────────────────
+    27→
+    28→const ABBREV_EXPANSIONS: [RegExp, string][] = [
+    29→  [/\band\b/g, ' and '],
+    30→  [/&/g, ' and '],
+    31→  [/\bw\/\b/g, ' with '],
+    32→  [/\bvs\.?\b/g, ' versus '],
+    33→  [/\be\.?\s?g\.?\b/g, ' '],
+    34→  [/\bi\.?\s?e\.?\b/g, ' '],
+    35→  [/\betc\.?\b/g, ' '],
+    36→]
+    37→
+    38→/** Aggressive normal form used for duplicate detection only (never display). */
+    39→export function normalizeTitle(s: string): string {
+    40→  let t = s.toLowerCase()
+    41→  for (const [re, rep] of ABBREV_EXPANSIONS) t = t.replace(re, rep)
+    42→  t = t
+    43→    .replace(/\(([^)]*)\)/g, ' $1 ') // keep parenthetical words but unhook them
+    44→    .replace(/[^a-z0-9]+/g, ' ')
+    45→    .split(' ')
+    46→    .map(w => (w.length > 4 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)) // light plural stemming
+    47→    .join(' ')
+    48→    .replace(/\b(the|a|an|of|for|and|in|to|on|with|by)\b/g, ' ')
+    49→    .replace(/\s+/g, ' ')
+    50→    .trim()
+    51→  return t
+    52→}
+    53→
+    54→export function titleTokens(s: string): string[] {
+    55→  return normalizeTitle(s).split(' ').filter(w => w.length > 2 && !STOPWORDS.has(w))
+    56→}
+    57→
+    58→const STOPWORDS = new Set([
+    59→  'introduction', 'about', 'chapter', 'unit', 'section', 'part', 'appendix',
+    60→])
+    61→
+    62→export function jaccard(a: Set<string>, b: Set<string>): number {
+    63→  if (a.size === 0 || b.size === 0) return 0
+    64→  let inter = 0
+    65→  for (const w of a) if (b.has(w)) inter++
+    66→  return inter / (a.size + b.size - inter)
+    67→}
+    68→
+    69→// ─── Evidence: word-boundary token lookup in page text ────────────────────────
+    70→
+    71→const tokenReCache = new Map<string, RegExp>()
+    72→
+    73→function wordRe(token: string): RegExp {
+    74→  let re = tokenReCache.get(token)
+    75→  if (!re) {
+    76→    const esc = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    77→    re = new RegExp(`\\b${esc}\\b`)
+    78→    tokenReCache.set(token, re)
+    79→  }
+    80→  return re
+    81→}
+    82→
+    83→/**
+    84→ * Does `token` occur in the (already lowercased, punctuation-collapsed) page
+    85→ * text as a whole word? Light plural handling both ways, because titles stem
+    86→ * plurals ("universities" → "university") while page text keeps them.
+    87→ */
+    88→export function pageHasToken(text: string, token: string): boolean {
+    89→  if (!token) return false
+    90→  if (wordRe(token).test(text)) return true
+    91→  if (token.length > 3 && token.endsWith('s') && wordRe(token.slice(0, -1)).test(text)) return true
+    92→  if (wordRe(`${token}s`).test(text)) return true
+    93→  if (wordRe(`${token}es`).test(text)) return true
+    94→  return false
+    95→}
+    96→
+    97→// ─── Input shape ──────────────────────────────────────────────────────────────
+    98→
+    99→export interface TopicInput {
+   100→  name: string
+   101→  subtopics: string[]
+   102→  pages: number[]
+   103→  /** analysis unit this came from — anchors hierarchy + trusted page range */
+   104→  unitIndex: number
+   105→  unitTitle: string | null
+   106→  unitFromPage: number
+   107→  unitToPage: number
+   108→  /** heading-derived topics carry a verified anchor page */
+   109→  anchored?: boolean
+   110→  /** v4: what this title represents in the document (default: AI_INFERRED for model output) */
+   111→  origin?: TopicOrigin
+   112→  /** v4: where the title wording came from */
+   113→  titleSource?: TitleSource
+   114→  /** v4: the document's own numbering token ("Chapter-4", "VII"), when the title carries one */
+   115→  numbering?: string | null
+   116→  /** v4: printed page the contents table claims for this section */
+   117→  tocPrintedPage?: number | null
+   118→  /** v4: physical page where the contents claim was matched in the body */
+   119→  tocMatchPage?: number | null
+   120→  /** v4: false when the section's own pages could not confirm the title */
+   121→  structureVerified?: boolean
+   122→  // ── v5 ──
+   123→  /** item classification (official heading / source subsection / table entry …) */
+   124→  itemClass?: TopicItemClass
+   125→  /** part of the document's organisation (front matter / chapters / appendices) */
+   126→  group?: StructureGroup
+   127→  /** for source subsections: the exact title of the containing section */
+   128→  parentTitle?: string | null
+   129→  /** printed END page claimed by the contents row, when the row carries a range */
+   130→  tocPrintedEndPage?: number | null
+   131→  /** human-readable boundary evidence for this section's page span */
+   132→  boundaryEvidence?: string
+   133→  /** v6: a reference list deterministically recovered from this topic's pages */
+   134→  list?: ListExtraction
+   135→}
+   136→
+   137→export interface CanonicalizeOptions {
+   138→  /** page number → normalized page text, for reference verification */
+   139→  pageTextIndex: Map<number, string>
+   140→  maxTopics?: number
+   141→  maxSubtopicsPerTopic?: number
+   142→}
+   143→
+   144→// ─── Page verification ────────────────────────────────────────────────────────
+   145→
+   146→/**
+   147→ * Keep only page references the document itself supports:
+   148→ *  • the page lies in one of the units the topic was extracted from (the model
+   149→ *    was shown exactly those [page N] markers) — a topic merged from several
+   150→ *    chunks of one long section keeps its full span, it is not clamped to the
+   151→ *    first chunk, AND
+   152→ *  • at least one meaningful title token occurs on that page as a whole word.
+   153→ * Heading-anchored pages are always kept.
+   154→ *
+   155→ * v5: `keepSpan` — for SOURCE_HEADING topics the unit range IS the document's
+   156→ * own section boundary (validated contents row / heading anchor), so the FULL
+   157→ * span is kept as the page list; token verification only decides the mapping
+   158→ * status. Without this, a section page that merely fails to repeat the title
+   159→ * word ("Reservation" chapter's scribe-provisions page) vanished from the
+   160→ * chips even though the contents row itself says the section covers it.
+   161→ */
+   162→export function verifyPages(
+   163→  name: string,
+   164→  claimed: number[],
+   165→  unitRanges: { fromPage: number; toPage: number }[],
+   166→  pageTextIndex: Map<number, string>,
+   167→  anchoredPage: number | null,
+   168→  keepSpan = false,
+   169→): { pages: number[]; verified: boolean } {
+   170→  const inAnyRange = (p: number) => unitRanges.some(r => p >= r.fromPage && p <= r.toPage)
+   171→  const inRange = [...new Set(claimed.filter(inAnyRange))].sort((a, b) => a - b)
+   172→  const tokens = titleTokens(name).filter(t => t.length > 3)
+   173→  const supported: number[] = []
+   174→  for (const p of inRange) {
+   175→    const text = pageTextIndex.get(p)
+   176→    if (!text) continue
+   177→    if (tokens.length === 0) {
+   178→      supported.push(p)
+   179→      continue
+   180→    }
+   181→    if (tokens.some(t => pageHasToken(text, t))) supported.push(p)
+   182→  }
+   183→  const verified = supported.length > 0 || anchoredPage !== null
+   184→  if (keepSpan) {
+   185→    // the document's own section span — every page of it, chips included
+   186→    const span = inRange.length > 0 ? inRange : anchoredPage !== null ? [anchoredPage] : []
+   187→    return { pages: span.slice(0, 60), verified }
+   188→  }
+   189→  const pages = anchoredPage !== null && !supported.includes(anchoredPage)
+   190→    ? [...supported, anchoredPage].sort((a, b) => a - b)
+   191→    : supported
+   192→  const final = pages.length > 0
+   193→    ? pages.slice(0, 30)
+   194→    : inRange.slice(0, 30)
+   195→  return { pages: final, verified }
+   196→}
+   197→
+   198→// ─── Duplicate merging ────────────────────────────────────────────────────────
+   199→
+   200→const SIMILARITY_THRESHOLD = 0.72
+   201→const CONTAIN_MIN_LEN = 10 // shorter title must be ≥10 normalized chars to merge by containment
+   202→
+   203→interface WorkingTopic {
+   204→  name: string
+   205→  nameScore: number // canonical-title preference score
+   206→  origin: TopicOrigin
+   207→  titleSource: TitleSource
+   208→  numbering: string | null
+   209→  tocPrintedPage: number | null
+   210→  tocPrintedEndPage: number | null
+   211→  tocMatchPage: number | null
+   212→  structureVerified: boolean
+   213→  itemClass: TopicItemClass | null
+   214→  group: StructureGroup | null
+   215→  parentTitle: string | null
+   216→  boundaryEvidence: string | null
+   217→  list: ListExtraction | null
+   218→  aliases: string[]
+   219→  subtopics: string[]
+   220→  pages: number[]
+   221→  anchoredPage: number | null
+   222→  units: Set<number>
+   223→  unitRefs: { unitIndex: number; title: string | null; fromPage: number; toPage: number }[]
+   224→  tokens: Set<string>
+   225→  norm: string
+   226→  parentRef: WorkingTopic | null
+   227→}
+   228→
+   229→/** Prefer the variant that looks most like the document's own wording. */
+   230→function titleScore(name: string, fromTocish: boolean): number {
+   231→  let score = 0
+   232→  if (fromTocish) score += 3
+   233→  if (/\d/.test(name)) score += 1 // numbered headings are literal document text
+   234→  if (name === name.toUpperCase() && /[A-Z]/.test(name)) score += 1 // caps headings are literal
+   235→  score += Math.min(name.length, 60) / 60 // longer = more informative
+   236→  return score
+   237→}
+   238→
+   239→function mergeSubtopicLists(existing: string[], incoming: string[], max: number): string[] {
+   240→  const keptKeys: string[] = []
+   241→  const out: string[] = []
+   242→  const candidates = [...existing, ...incoming]
+   243→  const tokens = candidates.map(c => ({ raw: c, t: new Set(titleTokens(c)), k: normalizeTitle(c) }))
+   244→  for (const cand of tokens) {
+   245→    const key = [...cand.t].sort().join(' ')
+   246→    if (!key) continue
+   247→    let dup = false
+   248→    for (const kept of keptKeys) {
+   249→      // near-duplicate by token overlap OR safe containment ("tests subject covered"
+   250→      // ⊂ "test subject covered under cuet ug 2026") — same idea, different wording
+   251→      const keptTokens = new Set(kept.split(' '))
+   252→      const shorter = cand.k.length <= kept.length ? cand.k : kept
+   253→      const longer = cand.k.length <= kept.length ? kept : cand.k
+   254→      if (
+   255→        jaccard(cand.t, keptTokens) >= 0.8 ||
+   256→        (shorter.length >= 10 && longer.includes(shorter))
+   257→      ) {
+   258→        dup = true
+   259→        break
+   260→      }
+   261→    }
+   262→    if (dup) continue
+   263→    keptKeys.push(key)
+   264→    out.push(cand.raw.slice(0, 240))
+   265→    if (out.length >= max) break
+   266→  }
+   267→  return out
+   268→}
+   269→
+   270→function rangesOverlap(a: WorkingTopic, b: WorkingTopic): boolean {
+   271→  return a.unitRefs.some(u => b.unitRefs.some(v => u.fromPage <= v.toPage && v.fromPage <= u.toPage))
+   272→}
+   273→
+   274→/** Same parent section = both topics' first unit sits under the same heading title. */
+   275→function sameParentSection(a: WorkingTopic, b: WorkingTopic): boolean {
+   276→  const ta = a.unitRefs[0]?.title ?? null
+   277→  const tb = b.unitRefs[0]?.title ?? null
+   278→  if (ta === null && tb === null) return true // both unparented chunks
+   279→  if (ta === null || tb === null) return false
+   280→  return normalizeTitle(ta) === normalizeTitle(tb)
+   281→}
+   282→
+   283→export function canonicalizeTopics(inputs: TopicInput[], opts: CanonicalizeOptions): AnalyzedTopic[] {
+   284→  const maxSubs = opts.maxSubtopicsPerTopic ?? 12
+   285→  const NAME_CAP = 240
+   286→
+   287→  const makeWorking = (input: TopicInput): WorkingTopic => {
+   288→    const name = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, NAME_CAP)
+   289→    const origin: TopicOrigin = input.origin ?? (input.anchored ? 'SOURCE_HEADING' : 'AI_INFERRED')
+   290→    const titleSource: TitleSource = input.titleSource ?? (origin === 'SOURCE_HEADING' ? 'body' : 'inferred')
+   291→    // source headings carry the document's own numbering even when the caller
+   292→    // did not extract it — it is part of the title itself
+   293→    const numbering = input.numbering ?? (origin === 'SOURCE_HEADING' ? extractNumberToken(name) : null)
+   294→    return {
+   295→      name,
+   296→      nameScore: titleScore(name, origin === 'SOURCE_HEADING' && input.titleSource === 'toc'),
+   297→      origin,
+   298→      titleSource,
+   299→      numbering,
+   300→      tocPrintedPage: input.tocPrintedPage ?? null,
+   301→      tocPrintedEndPage: input.tocPrintedEndPage ?? null,
+   302→      tocMatchPage: input.tocMatchPage ?? null,
+   303→      structureVerified: input.structureVerified ?? true,
+   304→      itemClass: input.itemClass ?? null,
+   305→      group: input.group ?? null,
+   306→      parentTitle: input.parentTitle ?? null,
+   307→      boundaryEvidence: input.boundaryEvidence ?? null,
+   308→      list: input.list ?? null,
+   309→      aliases: [],
+   310→      subtopics: [],
+   311→      pages: [],
+   312→      anchoredPage: input.anchored ? input.unitFromPage : null,
+   313→      units: new Set([input.unitIndex]),
+   314→      unitRefs: [],
+   315→      tokens: new Set(titleTokens(name)),
+   316→      norm: normalizeTitle(name),
+   317→      parentRef: null,
+   318→    }
+   319→  }
+   320→
+   321→  // 1 ── build working topics. Exact-normalised matches merge ONLY when they
+   322→  // belong together: chunk continuations of one section (same unit title or
+   323→  // overlapping ranges) always fuse; a model echo of a section title always
+   324→  // merges INTO that heading; but two same-named topics from DIFFERENT
+   325→  // sections stay separate ("Marking Scheme" in two chapters is two things).
+   326→  const work: WorkingTopic[] = []
+   327→  const byNorm = new Map<string, WorkingTopic[]>()
+   328→  for (const input of inputs) {
+   329→    const name = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, NAME_CAP)
+   330→    if (!name) continue
+   331→    const norm = normalizeTitle(name)
+   332→    if (!norm) continue
+   333→    const wt = makeWorking(input)
+   334→    mergeInto(wt, input, maxSubs)
+   335→    const bucket = byNorm.get(norm) ?? []
+   336→    let target: WorkingTopic | null = null
+   337→    for (const existing of bucket) {
+   338→      if (wt.origin === 'SOURCE_HEADING' && existing.origin === 'SOURCE_HEADING') {
+   339→        // two source headings with the same title: chunk continuations only —
+   340→        // different numbering (parent vs subsection) or different parent
+   341→        // sections are DIFFERENT entries of the document
+   342→        if (numberingDiffers(existing, wt) || parentTitlesDiffer(existing, wt)) continue
+   343→        if (sameParentSection(existing, wt) || rangesOverlap(existing, wt)) { target = existing; break }
+   344→        continue
+   345→      }
+   346→      if (wt.origin === 'SOURCE_HEADING' || existing.origin === 'SOURCE_HEADING') {
+   347→        // a model echo of a real section title merges into the heading
+   348→        target = existing
+   349→        break
+   350→      }
+   351→      // both inferred: same area only
+   352→      if (sameParentSection(existing, wt) || rangesOverlap(existing, wt)) { target = existing; break }
+   353→    }
+   354→    if (target) {
+   355→      if (wt.origin === 'SOURCE_HEADING' && target.origin !== 'SOURCE_HEADING') {
+   356→        promoteToHeading(target, input)
+   357→      } else if (wt.name !== target.name && !target.aliases.includes(wt.name)) {
+   358→        target.aliases.push(wt.name)
+   359→      }
+   360→      mergeInto(target, input, maxSubs)
+   361→    } else {
+   362→      work.push(wt)
+   363→      bucket.push(wt)
+   364→      byNorm.set(norm, bucket)
+   365→    }
+   366→  }
+   367→
+   368→  // 2 ── near-duplicate pass with origin + location guards.
+   369→  //   • two source headings merge only when their ranges overlap (chunks of one
+   370→  //     section) — distinct sections never fuse, however similar they sound;
+   371→  //   • a source heading and an inferred topic merge only in the same area AND
+   372→  //     the heading stays canonical (the inferred wording becomes an alias);
+   373→  //   • two inferred topics merge at the standard threshold when they sit in
+   374→  //     the same section, and only at a much higher bar across sections.
+   375→  const sorted = [...work].sort((a, b) => nameOrderKey(a) - nameOrderKey(b) || a.name.localeCompare(b.name))
+   376→  const kept: WorkingTopic[] = []
+   377→  for (const t of sorted) {
+   378→    let target: WorkingTopic | null = null
+   379→    for (const k of kept) {
+   380→      if (!similarEnough(t, k)) continue
+   381→      target = k
+   382→      break
+   383→    }
+   384→    if (!target) {
+   385→      kept.push(t)
+   386→      continue
+   387→    }
+   388→    // A source heading must never be absorbed into an inferred topic
+   389→    if (t.origin === 'SOURCE_HEADING' && target.origin !== 'SOURCE_HEADING') {
+   390→      absorbInto(t, target) // heading absorbs the inferred echo
+   391→      const idx = kept.indexOf(target)
+   392→      if (idx >= 0) kept[idx] = t
+   393→      // re-link any earlier absorbed refs is unnecessary: parentRef set later
+   394→    } else {
+   395→      absorbInto(target, t)
+   396→    }
+   397→  }
+   398→
+   399→  // 3 ── page verification per topic (before hierarchy, pages drive ordering).
+   400→  // SOURCE_HEADING topics keep their FULL section span (the document's own
+   401→  // boundary evidence); inferred topics keep only token-verified pages.
+   402→  const topics: AnalyzedTopic[] = kept.map(t => {
+   403→    const ranges = t.unitRefs.map(r => ({ fromPage: r.fromPage, toPage: r.toPage }))
+   404→    const verified = verifyPages(t.name, [...t.pages], ranges, opts.pageTextIndex, t.anchoredPage, t.origin === 'SOURCE_HEADING')
+   405→    const itemClass: TopicItemClass = t.itemClass
+   406→      ?? (t.origin === 'SOURCE_HEADING'
+   407→        ? (t.parentTitle ? 'SOURCE_SUBSECTION' : 'ORIGINAL_HEADING')
+   408→        : verified.verified ? 'LEARNING_TOPIC' : 'UNCLASSIFIED')
+   409→    return {
+   410→      id: '', // assigned after final ordering (no remapping → no dangling parents)
+   411→      name: t.name,
+   412→      subtopics: t.subtopics,
+   413→      pages: verified.pages,
+   414→      aliases: t.aliases.length > 0 ? t.aliases.slice(0, 6) : undefined,
+   415→      pageVerified: verified.verified,
+   416→      origin: t.origin,
+   417→      titleSource: t.titleSource,
+   418→      numbering: t.numbering,
+   419→      tocPrintedPage: t.tocPrintedPage,
+   420→      tocMatchPage: t.tocMatchPage,
+   421→      structureVerified: t.structureVerified,
+   422→      itemClass,
+   423→      group: t.group ?? undefined,
+   424→      boundaryEvidence: t.boundaryEvidence ?? undefined,
+   425→      tocPrintedEndPage: t.tocPrintedEndPage,
+   426→      list: t.list ?? undefined,
+   427→    } satisfies AnalyzedTopic
+   428→  })
+   429→  const topicOf = new Map<WorkingTopic, AnalyzedTopic>(kept.map((t, i) => [t, topics[i]]))
+   430→
+   431→  // 4 ── hierarchy. Source headings are level 1 (the document's own skeleton);
+   432→  // source subsections (they carry their containing section's exact title) are
+   433→  // level 2 under that section. Inferred topics attach to the source heading
+   434→  // of the unit they came from — a direct, deterministic lookup, never a fuzzy
+   435→  // match that can self-parent.
+   436→  const headingByUnitTitle = new Map<string, WorkingTopic>()
+   437→  for (const t of kept) {
+   438→    if (t.origin !== 'SOURCE_HEADING') continue
+   439→    const key = normalizeTitle(t.name)
+   440→    if (key && !headingByUnitTitle.has(key)) headingByUnitTitle.set(key, t)
+   441→  }
+   442→  for (let i = 0; i < kept.length; i++) {
+   443→    const t = kept[i]
+   444→    const a = topics[i]
+   445→    if (t.origin === 'SOURCE_HEADING') {
+   446→      if (t.parentTitle) {
+   447→        // a source subsection: parent = the exact containing section's heading
+   448→        const parent = headingByUnitTitle.get(normalizeTitle(t.parentTitle)) ?? null
+   449→        if (parent && parent !== t) {
+   450→          t.parentRef = parent
+   451→          a.level = 2
+   452→        } else {
+   453→          a.level = 1
+   454→          a.parentId = null
+   455→        }
+   456→      } else {
+   457→        a.level = 1
+   458→        a.parentId = null
+   459→      }
+   460→      continue
+   461→    }
+   462→    const unitTitle = t.unitRefs[0]?.title ?? null
+   463→    const parent = unitTitle ? headingByUnitTitle.get(normalizeTitle(unitTitle)) ?? null : null
+   464→    if (parent && parent !== t) {
+   465→      t.parentRef = parent
+   466→      a.level = 2
+   467→    } else {
+   468→      a.level = 1
+   469→      a.parentId = null
+   470→    }
+   471→  }
+   472→
+   473→  // 5 ── subtopic evidence filter: a subtopic no supporting page evidences is
+   474→  // noise (model fragments like "alfunction", or outright inventions). A
+   475→  // subtopic is kept when ANY of its meaningful tokens occurs as a whole word
+   476→  // on any page of the topic's own units.
+   477→  const unitPagesOf = (t: WorkingTopic): number[] => {
+   478→    const set = new Set<number>()
+   479→    for (const r of t.unitRefs) for (let p = r.fromPage; p <= r.toPage; p++) set.add(p)
+   480→    return [...set]
+   481→  }
+   482→  for (let i = 0; i < kept.length; i++) {
+   483→    const t = kept[i]
+   484→    const a = topics[i]
+   485→    if (a.subtopics.length === 0) continue
+   486→    const pageTexts = unitPagesOf(t).map(p => opts.pageTextIndex.get(p)).filter((s): s is string => !!s)
+   487→    if (pageTexts.length === 0) continue // no readable pages — keep subtopics as-is
+   488→    a.subtopics = a.subtopics.filter(sub => {
+   489→      const tokens = titleTokens(sub).filter(x => x.length > 2)
+   490→      if (tokens.length === 0) return false
+   491→      return tokens.some(tok => pageTexts.some(txt => pageHasToken(txt, tok)))
+   492→    }).slice(0, maxSubs)
+   493→  }
+   494→
+   495→  // 6 ── order by first appearance (page, then unit) for a stable, readable list
+   496→  const orderKey = (a: AnalyzedTopic) => a.pages[0] ?? 99999
+   497→  const withOrder = topics.map((a, i) => ({ a, i }))
+   498→  withOrder.sort((x, y) => orderKey(x.a) - orderKey(y.a) || x.i - y.i)
+   499→  const ordered = withOrder.map(x => x.a)
+   500→
+   501→  // ids are assigned ONCE from the final order; parent links resolve through
+   502→  // the object graph, so a parent id can never collide with a child id.
+   503→  ordered.forEach((a, i) => {
+   504→    a.id = `t${i + 1}`
+   505→  })
+   506→  for (let i = 0; i < kept.length; i++) {
+   507→    const parentRef = kept[i].parentRef
+   508→    if (!parentRef) continue
+   509→    const parentTopic = topicOf.get(parentRef)
+   510→    if (parentTopic) topics[i].parentId = parentTopic.id
+   511→    else topics[i].parentId = null
+   512→  }
+   513→
+   514→  const max = opts.maxTopics ?? 200
+   515→  return capTopicsFairly(ordered, max)
+   516→}
+   517→
+   518→/** Order key preferring source headings and richer titles (deterministic). */
+   519→function nameOrderKey(t: WorkingTopic): number {
+   520→  return (t.origin === 'SOURCE_HEADING' ? 0 : 1)
+   521→}
+   522→
+   523→/**
+   524→ * Size ceiling that never sacrifices document coverage:
+   525→ *   • every level-1 (major section) topic AND every source subsection is
+   526→ *     ALWAYS kept — dropping one would erase a real part of the document's
+   527→ *     own organisation from the topic list (the contents layer still records
+   528→ *     it, but the topic list would silently contradict the document);
+   529→ *   • when AI-inferred level-2 concepts must be trimmed, they are dropped
+   530→ *     round-robin across parents (and within a parent in document order), so
+   531→ *     the cut is spread over the whole document instead of silently
+   532→ *     amputating its tail.
+   533→ * Deterministic: same input, same survivors.
+   534→ */
+   535→function capTopicsFairly(ordered: AnalyzedTopic[], max: number): AnalyzedTopic[] {
+   536→  if (ordered.length <= max) return ordered
+   537→  const tops = ordered.filter(t => t.level !== 2 || t.itemClass === 'SOURCE_SUBSECTION')
+   538→  const children = ordered.filter(t => t.level === 2 && t.itemClass !== 'SOURCE_SUBSECTION')
+   539→  const budget = Math.max(0, max - tops.length)
+   540→  if (children.length <= budget) return ordered
+   541→
+   542→  const byParent = new Map<string, AnalyzedTopic[]>()
+   543→  for (const c of children) {
+   544→    const key = c.parentId ?? '_root'
+   545→    const list = byParent.get(key) ?? []
+   546→    list.push(c)
+   547→    byParent.set(key, list)
+   548→  }
+   549→  const keptChildren: AnalyzedTopic[] = []
+   550→  let added = true
+   551→  while (keptChildren.length < budget && added) {
+   552→    added = false
+   553→    for (const list of byParent.values()) {
+   554→      if (list.length === 0) continue
+   555→      keptChildren.push(list.shift() as AnalyzedTopic)
+   556→      added = true
+   557→      if (keptChildren.length >= budget) break
+   558→    }
+   559→  }
+   560→  const keptIds = new Set(keptChildren.map(t => t.id))
+   561→  return [...tops, ...keptChildren].sort((a, b) => (a.pages[0] ?? 99999) - (b.pages[0] ?? 99999))
+   562→    .filter(t => t.level !== 2 || keptIds.has(t.id))
+   563→}
+   564→
+   565→/**
+   566→ * Two source headings whose own numbering tokens differ are DIFFERENT entries
+   567→ * of the document ("Chapter-4 Reservation" vs "4.1 Reservations" share every
+   568→ * title token and overlap in pages, but they are parent and child, never
+   569→ * duplicates). Guard used by both merge passes.
+   570→ */
+   571→function numberingDiffers(a: WorkingTopic, b: WorkingTopic): boolean {
+   572→  const na = a.numbering?.trim() ?? ''
+   573→  const nb = b.numbering?.trim() ?? ''
+   574→  return na !== '' && nb !== '' && na.toLowerCase() !== nb.toLowerCase()
+   575→}
+   576→
+   577→/** Subsections carry the exact title of their containing section — different parents ⇒ different entries. */
+   578→function parentTitlesDiffer(a: WorkingTopic, b: WorkingTopic): boolean {
+   579→  const ta = a.parentTitle?.trim() ?? ''
+   580→  const tb = b.parentTitle?.trim() ?? ''
+   581→  return ta !== '' && tb !== '' && normalizeTitle(ta) !== normalizeTitle(tb)
+   582→}
+   583→
+   584→function similarEnough(a: WorkingTopic, b: WorkingTopic): boolean {
+   585→  const overlap = rangesOverlap(a, b)
+   586→  const sameSection = sameParentSection(a, b)
+   587→
+   588→  if (a.origin === 'SOURCE_HEADING' && b.origin === 'SOURCE_HEADING') {
+   589→    // two source headings: only chunk continuations of the same section merge
+   590→    // (even identical titles in different sections stay separate; parent and
+   591→    // subsection never fuse even when one contains the other's words)
+   592→    return overlap && !numberingDiffers(a, b) && !parentTitlesDiffer(a, b)
+   593→  }
+   594→
+   595→  const j = jaccard(a.tokens, b.tokens)
+   596→  if (a.origin === 'SOURCE_HEADING' || b.origin === 'SOURCE_HEADING') {
+   597→    // heading + inferred echo: must sit in the same area and be clearly the same idea
+   598→    if (!overlap) return false
+   599→    if (j >= SIMILARITY_THRESHOLD) return true
+   600→    const shorter = a.norm.length <= b.norm.length ? a.norm : b.norm
+   601→    const longer = a.norm.length <= b.norm.length ? b.norm : a.norm
+   602→    return shorter.length >= CONTAIN_MIN_LEN && longer.includes(shorter)
+   603→  }
+   604→
+   605→  // both inferred: only the same area of the document may fuse — distinct
+   606→  // sections keep their own topics even when the wording is identical
+   607→  // ("Marking Scheme" in two different chapters is two different things)
+   608→  if (!(sameSection || overlap)) return false
+   609→  if (j >= SIMILARITY_THRESHOLD) return true
+   610→  // Safe containment: "eligibility" ⊂ "eligibility criteria" (same idea,
+   611→  // different extraction wording).
+   612→  const shorter = a.norm.length <= b.norm.length ? a.norm : b.norm
+   613→  const longer = a.norm.length <= b.norm.length ? b.norm : a.norm
+   614→  return shorter.length >= CONTAIN_MIN_LEN && longer.includes(shorter)
+   615→}
+   616→
+   617→/** The model echoed a real section title — turn the working topic into the heading. */
+   618→function promoteToHeading(target: WorkingTopic, input: TopicInput): void {
+   619→  target.origin = 'SOURCE_HEADING'
+   620→  target.titleSource = input.titleSource ?? 'body'
+   621→  target.numbering = input.numbering ?? target.numbering
+   622→  target.tocPrintedPage = input.tocPrintedPage ?? target.tocPrintedPage
+   623→  target.tocPrintedEndPage = input.tocPrintedEndPage ?? target.tocPrintedEndPage
+   624→  target.tocMatchPage = input.tocMatchPage ?? target.tocMatchPage
+   625→  target.structureVerified = input.structureVerified ?? target.structureVerified
+   626→  target.group = input.group ?? target.group
+   627→  target.parentTitle = input.parentTitle ?? target.parentTitle
+   628→  target.boundaryEvidence = input.boundaryEvidence ?? target.boundaryEvidence
+   629→  target.anchoredPage = target.anchoredPage ?? (input.anchored ? input.unitFromPage : null)
+   630→  // the document's own wording becomes the canonical title
+   631→  const docName = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
+   632→  if (docName && docName !== target.name) {
+   633→    if (!target.aliases.includes(target.name)) target.aliases.push(target.name)
+   634→    target.name = docName
+   635→    target.norm = normalizeTitle(docName)
+   636→    target.tokens = new Set(titleTokens(docName))
+   637→    target.nameScore = titleScore(docName, true)
+   638→  }
+   639→}
+   640→
+   641→function mergeInto(target: WorkingTopic, input: TopicInput, maxSubs: number): void {
+   642→  target.units.add(input.unitIndex)
+   643→  target.unitRefs.push({ unitIndex: input.unitIndex, title: input.unitTitle, fromPage: input.unitFromPage, toPage: input.unitToPage })
+   644→  target.subtopics = mergeSubtopicLists(target.subtopics, input.subtopics ?? [], maxSubs)
+   645→  target.pages = [...new Set([...target.pages, ...input.pages])].sort((a, b) => a - b)
+   646→  if (input.anchored && target.anchoredPage === null) target.anchoredPage = input.unitFromPage
+   647→  if (input.list && !target.list) target.list = input.list
+   648→  if (target.origin === 'SOURCE_HEADING') {
+   649→    target.numbering = input.numbering ?? target.numbering
+   650→    target.tocPrintedPage = input.tocPrintedPage ?? target.tocPrintedPage
+   651→    target.tocPrintedEndPage = input.tocPrintedEndPage ?? target.tocPrintedEndPage
+   652→    target.tocMatchPage = input.tocMatchPage ?? target.tocMatchPage
+   653→    target.group = input.group ?? target.group
+   654→    target.parentTitle = input.parentTitle ?? target.parentTitle
+   655→    target.boundaryEvidence = input.boundaryEvidence ?? target.boundaryEvidence
+   656→    if (input.structureVerified === false) target.structureVerified = false
+   657→  } else {
+   658→    // an inferred topic keeps the richest classification evidence it saw
+   659→    target.itemClass = target.itemClass ?? input.itemClass ?? null
+   660→    target.group = target.group ?? input.group ?? null
+   661→  }
+   662→}
+   663→
+   664→function absorbInto(target: WorkingTopic, other: WorkingTopic): void {
+   665→  // Canonical title preference: source headings always win; otherwise the
+   666→  // better-scoring variant stays and the other becomes an alias.
+   667→  const otherWins = target.origin !== 'SOURCE_HEADING' && other.origin !== 'SOURCE_HEADING' &&
+   668→    other.nameScore > target.nameScore
+   669→  if (otherWins) {
+   670→    target.aliases.push(target.name)
+   671→    target.name = other.name
+   672→    target.nameScore = other.nameScore
+   673→    target.norm = other.norm
+   674→    target.tokens = other.tokens
+   675→  } else if (target.name !== other.name) {
+   676→    target.aliases.push(other.name)
+   677→  }
+   678→  target.aliases.push(...other.aliases)
+   679→  target.subtopics = mergeSubtopicLists(target.subtopics, other.subtopics, 12)
+   680→  target.pages = [...new Set([...target.pages, ...other.pages])].sort((a, b) => a - b)
+   681→  target.anchoredPage = target.anchoredPage ?? other.anchoredPage
+   682→  if (other.list && !target.list) target.list = other.list
+   683→  for (const u of other.units) target.units.add(u)
+   684→  target.unitRefs.push(...other.unitRefs)
+   685→  // document-derived metadata survives absorption
+   686→  if (other.origin === 'SOURCE_HEADING' && target.origin !== 'SOURCE_HEADING') {
+   687→    target.origin = other.origin
+   688→    target.titleSource = other.titleSource
+   689→    target.numbering = other.numbering
+   690→    target.tocPrintedPage = other.tocPrintedPage
+   691→    target.tocPrintedEndPage = other.tocPrintedEndPage
+   692→    target.tocMatchPage = other.tocMatchPage
+   693→    target.structureVerified = other.structureVerified
+   694→    target.group = other.group
+   695→    target.parentTitle = other.parentTitle
+   696→    target.boundaryEvidence = other.boundaryEvidence
+   697→    target.itemClass = other.itemClass
+   698→  } else if (target.origin === 'SOURCE_HEADING') {
+   699→    target.numbering = target.numbering ?? other.numbering
+   700→    target.tocPrintedPage = target.tocPrintedPage ?? other.tocPrintedPage
+   701→    target.tocPrintedEndPage = target.tocPrintedEndPage ?? other.tocPrintedEndPage
+   702→    target.tocMatchPage = target.tocMatchPage ?? other.tocMatchPage
+   703→    target.group = target.group ?? other.group
+   704→    if (other.structureVerified === false) target.structureVerified = false
+   705→  }
+   706→}
+   707→

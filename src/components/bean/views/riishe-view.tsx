@@ -981,26 +981,26 @@ function AnalysisPanel({ analysis, onOpenPage, onReanalyse }: {
   // v6 — the exact pages and sections still requiring processing, each with
   // its reason. Nothing is summarised away: every page number is listed.
   const pendingGroups: { reason: string; pages: number[] }[] = cov
-    ? (
-        [
-          ...skippedOutcomes.map(o => ({
-            reason: o.error
-              ? `in skipped section "${o.title ?? o.label}" — ${o.error}`
-              : `in skipped section "${o.title ?? o.label}"`,
-            pages: cov.skippedPageNumbers?.filter(p => p >= o.fromPage && p <= o.toPage) ?? [],
-          })),
-          ...failedOutcomes.map(o => ({
-            reason: `failed section "${o.title ?? o.label}" (retryable)`,
-            pages: Array.from({ length: Math.max(0, o.toPage - o.fromPage + 1) }, (_, k) => o.fromPage + k),
-          })),
-          (cov.scannedPageNumbers ?? []).length > 0
-            ? [{ reason: 'image-only page(s) awaiting OCR', pages: cov.scannedPageNumbers ?? [] }]
-            : [],
-          (structure?.imageContentPages ?? []).length > 0
-            ? [{ reason: 'image-content page(s) awaiting OCR (only headers/footers in the text layer)', pages: structure?.imageContentPages ?? [] }]
-            : [],
-        ] as { reason: string; pages: number[] }[]
-      ).filter(g => g.pages.length > 0)
+    ? [
+        ...skippedOutcomes.map(o => ({
+          reason: o.error
+            ? `in skipped section "${o.title ?? o.label}" — ${o.error}`
+            : `in skipped section "${o.title ?? o.label}"`,
+          pages: cov.skippedPageNumbers?.filter(p => p >= o.fromPage && p <= o.toPage) ?? [],
+        })),
+        ...failedOutcomes.map(o => ({
+          reason: `failed section "${o.title ?? o.label}" (retryable)`,
+          pages: Array.from({ length: Math.max(0, o.toPage - o.fromPage + 1) }, (_, k) => o.fromPage + k),
+        })),
+        // spread, not nested: a non-spread conditional here would push an
+        // ARRAY into this list and crash the panel on `g.pages.length`
+        ...((cov.scannedPageNumbers ?? []).length > 0
+          ? [{ reason: 'image-only page(s) awaiting OCR', pages: cov.scannedPageNumbers ?? [] }]
+          : []),
+        ...((structure?.imageContentPages ?? []).length > 0
+          ? [{ reason: 'image-content page(s) awaiting OCR (only headers/footers in the text layer)', pages: structure?.imageContentPages ?? [] }]
+          : []),
+      ].filter(g => g.pages.length > 0)
     : []
 
   const hasNotes =

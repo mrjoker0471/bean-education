@@ -861,19 +861,90 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   }
 
   // ── Stage 4: deterministic merge + verification + coverage
+  const { merged, cov } = recomputeMergedAnalysis({
+    title: doc.title,
+    pages: extraction.pages,
+    numPages: extraction.numPages,
+    scannedPages: extraction.scannedPages,
+    parts,
+    outcomes,
+    summary: '',
+    structure,
+  })
+  merged.summary = await summarise(doc.title, extraction.pages, merged)
+  merged.studyGaps = deriveStudyGaps(merged, cov)
+
+  await db.studyDocument.update({
+    where: { id: documentId },
+    data: {
+      status: 'READY',
+      statusDetail: finalStatusDetail(cov, merged),
+      analysisJson: JSON.stringify(merged),
+    },
+  })
+}
+
+/** The READY status line: honest about partial coverage, listing exactly what
+ *  still requires processing. Shared by the live job and the upgrade path so
+ *  a recomputed analysis reads exactly like a freshly analysed one. */
+export function finalStatusDetail(cov: CoverageMetrics, merged: { topics: unknown[] }): string {
+  const partial = !cov.complete
+  const pendingBits: string[] = []
+  if (cov.unitsFailed > 0) pendingBits.push(`${cov.unitsFailed} failed section${cov.unitsFailed === 1 ? '' : 's'}`)
+  if (cov.unitsSkipped > 0) pendingBits.push(`${cov.unitsSkipped} skipped section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} pages)`)
+  if (cov.scannedPages > 0) pendingBits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} awaiting OCR`)
+  return partial
+    ? `Ready (partially analysed) — analysed ${cov.analysedPages} of ${cov.totalPages} pages across ${cov.unitsOk}/${cov.unitsTotal} sections${pendingBits.length > 0 ? `; still requiring processing: ${pendingBits.join(', ')}` : ''}.`
+    : `Ready — fully analysed: ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; every one of the ${cov.totalPages} pages was analysed or verified to carry no content.`
+}
+
+// ─── Deterministic Stage 4 (shared by the live job and version upgrades) ────
+
+export interface RecomputeOpts {
+  title: string
+  pages: ExtractedPage[]
+  numPages: number
+  scannedPages: number
+  /** per-section results (AI + deterministic), aligned with `outcomes` */
+  parts: (SectionAnalysis | null)[]
+  outcomes: SectionOutcome[]
+  /** summary carried into the merged analysis (a fresh run replaces it) */
+  summary: string
+  /** structure detected over the same pages (Stage 2 output) */
+  structure: ReturnType<typeof detectStructure>
+}
+
+/**
+ * Everything between "all sections are settled" and "write the analysis" as
+ * ONE pure function: page-verified canonicalisation, whole-section list
+ * completeness, image-formula flagging, grounded study notes, coverage
+ * accounting. `processDocument` runs it after analysis; a pipeline upgrade
+ * can run it over a stored extraction + stored per-section results so the
+ * improvement reaches an existing document WITHOUT re-asking the provider —
+ * the merge is exactly what a fresh run would have produced from the same
+ * section results. Nothing here invents content: every field is derived from
+ * the extraction and the recorded section results.
+ */
+export function recomputeMergedAnalysis(opts: RecomputeOpts): { merged: StoredAnalysis; cov: CoverageMetrics } {
+  const { structure } = opts
+  const units = structure.units
+  const readablePages = opts.pages.filter(p => !p.scanned && p.text.length > 0)
   const pageTextIndex = new Map<number, string>()
-  for (const p of extraction.pages) {
+  for (const p of opts.pages) {
     if (!p.scanned && p.text) pageTextIndex.set(p.page, p.text.toLowerCase().replace(/[^a-z0-9]+/g, ' '))
   }
 
   // v5: pages whose extracted text is only running headers/footers (the real
   // content is an image). Evidence list stored with the analysis; coverage
   // counts them in their own bucket instead of "analysed content".
-  const contentlessPages = detectContentlessPages(extraction.pages)
+  const contentlessPages = detectContentlessPages(opts.pages)
   const contentlessSet = new Set(contentlessPages)
 
-  const topicInputs = collectTopicInputs(parts, units, new Map(), structure.tocPages, buildTocInfoMap(structure.tocLayer), structure.tocLayer)
+  const topicInputs = collectTopicInputs(opts.parts, units, new Map(), structure.tocPages, buildTocInfoMap(structure.tocLayer), structure.tocLayer)
   const topics: AnalyzedTopic[] = canonicalizeTopics(topicInputs, { pageTextIndex, maxTopics: 200, maxSubtopicsPerTopic: 12 })
+
+  // v7: a recovered list must cover the topic's WHOLE span (see below).
+  completeSectionList(topics, opts.pages, opts.outcomes)
 
   // v5: per-topic page-mapping status + printed-range bookkeeping for
   // structural entries — honest VERIFIED / INFERRED / UNRESOLVED labels.
@@ -910,10 +981,10 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   }
 
   const cov = buildCoverage(
-    { numPages: extraction.numPages, scannedPages: extraction.scannedPages, pages: extraction.pages },
+    { numPages: opts.numPages, scannedPages: opts.scannedPages, pages: opts.pages },
     readablePages,
     units,
-    outcomes,
+    opts.outcomes,
     contentlessSet,
     structure.tocLayer,
   )
@@ -921,30 +992,30 @@ export async function processDocument(documentId: string, opts?: { force?: boole
   // v6: furniture-only pages split by evidence — image plates present (form
   // facsimiles, Gazette reprints: awaiting OCR) vs verified non-content.
   const imageContentPages = contentlessPages.filter(p => {
-    const page = extraction.pages.find(x => x.page === p)
+    const page = opts.pages.find(x => x.page === p)
     return page ? page.imagePlates !== false : true
   })
   const nonContentPages = contentlessPages.filter(p => !imageContentPages.includes(p))
 
   // v5: per-group processing accounting — an entry is OK when every one of
   // its analysable pages sits in a successful unit; partial when some do.
-  const groupStats = buildGroupStats(structure.tocLayer, outcomes, extraction.pages, contentlessSet)
+  const groupStats = buildGroupStats(structure.tocLayer, opts.outcomes, opts.pages, contentlessSet)
 
   const merged: StoredAnalysis = {
-    title: doc.title,
-    summary: '',
+    title: opts.title,
+    summary: opts.summary,
     topics,
-    definitions: mergeDefinitions(parts, 60),
-    keyFacts: mergeStudyFacts(parts, 80, pageTextIndex),
-    formulas: mergeFormulas(parts, 50, pageTextIndex),
-    misconceptions: mergeMisconceptions(parts, 40),
+    definitions: mergeDefinitions(opts.parts, 60),
+    keyFacts: mergeStudyFacts(opts.parts, 80, pageTextIndex),
+    formulas: flagImageFormulas(opts.outcomes, opts.pages, mergeFormulas(opts.parts, 50, pageTextIndex)),
+    misconceptions: mergeMisconceptions(opts.parts, 40),
     keyPages: [...new Set(topics.flatMap(t => t.pages.slice(0, 3)))].filter(p => p >= 1).sort((a, b) => a - b).slice(0, 60),
-    unreadableSections: mergeUnreadable(parts, 16),
+    unreadableSections: mergeUnreadable(opts.parts, 16),
     studyGaps: [],
     coverageNote: buildCoverageNote(cov, { imageContent: imageContentPages.length, nonContent: nonContentPages.length }),
     pipelineVersion: PIPELINE_VERSION,
     coverage: cov,
-    sectionOutcomes: outcomes,
+    sectionOutcomes: opts.outcomes,
     structure: {
       kind: structure.kind,
       tocValidated: structure.tocValidated,
@@ -967,27 +1038,123 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       nonContentPages,
       groupStats,
     },
-    _parts: parts, // retained so a partial retry keeps every successful section
+    _parts: opts.parts, // retained so a partial retry keeps every successful section
   }
-  merged.summary = await summarise(doc.title, extraction.pages, merged)
   merged.studyGaps = deriveStudyGaps(merged, cov)
+  return { merged, cov }
+}
 
-  const partial = !cov.complete
-  const contentPages = cov.readablePages - (cov.contentlessPages ?? 0)
-  const pendingBits: string[] = []
-  if (cov.unitsFailed > 0) pendingBits.push(`${cov.unitsFailed} failed section${cov.unitsFailed === 1 ? '' : 's'}`)
-  if (cov.unitsSkipped > 0) pendingBits.push(`${cov.unitsSkipped} skipped section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} pages)`)
-  if (cov.scannedPages > 0) pendingBits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} awaiting OCR`)
-  await db.studyDocument.update({
-    where: { id: documentId },
-    data: {
-      status: 'READY',
-      statusDetail: partial
-        ? `Ready (partially analysed) — analysed ${cov.analysedPages} of ${cov.totalPages} pages across ${cov.unitsOk}/${cov.unitsTotal} sections${pendingBits.length > 0 ? `; still requiring processing: ${pendingBits.join(', ')}` : ''}.`
-        : `Ready — fully analysed: ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; every one of the ${cov.totalPages} pages was analysed or verified to carry no content.`,
-      analysisJson: JSON.stringify(merged),
-    },
-  })
+/**
+ * v7 — whole-section list completeness. A section long enough to be split
+ * into several analysis units can have only SOME units refused by the
+ * provider (and recovered deterministically) while the rest analyse as AI;
+ * the merged topic would then carry a list that stops at the first refused
+ * chunk (e.g. an 8-page city roster recovering only its first 4 pages). For
+ * every source-heading topic that carries a recovered list, the topic's
+ * ENTIRE page span is re-parsed with the deterministic extractor and the
+ * result adopted when it recovers at least as much. Entries stay verbatim,
+ * in source order, grouped exactly as the document groups them; unreadable
+ * rows and serial gaps stay reported.
+ */
+function completeSectionList(topics: AnalyzedTopic[], pages: ExtractedPage[], outcomes: SectionOutcome[]): void {
+  for (const t of topics) {
+    if (t.origin !== 'SOURCE_HEADING' || !t.list || t.pages.length < 2) continue
+    const from = Math.min(...t.pages)
+    const to = Math.max(...t.pages)
+    if (to <= from) continue
+    const spanText = pages
+      .filter(p => !p.scanned && p.text && p.page >= from && p.page <= to)
+      .map(p => `[page ${p.page}]\n${p.text}`)
+      .join('\n\n')
+    if (!spanText) continue
+    const full = extractReferenceList(spanText)
+    if (full && full.totalEntries > t.list.totalEntries) {
+      t.list = full
+      t.subtopics = full.groups.flatMap(g => g.entries).slice(0, 12)
+      // keep the outcome note consistent with the completed list — the
+      // per-unit recovery note would otherwise understate what was recovered
+      for (const o of outcomes) {
+        if (o.method === 'DETERMINISTIC' && o.fromPage >= from && o.toPage <= to) {
+          o.note = `Recovered ${full.totalEntries} entries in ${full.groups.length} group(s) deterministically from the PDF text layer after the AI provider refused the raw text; the section's full span (pages ${from}–${to}) was re-parsed so the list covers the whole section.`
+        }
+      }
+    }
+  }
+}
+
+// ─── Image-formula detection (v7) ──────────────────────────────────────────
+
+const FORMULA_CUE_RE = /\b(?:calculated|computed|determined|expressed|written)\s+as\s*:?\s*$/
+const WHERE_LINE_RE = /^\s*Where\b/i
+/** short variable-like tokens ("x1", "p2", "ua") — never common English words */
+const VAR_TOKEN_RE = /^(?:[a-z]\d|[a-z]{2})$/
+const VAR_STOPWORDS = new Set(['is', 'it', 'be', 'as', 'at', 'or', 'an', 'we', 'so', 'if', 'do', 'by', 'up', 'no', 'on', 'in', 'of', 'to', 'ii', 'iii', 'iv'])
+
+function variableTokens(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const t of text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ')) {
+    if (VAR_TOKEN_RE.test(t) && !VAR_STOPWORDS.has(t)) out.add(t)
+  }
+  return out
+}
+
+/**
+ * An equation the PDF prints only as an IMAGE leaves a characteristic trace
+ * in the text layer: a describing sentence ("… is calculated as:") followed
+ * by "Where:" variable definitions, with no equation between them. Such
+ * formulas used to be silently MISSING from the notes. Each cue is compared
+ * with the already-verified transcriptions: when the cue's variable
+ * definitions are already covered by a stored formula (documents often
+ * repeat the same equation as text on a later page), the cue is skipped;
+ * otherwise a NEEDS_REVIEW entry carrying the VERBATIM describing sentence
+ * is added — flagged for review, never reconstructed, never trusted.
+ */
+function flagImageFormulas(
+  outcomes: SectionOutcome[],
+  pages: ExtractedPage[],
+  stored: FormulaNote[],
+  cap = 6,
+): FormulaNote[] {
+  const out = [...stored]
+  const storedNorm = stored.map(f => f.text.toLowerCase().replace(/[^a-z0-9]+/g, ' '))
+  const storedVars = storedNorm.map(n => variableTokens(n))
+  const pageByNumber = new Map(pages.map(p => [p.page, p] as const))
+  for (const o of outcomes) {
+    if (o.status !== 'OK') continue // only successfully analysed sections carry honest page evidence
+    for (let p = o.fromPage; p <= o.toPage; p++) {
+      if (out.length - stored.length >= cap) return out
+      const page = pageByNumber.get(p)
+      if (!page || page.scanned || !page.text) continue
+      const lines = page.text.split('\n')
+      for (let i = 1; i < lines.length - 1; i++) {
+        const cue = lines[i].trim()
+        if (cue.length < 12 || !FORMULA_CUE_RE.test(cue)) continue
+        if (!WHERE_LINE_RE.test(lines[i + 1])) continue
+        // verbatim describing sentence: back up to the last sentence boundary
+        const joined = `${lines[i - 1]?.trim() ?? ''} ${cue}`.replace(/\s+/g, ' ').trim()
+        const dot = joined.lastIndexOf('. ')
+        const sentence = (dot >= 0 ? joined.slice(dot + 2) : joined).trim()
+        if (sentence.length < 20) continue
+        // is the equation already captured by a verified transcription?
+        const whereBlock = lines.slice(i + 1, i + 13).join(' ')
+        const cueVars = variableTokens(whereBlock)
+        let uncovered = 0
+        for (const v of cueVars) if (!storedVars.some(set => set.has(v))) uncovered++
+        if (uncovered < 2) continue // the same equation was transcribed from its text-layer copy
+        // duplicate cue guard (identical descriptions on neighbouring pages)
+        const norm = sentence.toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+        if (storedNorm.some(n => jaccard(new Set(norm.split(' ')), new Set(n.split(' '))) >= 0.6)) continue
+        storedNorm.push(norm)
+        out.push({
+          text: sentence.slice(0, 400),
+          page: p,
+          status: 'NEEDS_REVIEW',
+          note: 'the equation itself is printed as an image in the PDF — only this describing sentence and its variable definitions survive in the text layer. Open the cited page and read the equation from the rendered page; no transcription is provided because none could be verified.',
+        })
+      }
+    }
+  }
+  return out
 }
 
 // ─── Group accounting ─────────────────────────────────────────────────────────
@@ -1224,6 +1391,7 @@ Rules:
 - "misconceptions": only if the text supports a correction (common wrong belief vs what the text says).
 - "formulas": mathematical/scientific formulas or rules stated in the text ([] if none). Each entry: {"text": string, "page": number}.
   · TRANSCRIBE VERBATIM: copy the formula exactly as the document prints it — keep its own letters, subscripts, brackets, operators and even its own typos. If the document writes "u_A, u_C" where "u_B" was clearly intended, transcribe "u_A, u_C" anyway; do not silently fix the source.
+  · STACKED FRACTIONS: when the PDF splits a formula across lines (numerator above the bar, denominator below), transcribe it as "(numerator) / (denominator)" using ONLY the document's own words and symbols — copy EVERY qualifier the document prints inside the numerator and inside the denominator (e.g. "appeared in the session"); never shorten or paraphrase them.
   · If a formula appears only as an image or is described in words, return the describing sentence verbatim as the text — it will be flagged for review rather than trusted.
   · NEVER reconstruct, simplify or re-typeset a formula that is not literally written in the text.
 

@@ -1,0 +1,1283 @@
+     1→// ─── Riishe document pipeline: extraction → structure → grounded analysis ────
+     2→// Runs as a background job.
+     3→//   Stage 1  extraction (local pdf.js, per-page text with real line breaks)
+     4→//   Stage 2  deterministic structure detection (TOC, headings, printed pages)
+     5→//   Stage 3  AI analysis over EVERY structure-aware section of the document —
+     6→//            there is no "first N pages" limit; a section that fails is
+     7→//            recorded and retried without discarding the sections that worked
+     8→//   Stage 4  deterministic merge: duplicate topics merged at the data level,
+     9→//            page references verified against the extracted page text,
+    10→//            coverage accounted honestly (extracted / OCR-needed / failed)
+    11→// The uploaded material is untrusted data — every model call fences it.
+    12→
+    13→import { db } from '@/lib/db'
+    14→import { safeParse } from '@/lib/serialize'
+    15→import { readFile, unlink } from 'node:fs/promises'
+    16→import { createHash } from 'node:crypto'
+    17→import { extractPdfPages, type ExtractedPage } from './extract'
+    18→import { detectStructure, detectContentlessPages, extractNumberToken, stripEntryTitle, type AnalysisUnit } from './structure'
+    19→import { canonicalizeTopics, normalizeTitle, jaccard, titleTokens, type TopicInput } from './dedupe'
+    20→import { extractReferenceList } from './reference-list'
+    21→import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isContentFilterError, isRateLimitError } from './ai'
+    22→import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics, type StructureTocEntry, type StructureGroup, type TopicItemClass, type FormulaNote, type StudyFact, type ListExtraction } from './types'
+    23→
+    24→const UNIT_CHARS = 6000 // per-model-call section budget
+    25→
+    26→const SYSTEM = `You are Riishe, the document-analysis engine of BEAN EXAMS, a document-first study platform. You analyse student-uploaded study material and produce precise, grounded structured analyses. Never invent content that is not in the provided text. If a field has no content, return an empty array.`
+    27→
+    28→interface SectionAnalysis {
+    29→  topics: { name: string; subtopics: string[]; pages: number[]; list?: ListExtraction }[]
+    30→  definitions: { term: string; meaning: string; page: number }[]
+    31→  /** v6: facts are page-grounded claims; entries may still arrive as bare
+    32→   *  strings (older prompt / model drift) and are normalized at merge time. */
+    33→  keyFacts: (string | { text?: string; fact?: string; page?: number; kind?: string })[]
+    34→  /** v6: formulas are verbatim transcriptions with their page; bare strings
+    35→   *  are normalized at merge time. */
+    36→  formulas: (string | { text?: string; formula?: string; page?: number })[]
+    37→  misconceptions: { misconception: string; correction: string; page?: number }[]
+    38→  unreadable: string[]
+    39→  /** v6: true when this section was recovered by the deterministic reference-
+    40→   *  list parser after the provider refused the text (recorded in outcomes) */
+    41→  deterministic?: boolean
+    42→  /** v6: human-readable note attached to deterministic recovery */
+    43→  deterministicNote?: string
+    44→}
+    45→
+    46→/** Analysis JSON including private retry state (_parts is aligned with sectionOutcomes). */
+    47→interface StoredAnalysis extends DocumentAnalysis {
+    48→  _parts?: (SectionAnalysis | null)[]
+    49→}
+    50→
+    51→// ─── Merging helpers (deterministic) ─────────────────────────────────────────
+    52→
+    53→/** Contents-table facts looked up by section title, attached to anchored topics. */
+    54→interface TocInfo {
+    55→  number: string | null
+    56→  printedPage: number | null
+    57→  printedPageEnd: number | null
+    58→  matchPage: number | null
+    59→  matched: boolean
+    60→  group: StructureGroup | null
+    61→  boundaryEvidence: string | null
+    62→}
+    63→
+    64→export function buildTocInfoMap(tocLayer: StructureTocEntry[]): Map<string, TocInfo> {
+    65→  const map = new Map<string, TocInfo>()
+    66→  for (const e of tocLayer) {
+    67→    const key = normalizeTitle(stripEntryTitle(e.title))
+    68→    if (key && !map.has(key)) {
+    69→      map.set(key, {
+    70→        number: e.number,
+    71→        printedPage: e.printedPage,
+    72→        printedPageEnd: e.printedPageEnd ?? null,
+    73→        matchPage: e.matchPage,
+    74→        matched: e.matched,
+    75→        group: e.group ?? null,
+    76→        boundaryEvidence: e.boundaryEvidence ?? null,
+    77→      })
+    78→    }
+    79→  }
+    80→  return map
+    81→}
+    82→
+    83→export function collectTopicInputs(
+    84→  parts: (SectionAnalysis | null)[],
+    85→  units: AnalysisUnit[],
+    86→  anchoredPages: Map<number, number | null>,
+    87→  tocPages: number[] = [],
+    88→  tocInfo: Map<string, TocInfo> = new Map(),
+    89→  tocLayer: StructureTocEntry[] = [],
+    90→): TopicInput[] {
+    91→  const inputs: TopicInput[] = []
+    92→  void anchoredPages
+    93→  // Per-unit classification: reference-list / question-group units colour the
+    94→  // topics the model finds inside them (keywords from a city list are table
+    95→  // entries, not organic study topics).
+    96→  const classOfUnit = new Map<number, TopicItemClass | null>()
+    97→  for (const u of units) {
+    98→    classOfUnit.set(u.index, classifyUnit(u))
+    99→  }
+   100→  // Heading-anchored topics: each headed section contributes its own heading
+   101→  // as a topic — that is the document's real organisation, not model opinion.
+   102→  // The topic keeps the document's exact wording, numbering and (when the
+   103→  // document has a contents table) the entry's own match record.
+   104→  for (const u of units) {
+   105→    if (u.kind === 'SECTION' && u.title) {
+   106→      const info = tocInfo.get(normalizeTitle(u.title))
+   107→      inputs.push({
+   108→        name: u.title,
+   109→        subtopics: [],
+   110→        pages: pagesBetween(u.fromPage, u.toPage),
+   111→        unitIndex: u.index,
+   112→        unitTitle: u.title,
+   113→        unitFromPage: u.fromPage,
+   114→        unitToPage: u.toPage,
+   115→        anchored: true,
+   116→        origin: 'SOURCE_HEADING',
+   117→        titleSource: info ? 'toc' : 'body',
+   118→        numbering: extractNumberToken(u.title),
+   119→        tocPrintedPage: info?.printedPage ?? null,
+   120→        tocPrintedEndPage: info?.printedPageEnd ?? null,
+   121→        tocMatchPage: info?.matchPage ?? null,
+   122→        structureVerified: info ? info.matched : true,
+   123→        group: info?.group ?? undefined,
+   124→        boundaryEvidence: info?.boundaryEvidence ?? undefined,
+   125→      })
+   126→    }
+   127→  }
+   128→  // v6: a deterministically recovered reference list is attached to the
+   129→  // section's own heading topic — the entries ARE that section's content.
+   130→  for (const u of units) {
+   131→    const part = parts[u.index]
+   132→    if (!part?.deterministic) continue
+   133→    const listTopic = (part.topics ?? []).find(t => t.list)
+   134→    if (!listTopic?.list) continue
+   135→    const headingTopic = inputs.find(
+   136→      i => i.origin === 'SOURCE_HEADING' && i.unitIndex === u.index,
+   137→    )
+   138→    if (headingTopic) {
+   139→      headingTopic.list = listTopic.list
+   140→      continue
+   141→    }
+   142→    inputs.push({
+   143→      name: u.title ?? 'Reference list',
+   144→      subtopics: listTopic.subtopics ?? [],
+   145→      pages: pagesBetween(u.fromPage, u.toPage),
+   146→      unitIndex: u.index,
+   147→      unitTitle: u.title,
+   148→      unitFromPage: u.fromPage,
+   149→      unitToPage: u.toPage,
+   150→      origin: 'SOURCE_HEADING',
+   151→      titleSource: 'body',
+   152→      numbering: u.title ? extractNumberToken(u.title) : null,
+   153→      structureVerified: true,
+   154→      itemClass: 'TABLE_OR_LIST',
+   155→      list: listTopic.list,
+   156→    })
+   157→  }
+   158→  // Source SUBSECTIONS: numbered x.y rows of the document's own contents
+   159→  // table. They are part of the original structure — surfaced as topics so
+   160→  // the hierarchy matches the document, always under their containing
+   161→  // section, never mixed into the AI-inferred layer.
+   162→  const unitOfPage = (page: number): AnalysisUnit | null => {
+   163→    for (const u of units) if (page >= u.fromPage && page <= u.toPage) return u
+   164→    return null
+   165→  }
+   166→  let lastMajorTitle: string | null = null
+   167→  for (const e of tocLayer) {
+   168→    if (e.level === 1) {
+   169→      const stripped = stripEntryTitle(e.title)
+   170→      lastMajorTitle = stripped
+   171→      continue
+   172→    }
+   173→    if (e.startPage == null) continue
+   174→    const parentTitle = lastMajorTitle
+   175→    const spanFrom = e.startPage
+   176→    const spanTo = e.endPage ?? e.startPage
+   177→    const container = unitOfPage(spanFrom) ?? unitOfPage(spanTo)
+   178→    inputs.push({
+   179→      name: e.title,
+   180→      subtopics: [],
+   181→      pages: pagesBetween(spanFrom, Math.max(spanFrom, spanTo)),
+   182→      unitIndex: container?.index ?? 0,
+   183→      unitTitle: parentTitle,
+   184→      unitFromPage: spanFrom,
+   185→      unitToPage: Math.max(spanFrom, spanTo),
+   186→      origin: 'SOURCE_HEADING',
+   187→      titleSource: 'toc',
+   188→      numbering: e.number,
+   189→      tocPrintedPage: e.printedPage,
+   190→      tocPrintedEndPage: e.printedPageEnd ?? null,
+   191→      tocMatchPage: e.matchPage,
+   192→      structureVerified: e.matched,
+   193→      itemClass: 'SOURCE_SUBSECTION',
+   194→      group: e.group ?? undefined,
+   195→      parentTitle,
+   196→      boundaryEvidence: e.boundaryEvidence ?? undefined,
+   197→    })
+   198→  }
+   199→  const tocPageSet = new Set(tocPages)
+   200→  for (const u of units) {
+   201→    const part = parts[u.index]
+   202→    if (!part) continue
+   203→    // Topics the model claims ONLY on the document's own contents pages are
+   204→    // INDEX ECHOES ("Eligibility Criteria" from the contents line) — a map of
+   205→    // the document, not its content. Page-level check: real front-matter
+   206→    // content around the contents table (vision/mission pages) is still kept.
+   207→    const isFront = u.kind === 'FRONT'
+   208→    const unitClass = classOfUnit.get(u.index) ?? null
+   209→    for (const t of part.topics ?? []) {
+   210→      const name = String(t?.name ?? '').trim()
+   211→      if (!name) continue
+   212→      const claimed = (t.pages ?? []).filter(Number.isFinite)
+   213→      if (isFront && claimed.length > 0 && claimed.every(p => tocPageSet.has(p))) continue
+   214→      inputs.push({
+   215→        name,
+   216→        subtopics: (t.subtopics ?? []).map(s => String(s)).filter(Boolean),
+   217→        pages: claimed,
+   218→        unitIndex: u.index,
+   219→        unitTitle: u.title,
+   220→        unitFromPage: u.fromPage,
+   221→        unitToPage: u.toPage,
+   222→        origin: 'AI_INFERRED',
+   223→        titleSource: 'inferred',
+   224→        itemClass: unitClass ?? undefined,
+   225→      })
+   226→    }
+   227→  }
+   228→  return inputs
+   229→}
+   230→
+   231→/**
+   232→ * Deterministic unit classification for topic chips (§ item classes):
+   233→ *   • reference lists (abbreviations, city rosters, fee tables) are mostly
+   234→ *     short lines — topics from them are TABLE_OR_LIST entries;
+   235→ *   • question-paper-style units (numbered question lines) yield
+   236→ *     QUESTION_GROUP topics;
+   237→ *   • everything else lets the origin/verification decide (learning topic or
+   238→ *     unclassified-needs-review).
+   239→ */
+   240→function classifyUnit(u: AnalysisUnit): TopicItemClass | null {
+   241→  const lines = u.text.split('\n').map(l => l.trim()).filter(Boolean)
+   242→  if (lines.length < 5) return null
+   243→  let questionLines = 0
+   244→  for (const l of lines) if (/^\d{1,3}[.)]\s+(.{10,})$/.test(l)) questionLines++
+   245→  if (questionLines >= 3 && questionLines / lines.length >= 0.12) return 'QUESTION_GROUP'
+   246→  const short = lines.filter(l => l.length <= 40).length
+   247→  if (short / lines.length >= 0.65 && lines.length >= 8) return 'TABLE_OR_LIST'
+   248→  return null
+   249→}
+   250→
+   251→function pagesBetween(from: number, to: number): number[] {
+   252→  const out: number[] = []
+   253→  for (let p = from; p <= to; p++) out.push(p)
+   254→  return out
+   255→}
+   256→
+   257→// ─── Study-note verification (v6): page-grounded facts and verbatim formulas ─
+   258→
+   259→const FACT_TOKEN_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were', 'have', 'has', 'will', 'shall', 'must', 'may', 'can', 'not', 'their', 'they', 'who', 'whom', 'which', 'candidates', 'candidate'])
+   260→
+   261→/** Alphanumeric tokens of a note that are distinctive evidence: numbers (any)
+   262→ *  and non-stopword words of ≥4 characters. */
+   263→function noteTokens(text: string): string[] {
+   264→  return text
+   265→    .toLowerCase()
+   266→    .replace(/[^a-z0-9]+/g, ' ')
+   267→    .split(' ')
+   268→    .filter(w => w.length >= 2)
+   269→    .filter(w => /^\d+$/.test(w) || (w.length >= 4 && !FACT_TOKEN_STOP.has(w)))
+   270→}
+   271→
+   272→/** Share of `tokens` found on `pageText` (already normalized). */
+   273→function tokenSupport(tokens: string[], pageText: string): number {
+   274→  if (tokens.length === 0) return 0
+   275→  let hit = 0
+   276→  for (const t of tokens) if (pageText.includes(t)) hit++
+   277→  return hit / tokens.length
+   278→}
+   279→
+   280→function normalizeFactEntry(raw: SectionAnalysis['keyFacts'][number]): { text: string; page: number | null; kind: 'verbatim' | 'summary' | undefined } | null {
+   281→  if (typeof raw === 'string') {
+   282→    const text = raw.trim()
+   283→    return text ? { text, page: null, kind: undefined } : null
+   284→  }
+   285→  if (!raw || typeof raw !== 'object') return null
+   286→  const text = String(raw.text ?? raw.fact ?? '').trim()
+   287→  if (!text) return null
+   288→  const page = Number.isFinite(raw.page) && Number(raw.page) >= 1 ? Number(raw.page) : null
+   289→  const kind = raw.kind === 'verbatim' ? 'verbatim' : raw.kind === 'summary' ? 'summary' : undefined
+   290→  return { text: text.slice(0, 500), page, kind }
+   291→}
+   292→
+   293→function normalizeFormulaEntry(raw: SectionAnalysis['formulas'][number]): { text: string; page: number | null } | null {
+   294→  if (typeof raw === 'string') {
+   295→    const text = raw.trim()
+   296→    return text ? { text: text.slice(0, 400), page: null } : null
+   297→  }
+   298→  if (!raw || typeof raw !== 'object') return null
+   299→  const text = String(raw.text ?? raw.formula ?? '').trim()
+   300→  if (!text) return null
+   301→  const page = Number.isFinite(raw.page) && Number(raw.page) >= 1 ? Number(raw.page) : null
+   302→  return { text: text.slice(0, 400), page }
+   303→}
+   304→
+   305→/**
+   306→ * Merge per-section facts into verified study notes (v6):
+   307→ *  • duplicates removed by token similarity (near-identical wording merged,
+   308→ *    genuinely different facts kept);
+   309→ *  • every fact's claimed page is VERIFIED against the extracted page text —
+   310→ *    when the claimed page does not support it, the page that does is used
+   311→ *    (with a note); when no page supports it the fact is kept but flagged
+   312→ *    UNVERIFIED so nothing unsupported ever looks source-backed.
+   313→ */
+   314→function mergeStudyFacts(
+   315→  parts: (SectionAnalysis | null)[],
+   316→  cap: number,
+   317→  pageTextIndex: Map<number, string>,
+   318→): StudyFact[] {
+   319→  const out: StudyFact[] = []
+   320→  const seenTokens: Set<string>[] = []
+   321→  const push = (fact: StudyFact) => {
+   322→    const tokens = new Set(noteTokens(fact.text))
+   323→    for (const kept of seenTokens) {
+   324→      if (jaccard(tokens, kept) >= 0.8) return // duplicated fact — dropped
+   325→    }
+   326→    seenTokens.push(tokens)
+   327→    out.push(fact)
+   328→  }
+   329→  for (const part of parts) {
+   330→    if (!part) continue
+   331→    for (const raw of part.keyFacts ?? []) {
+   332→      const entry = normalizeFactEntry(raw)
+   333→      if (!entry || !entry.text) continue
+   334→      const fact = verifyFact(entry, pageTextIndex)
+   335→      push(fact)
+   336→      if (out.length >= cap) return out
+   337→    }
+   338→  }
+   339→  return out
+   340→}
+   341→
+   342→function verifyFact(
+   343→  entry: { text: string; page: number | null; kind: 'verbatim' | 'summary' | undefined },
+   344→  pageTextIndex: Map<number, string>,
+   345→): StudyFact {
+   346→  const tokens = noteTokens(entry.text)
+   347→  const best = bestSupportPage(tokens, entry.page, pageTextIndex)
+   348→  if (best && best.page === entry.page) {
+   349→    return { text: entry.text, page: entry.page, kind: entry.kind, status: 'VERIFIED' }
+   350→  }
+   351→  if (best) {
+   352→    // the claim is real but the model cited the wrong page — correct it, say so
+   353→    return {
+   354→      text: entry.text,
+   355→      page: best.page,
+   356→      kind: entry.kind,
+   357→      status: best.support >= 0.6 ? 'VERIFIED' : 'UNVERIFIED',
+   358→      note: `page reference corrected: the model cited page ${entry.page ?? '?'}; this text was found on page ${best.page}`,
+   359→    }
+   360→  }
+   361→  return {
+   362→    text: entry.text,
+   363→    page: entry.page,
+   364→    kind: entry.kind,
+   365→    status: 'UNVERIFIED',
+   366→    note: 'no page of the extracted text supports this claim — flagged for review',
+   367→  }
+   368→}
+   369→
+   370→/** Find the page with the strongest token support, preferring the claimed page. */
+   371→function bestSupportPage(
+   372→  tokens: string[],
+   373→  claimedPage: number | null,
+   374→  pageTextIndex: Map<number, string>,
+   375→): { page: number; support: number } | null {
+   376→  if (tokens.length === 0) return null
+   377→  let best: { page: number; support: number } | null = null
+   378→  for (const [page, text] of pageTextIndex) {
+   379→    const support = tokenSupport(tokens, text)
+   380→    if (support <= 0) continue
+   381→    if (page === claimedPage && support >= 0.5) return { page, support } // claimed page wins early
+   382→    if (!best || support > best.support || (support === best.support && page === claimedPage)) {
+   383→      best = { page, support }
+   384→    }
+   385→  }
+   386→  return best && best.support >= 0.5 ? best : null
+   387→}
+   388→
+   389→/**
+   390→ * Merge per-section formulas into verified notes (v6):
+   391→ *  • duplicates removed (the same formula transcribed twice keeps the VERIFIED
+   392→ *    verbatim variant);
+   393→ *  • every transcription is verified against the extracted page text — a
+   394→ *    formula whose tokens never appear (typically an embedded equation IMAGE)
+   395→ *    is flagged NEEDS_REVIEW and never silently trusted.
+   396→ */
+   397→function mergeFormulas(
+   398→  parts: (SectionAnalysis | null)[],
+   399→  cap: number,
+   400→  pageTextIndex: Map<number, string>,
+   401→): FormulaNote[] {
+   402→  const out: FormulaNote[] = []
+   403→  const seenTokens: Set<string>[] = []
+   404→  for (const part of parts) {
+   405→    if (!part) continue
+   406→    for (const raw of part.formulas ?? []) {
+   407→      const entry = normalizeFormulaEntry(raw)
+   408→      if (!entry || !entry.text) continue
+   409→      const tokens = new Set(noteTokens(entry.text))
+   410→      if (tokens.size === 0) continue
+   411→      let duplicate = false
+   412→      for (const kept of seenTokens) {
+   413→        if (jaccard(tokens, kept) >= 0.7) { duplicate = true; break }
+   414→      }
+   415→      if (duplicate) continue
+   416→      const best = bestSupportPage([...tokens], entry.page, pageTextIndex)
+   417→      if (best) {
+   418→        seenTokens.push(tokens)
+   419→        out.push({
+   420→          text: entry.text,
+   421→          page: best.page,
+   422→          status: 'VERIFIED',
+   423→          note: best.page !== entry.page
+   424→            ? `page reference corrected: the model cited page ${entry.page ?? '?'}; this text was found on page ${best.page}`
+   425→            : undefined,
+   426→        })
+   427→      } else {
+   428→        // could not be verified anywhere in the extracted text — the formula is
+   429→        // likely an embedded image or a reconstruction. Flagged, never trusted.
+   430→        seenTokens.push(tokens)
+   431→        out.push({
+   432→          text: entry.text,
+   433→          page: entry.page,
+   434→          status: 'NEEDS_REVIEW',
+   435→          note: 'this transcription could not be verified against the extracted page text — the source may print it as an image; review before relying on it',
+   436→        })
+   437→      }
+   438→      if (out.length >= cap) return out
+   439→    }
+   440→  }
+   441→  return out
+   442→}
+   443→
+   444→function mergeDefinitions(parts: (SectionAnalysis | null)[], cap: number): DocumentAnalysis['definitions'] {
+   445→  const seen = new Set<string>()
+   446→  const out: DocumentAnalysis['definitions'] = []
+   447→  for (const part of parts) {
+   448→    if (!part) continue
+   449→    for (const d of part.definitions ?? []) {
+   450→      if (!d?.term || !d?.meaning) continue
+   451→      const key = normalizeTitle(String(d.term))
+   452→      if (!key || seen.has(key)) continue
+   453→      seen.add(key)
+   454→      out.push({
+   455→        term: String(d.term).slice(0, 120),
+   456→        meaning: String(d.meaning).slice(0, 500),
+   457→        page: Number(d.page) || 0,
+   458→      })
+   459→      if (out.length >= cap) return out
+   460→    }
+   461→  }
+   462→  return out
+   463→}
+   464→
+   465→function mergeMisconceptions(parts: (SectionAnalysis | null)[], cap: number): DocumentAnalysis['misconceptions'] {
+   466→  const seen = new Set<string>()
+   467→  const out: DocumentAnalysis['misconceptions'] = []
+   468→  for (const part of parts) {
+   469→    if (!part) continue
+   470→    for (const m of part.misconceptions ?? []) {
+   471→      if (!m?.misconception || !m?.correction) continue
+   472→      const key = normalizeTitle(String(m.misconception)).slice(0, 100)
+   473→      if (!key || seen.has(key)) continue
+   474→      seen.add(key)
+   475→      out.push({
+   476→        misconception: String(m.misconception).slice(0, 300),
+   477→        correction: String(m.correction).slice(0, 400),
+   478→        page: Number.isFinite(m.page) ? Number(m.page) : undefined,
+   479→      })
+   480→      if (out.length >= cap) return out
+   481→    }
+   482→  }
+   483→  return out
+   484→}
+   485→
+   486→function mergeUnreadable(parts: (SectionAnalysis | null)[], cap: number): string[] {
+   487→  const out: string[] = []
+   488→  for (const part of parts) {
+   489→    if (!part) continue
+   490→    for (const u of part.unreadable ?? []) {
+   491→      const s = String(u ?? '').trim()
+   492→      if (!s) continue
+   493→      out.push(s.slice(0, 200))
+   494→      if (out.length >= cap) return out
+   495→    }
+   496→  }
+   497→  return out
+   498→}
+   499→
+   500→function buildCoverage(
+   501→  extraction: { numPages: number; scannedPages: number; pages: ExtractedPage[] },
+   502→  readablePages: ExtractedPage[],
+   503→  units: AnalysisUnit[],
+   504→  outcomes: SectionOutcome[],
+   505→  contentlessSet: Set<number>,
+   506→  tocLayer: StructureTocEntry[],
+   507→): CoverageMetrics {
+   508→  const unitPages = (u: AnalysisUnit) => pagesBetween(u.fromPage, u.toPage)
+   509→  const okUnits = units.filter((u, i) => outcomes[i]?.status === 'OK')
+   510→  const failedUnits = units.filter((u, i) => outcomes[i]?.status === 'FAILED')
+   511→  const skippedUnits = units.filter((u, i) => outcomes[i]?.status === 'SKIPPED')
+   512→  const deterministicUnits = units.filter((u, i) => outcomes[i]?.status === 'OK' && outcomes[i]?.method === 'DETERMINISTIC')
+   513→  const accountedPageSet = new Set<number>()
+   514→  for (const u of okUnits) for (const p of unitPages(u)) accountedPageSet.add(p)
+   515→  const skippedPageSet = new Set<number>()
+   516→  for (const u of skippedUnits) for (const p of unitPages(u)) skippedPageSet.add(p)
+   517→  const readableSet = new Set(readablePages.map(p => p.page))
+   518→  // v5: pages whose extracted text is only running furniture are counted in
+   519→  // their own bucket — they were never analysable content, so counting them
+   520→  // as "analysed pages" inflated semantic coverage.
+   521→  // v6: furniture-only pages split by EVIDENCE into image-content pages (the
+   522→  // page paints image plates — a form facsimile / Gazette reprint awaiting
+   523→  // OCR) and verified non-content pages (no images — genuinely blank or
+   524→  // decorative). Only the former block "fully analysed".
+   525→  const imageContentPages = [...contentlessSet].filter(p => {
+   526→    const page = extraction.pages.find(x => x.page === p)
+   527→    return page ? page.imagePlates !== false : true // unknown probe → conservative
+   528→  })
+   529→  const nonContentPages = [...contentlessSet].filter(p => !imageContentPages.includes(p))
+   530→  const contentPages = [...readableSet].filter(p => !contentlessSet.has(p))
+   531→  const contentlessInUnits = [...contentlessSet].filter(p => readableSet.has(p)).length
+   532→  const unanalysed = contentPages.filter(p => !accountedPageSet.has(p) && !skippedPageSet.has(p)).length
+   533→  // Extraction-level honesty: pages the extractor could not read at all, and
+   534→  // pages that were never attempted because the document exceeds the safety
+   535→  // cap. Both are distinct from image-only pages and both block "complete".
+   536→  const failedExtractionPages = extraction.pages.filter(p => p.outcome === 'failed').length
+   537→  const notExtractedPages = Math.max(0, extraction.numPages - extraction.pages.length)
+   538→  const scannedPageNumbers = extraction.pages.filter(p => p.scanned).map(p => p.page)
+   539→  const skippedPageNumbers = contentPages.filter(p => skippedPageSet.has(p))
+   540→  const matchedEntries = tocLayer.filter(e => e.matched)
+   541→  // v6 — page-accounting completeness: every physical page sits in exactly one
+   542→  // explicit bucket. Guard-checked, never assumed.
+   543→  const accountedSum =
+   544→    (accountedPageSet.size - [...contentlessSet].filter(p => accountedPageSet.has(p)).length) +
+   545→    unanalysed +
+   546→    skippedPageNumbers.length +
+   547→    contentlessInUnits +
+   548→    scannedPageNumbers.length +
+   549→    failedExtractionPages +
+   550→    notExtractedPages
+   551→  const pageAccountingComplete = accountedSum === extraction.numPages
+   552→  // v6 — CONTENT-analysis completeness: no meaningful content left unanalysed.
+   553→  // Skipped pages, pages awaiting OCR (image-only or image-content), failed
+   554→  // units, extraction failures and un-read pages all block it. Verified
+   555→  // non-content pages (blank/decorative) do not.
+   556→  const complete =
+   557→    unanalysed === 0 &&
+   558→    failedUnits.length === 0 &&
+   559→    skippedPageNumbers.length === 0 &&
+   560→    scannedPageNumbers.length === 0 &&
+   561→    imageContentPages.length === 0 &&
+   562→    failedExtractionPages === 0 &&
+   563→    notExtractedPages === 0 &&
+   564→    units.length > 0
+   565→  return {
+   566→    totalPages: extraction.numPages,
+   567→    readablePages: readablePages.length,
+   568→    scannedPages: extraction.scannedPages,
+   569→    contentlessPages: contentlessInUnits,
+   570→    analysedPages: accountedPageSet.size - [...contentlessSet].filter(p => accountedPageSet.has(p)).length,
+   571→    unanalysedPages: unanalysed,
+   572→    skippedPages: skippedPageNumbers.length,
+   573→    skippedPageNumbers,
+   574→    scannedPageNumbers,
+   575→    deterministicPages: deterministicUnits.reduce((s, u) => s + unitPages(u).filter(p => contentPages.includes(p)).length, 0),
+   576→    deterministicUnits: deterministicUnits.length,
+   577→    failedExtractionPages,
+   578→    notExtractedPages,
+   579→    unitsTotal: units.length,
+   580→    unitsOk: okUnits.length,
+   581→    unitsFailed: failedUnits.length,
+   582→    unitsSkipped: skippedUnits.length,
+   583→    complete,
+   584→    pageAccountingComplete,
+   585→    tocDiscovered: tocLayer.length,
+   586→    tocMatchedHeadings: matchedEntries.length,
+   587→    tocVerifiedStarts: matchedEntries.filter(e => e.startStatus === 'VERIFIED').length,
+   588→    tocInferredStarts: tocLayer.filter(e => e.startStatus === 'INFERRED').length,
+   589→    tocUnresolved: tocLayer.filter(e => e.startStatus === 'UNRESOLVED').length,
+   590→  }
+   591→}
+   592→
+   593→function buildCoverageNote(cov: CoverageMetrics, counts: { imageContent: number; nonContent: number }): string {
+   594→  const bits: string[] = []
+   595→  if (cov.unitsFailed > 0) {
+   596→    bits.push(`Analysed ${cov.analysedPages} of ${cov.readablePages - (cov.contentlessPages ?? 0)} content page${cov.readablePages - (cov.contentlessPages ?? 0) === 1 ? '' : 's'} — ${cov.unitsFailed} section${cov.unitsFailed === 1 ? '' : 's'} failed and can be retried without losing the sections that succeeded.`)
+   597→  } else if (cov.unitsSkipped > 0) {
+   598→    bits.push(`All content pages accounted for: ${cov.analysedPages} analysed across ${cov.unitsOk} section${cov.unitsOk === 1 ? '' : 's'}, ${cov.skippedPages} page${cov.skippedPages === 1 ? '' : 's'} in ${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} skipped with a recorded reason (see below).`)
+   599→  } else {
+   600→    bits.push(`All ${cov.analysedPages} content page${cov.analysedPages === 1 ? '' : 's'} analysed across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}.`)
+   601→  }
+   602→  if ((cov.deterministicPages ?? 0) > 0) {
+   603→    bits.push(`${cov.deterministicPages} page${(cov.deterministicPages ?? 0) === 1 ? ' was' : 's were'} recovered by deterministic list extraction after the AI provider refused the raw text — the entries are read straight from the PDF text layer, not invented.`)
+   604→  }
+   605→  if ((cov.contentlessPages ?? 0) > 0) {
+   606→    const parts: string[] = []
+   607→    if (counts.imageContent > 0) parts.push(`${counts.imageContent} page${counts.imageContent === 1 ? ' carries' : 's carry'} image content that needs OCR`)
+   608→    if (counts.nonContent > 0) parts.push(`${counts.nonContent} page${counts.nonContent === 1 ? ' is' : 's are'} verified to carry no content at all (no text, no images)`)
+   609→    if (parts.length > 0) bits.push(`${parts.join('; ')} — accounted separately, never counted as analysed content.`)
+   610→  }
+   611→  if (cov.failedExtractionPages > 0) {
+   612→    bits.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor at all (renderer failure) — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} reported separately from image-only pages and excluded from the analysis.`)
+   613→  }
+   614→  if (cov.notExtractedPages > 0) {
+   615→    bits.push(`The document has ${cov.totalPages} pages but only the first ${cov.totalPages - cov.notExtractedPages} could be processed in this environment — the remaining ${cov.notExtractedPages} were never read and are not part of this analysis.`)
+   616→  }
+   617→  if (cov.scannedPages > 0) {
+   618→    bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} would need OCR, which is not available yet — ${cov.scannedPages === 1 ? 'it is' : 'they are'} excluded from the analysis.`)
+   619→  }
+   620→  return bits.join(' ')
+   621→}
+   622→
+   623→// ─── Main job ─────────────────────────────────────────────────────────────────
+   624→
+   625→/**
+   626→ * Background job: extract text, detect the document's real structure, analyse
+   627→ * every section, merge deterministically.
+   628→ *  opts.force      — full re-analysis of a READY document (fresh extraction)
+   629→ *  partial retry   — a READY v2 analysis with failed sections re-runs ONLY the
+   630→ *                    failed sections and keeps every successful result
+   631→ */
+   632→export async function processDocument(documentId: string, opts?: { force?: boolean }): Promise<void> {
+   633→  const force = opts?.force === true
+   634→  const doc = await db.studyDocument.findUnique({ where: { id: documentId } })
+   635→  if (!doc) return
+   636→
+   637→  const stored = safeParse<StoredAnalysis | null>(doc.analysisJson, null)
+   638→  const canPartialRetry =
+   639→    !force &&
+   640→    doc.status === 'READY' &&
+   641→    stored?.pipelineVersion === PIPELINE_VERSION &&
+   642→    Array.isArray(stored?._parts) &&
+   643→    Array.isArray(stored?.sectionOutcomes) &&
+   644→    stored?.coverage?.complete === false
+   645→
+   646→  const allowed = force ? ['QUEUED', 'FAILED', 'NEEDS_OCR', 'READY'] : ['QUEUED', 'FAILED', 'NEEDS_OCR']
+   647→  if (!allowed.includes(doc.status) && !canPartialRetry) return
+   648→
+   649→  // Identical-file reuse — only from the SAME pipeline version, so an upgrade
+   650→  // always re-analyses instead of copying a stale analysis.
+   651→  let twinAnalysisJson: string | null = null
+   652→  if (!force && (doc.status === 'FAILED' || doc.status === 'QUEUED')) {
+   653→    const twin = await db.studyDocument.findFirst({
+   654→      where: { contentHash: doc.contentHash, status: 'READY', id: { not: doc.id } },
+   655→      select: { analysisJson: true },
+   656→    })
+   657→    const twinJson = twin?.analysisJson ?? null
+   658→    const twinParsed = safeParse<StoredAnalysis | null>(twinJson, null)
+   659→    if (twinParsed?.pipelineVersion === PIPELINE_VERSION && twinParsed.topics) twinAnalysisJson = twinJson
+   660→  }
+   661→
+   662→  await db.studyDocument.update({
+   663→    where: { id: documentId },
+   664→    data: {
+   665→      status: 'EXTRACTING',
+   666→      statusDetail: canPartialRetry ? 'Preparing to re-analyse the failed sections…' : 'Reading the uploaded file…',
+   667→      updatedAt: new Date(),
+   668→    },
+   669→  })
+   670→
+   671→  let buffer: Buffer
+   672→  try {
+   673→    buffer = await readFile(doc.storedPath)
+   674→  } catch {
+   675→    await db.studyDocument.update({
+   676→      where: { id: documentId },
+   677→      data: { status: 'FAILED', statusDetail: 'The stored file could not be read. Please upload it again.' },
+   678→    })
+   679→    return
+   680→  }
+   681→
+   682→  // Verify the stored content still matches its hash (integrity)
+   683→  const hash = createHash('sha256').update(buffer).digest('hex')
+   684→  if (hash !== doc.contentHash) {
+   685→    await db.studyDocument.update({
+   686→      where: { id: documentId },
+   687→      data: { status: 'FAILED', statusDetail: 'Stored file failed its integrity check. Please upload it again.' },
+   688→    })
+   689→    return
+   690→  }
+   691→
+   692→  // ── Stage 1: extraction (re-extract for force / first runs; reuse for partial retry)
+   693→  let extraction: Awaited<ReturnType<typeof extractPdfPages>>
+   694→  let storedPages: ExtractedPage[] | null = null
+   695→  if (canPartialRetry && doc.extractionJson) {
+   696→    const parsed = safeParse<ExtractedPage[] | null>(doc.extractionJson, null)
+   697→    if (parsed && parsed.length > 0) storedPages = parsed
+   698→  }
+   699→  if (storedPages) {
+   700→    const readable = storedPages.filter(p => !p.scanned && p.text.length > 0)
+   701→    extraction = {
+   702→      pages: storedPages,
+   703→      numPages: doc.pageCount ?? storedPages.length,
+   704→      textChars: readable.reduce((s, p) => s + p.text.length, 0),
+   705→      scannedPages: storedPages.filter(p => p.scanned).length,
+   706→      titleGuess: null,
+   707→      failedPages: storedPages.filter(p => p.outcome === 'failed').length,
+   708→      extractionLimited: false, // a stored extraction was already accepted in full
+   709→    }
+   710→  } else {
+   711→    try {
+   712→      extraction = await extractPdfPages(new Uint8Array(buffer))
+   713→    } catch (err) {
+   714→      console.error('[riishe extract]', err)
+   715→      await db.studyDocument.update({
+   716→        where: { id: documentId },
+   717→        data: {
+   718→          status: 'FAILED',
+   719→          statusDetail: `This file could not be parsed as a PDF (${err instanceof Error ? err.name : 'unknown error'}). It may be corrupted or not a real PDF.`,
+   720→        },
+   721→      })
+   722→      return
+   723→    }
+   724→  }
+   725→
+   726→  const readablePages = extraction.pages.filter(p => !p.scanned && p.text.length > 0)
+   727→  const extractionNote = extraction.failedPages > 0
+   728→    ? ` ${extraction.failedPages} page${extraction.failedPages === 1 ? ' could' : 's could'} not be read by the PDF extractor and ${extraction.failedPages === 1 ? 'is' : 'are'} excluded from the analysis.`
+   729→    : ''
+   730→  await db.studyDocument.update({
+   731→    where: { id: documentId },
+   732→    data: {
+   733→      pageCount: extraction.numPages,
+   734→      extractionJson: JSON.stringify(extraction.pages),
+   735→      status: readablePages.length === 0 ? 'NEEDS_OCR' : 'ANALYSING',
+   736→      statusDetail: readablePages.length === 0
+   737→        ? `No extractable text found — every page looks like a scanned image or could not be read (${extraction.scannedPages} image-only, ${extraction.failedPages} extraction failures). OCR is not available in BEAN EXAMS yet, so Riishe cannot read this document. Questions cannot be generated from it.`
+   738→        : `Riishe is mapping the document structure…${extractionNote}`,
+   739→    },
+   740→  })
+   741→
+   742→  if (readablePages.length === 0) return
+   743→
+   744→  // ── Identical-file reuse (same pipeline version only)
+   745→  if (!canPartialRetry && twinAnalysisJson) {
+   746→    const analysis = safeParse<StoredAnalysis | null>(twinAnalysisJson, null)
+   747→    if (analysis) {
+   748→      analysis.title = analysis.title || doc.title
+   749→      await db.studyDocument.update({
+   750→        where: { id: documentId },
+   751→        data: {
+   752→          status: 'READY',
+   753→          statusDetail: `Ready — analysis reused from an identical upload (${extraction.numPages} pages).`,
+   754→          analysisJson: JSON.stringify(analysis),
+   755→        },
+   756→      })
+   757→      return
+   758→    }
+   759→  }
+   760→
+   761→  // ── Stage 2: deterministic structure detection
+   762→  const structure = detectStructure(extraction.pages, extraction.numPages, { maxUnitChars: UNIT_CHARS })
+   763→  const units = structure.units
+   764→
+   765→  if (units.length === 0) {
+   766→    await db.studyDocument.update({
+   767→      where: { id: documentId },
+   768→      data: {
+   769→        status: 'NEEDS_OCR',
+   770→        statusDetail: 'The PDF has pages but no readable text that Riishe can analyse. OCR is not available yet.',
+   771→      },
+   772→    })
+   773→    return
+   774→  }
+   775→
+   776→  // ── Partial retry: reuse stored successful parts, re-run the rest.
+   777→  // v6: previously SKIPPED units are re-attempted too — the deterministic
+   778→  // reference-list fallback makes retries convergent (the provider refusal no
+   779→  // longer dead-ends the section), so a carried-over skip would permanently
+   780→  // withhold recoverable content.
+   781→  let storedParts: (SectionAnalysis | null)[] | null = null
+   782→  if (canPartialRetry && stored) {
+   783→    const prev = stored._parts ?? []
+   784→    const prevOutcomes = stored.sectionOutcomes ?? []
+   785→    if (prev.length === units.length && prevOutcomes.length === units.length) {
+   786→      // keep only parts whose unit still counts as OK — everything else
+   787→      // (failed OR skipped) is re-attempted under the current pipeline
+   788→      storedParts = units.map((u, i) => (prevOutcomes[i]?.status === 'OK' ? prev[i] ?? null : null))
+   789→    }
+   790→  }
+   791→
+   792→  // ── Stage 3: analyse every unit (failures recorded, never fatal)
+   793→  const parts: (SectionAnalysis | null)[] = new Array(units.length).fill(null)
+   794→  if (storedParts) for (let i = 0; i < units.length; i++) parts[i] = storedParts[i]
+   795→
+   796→  const skipReasons = new Map<number, string>()
+   797→  let done = 0
+   798→  let failedCount = 0
+   799→  let skippedCount = 0
+   800→  for (const unit of units) {
+   801→    if (parts[unit.index]) continue // preserved from the previous run
+   802→    const res = await analyseSection(doc.title, unit, units.length)
+   803→    if (res.part) {
+   804→      parts[unit.index] = res.part
+   805→      done++
+   806→    } else if (res.skippedReason) {
+   807→      skippedCount++
+   808→      skipReasons.set(unit.index, res.skippedReason)
+   809→    } else {
+   810→      failedCount++
+   811→    }
+   812→    const settled = done + failedCount + skippedCount
+   813→    if (settled % 3 === 0 || settled === units.length) {
+   814→      const extras = [
+   815→        failedCount > 0 ? `${failedCount} failed` : null,
+   816→        skippedCount > 0 ? `${skippedCount} skipped` : null,
+   817→      ].filter(Boolean).join(', ')
+   818→      await db.studyDocument.update({
+   819→        where: { id: documentId },
+   820→        data: {
+   821→          statusDetail: extras
+   822→            ? `Riishe is analysing the content — section ${settled} of ${units.length} (${extras})…`
+   823→            : `Riishe is analysing the content — section ${settled} of ${units.length}…`,
+   824→        },
+   825→      }).catch(() => {})
+   826→    }
+   827→  }
+   828→
+   829→  const outcomes: SectionOutcome[] = units.map((u, i) => {
+   830→    const range = `${u.fromPage}${u.toPage !== u.fromPage ? `–${u.toPage}` : ''}`
+   831→    const label = u.title ? `${u.title} (${range})` : `pages ${range}`
+   832→    if (parts[i]) {
+   833→      return parts[i]!.deterministic
+   834→        ? {
+   835→            index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage,
+   836→            status: 'OK' as const, method: 'DETERMINISTIC' as const,
+   837→            note: parts[i]!.deterministicNote,
+   838→          }
+   839→        : { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'OK' as const, method: 'AI' as const }
+   840→    }
+   841→    if (skipReasons.has(i)) return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'SKIPPED' as const, error: skipReasons.get(i) }
+   842→    return { index: i, title: u.title, label, fromPage: u.fromPage, toPage: u.toPage, status: 'FAILED' as const, error: 'AI analysis failed for this section' }
+   843→  })
+   844→
+   845→  if (parts.every(p => p === null)) {
+   846→    // Nothing succeeded — honest, retryable failure (extraction is preserved).
+   847→    // A skip-only outcome (every unit skipped with reason) is still honest
+   848→    // READY-partial, not FAILED: the extraction worked, the provider refused.
+   849→    const allSkipped = skipReasons.size === units.length
+   850→    if (!allSkipped) {
+   851→      await db.studyDocument.update({
+   852→        where: { id: documentId },
+   853→        data: {
+   854→          status: 'FAILED',
+   855→          statusDetail: `Extraction succeeded (${readablePages.length} readable pages) but AI analysis failed for all ${units.length} section${units.length === 1 ? '' : 's'}: ${AI_UNAVAILABLE_MESSAGE}`,
+   856→          extractionJson: JSON.stringify(extraction.pages),
+   857→        },
+   858→      })
+   859→      return
+   860→    }
+   861→  }
+   862→
+   863→  // ── Stage 4: deterministic merge + verification + coverage
+   864→  const pageTextIndex = new Map<number, string>()
+   865→  for (const p of extraction.pages) {
+   866→    if (!p.scanned && p.text) pageTextIndex.set(p.page, p.text.toLowerCase().replace(/[^a-z0-9]+/g, ' '))
+   867→  }
+   868→
+   869→  // v5: pages whose extracted text is only running headers/footers (the real
+   870→  // content is an image). Evidence list stored with the analysis; coverage
+   871→  // counts them in their own bucket instead of "analysed content".
+   872→  const contentlessPages = detectContentlessPages(extraction.pages)
+   873→  const contentlessSet = new Set(contentlessPages)
+   874→
+   875→  const topicInputs = collectTopicInputs(parts, units, new Map(), structure.tocPages, buildTocInfoMap(structure.tocLayer), structure.tocLayer)
+   876→  const topics: AnalyzedTopic[] = canonicalizeTopics(topicInputs, { pageTextIndex, maxTopics: 200, maxSubtopicsPerTopic: 12 })
+   877→
+   878→  // v5: per-topic page-mapping status + printed-range bookkeeping for
+   879→  // structural entries — honest VERIFIED / INFERRED / UNRESOLVED labels.
+   880→  for (const t of topics) {
+   881→    if (t.origin !== 'SOURCE_HEADING') continue
+   882→    if (t.tocMatchPage != null) {
+   883→      t.pageMapping = 'VERIFIED'
+   884→    } else if (t.titleSource === 'body' && t.pages.length > 0) {
+   885→      // anchored at a page where the heading line itself was found
+   886→      t.pageMapping = 'VERIFIED'
+   887→    } else {
+   888→      t.pageMapping = t.pages.length > 0 ? 'INFERRED' : 'UNRESOLVED'
+   889→    }
+   890→  }
+   891→
+   892→  // Printed page labels: per-page labels actually READ from the page edges
+   893→  // take precedence (evidence, never derived); the detected offset is the
+   894→  // fallback for pages whose label was not printed. Nothing is invented.
+   895→  {
+   896→    const edgeLabels = structure.printed.labels ?? {}
+   897→    const off = structure.printed.offset
+   898→    for (const t of topics) {
+   899→      if (t.pages.length === 0) continue
+   900→      const direct = t.pages.map(p => edgeLabels[p]).filter((s): s is string => !!s)
+   901→      if (direct.length === t.pages.length) {
+   902→        t.printedPages = direct
+   903→        continue
+   904→      }
+   905→      if (off !== null) {
+   906→        const labels = t.pages.map(p => p - off).filter(n => n >= 1).map(String)
+   907→        if (labels.length === t.pages.length) t.printedPages = labels
+   908→      }
+   909→    }
+   910→  }
+   911→
+   912→  const cov = buildCoverage(
+   913→    { numPages: extraction.numPages, scannedPages: extraction.scannedPages, pages: extraction.pages },
+   914→    readablePages,
+   915→    units,
+   916→    outcomes,
+   917→    contentlessSet,
+   918→    structure.tocLayer,
+   919→  )
+   920→
+   921→  // v6: furniture-only pages split by evidence — image plates present (form
+   922→  // facsimiles, Gazette reprints: awaiting OCR) vs verified non-content.
+   923→  const imageContentPages = contentlessPages.filter(p => {
+   924→    const page = extraction.pages.find(x => x.page === p)
+   925→    return page ? page.imagePlates !== false : true
+   926→  })
+   927→  const nonContentPages = contentlessPages.filter(p => !imageContentPages.includes(p))
+   928→
+   929→  // v5: per-group processing accounting — an entry is OK when every one of
+   930→  // its analysable pages sits in a successful unit; partial when some do.
+   931→  const groupStats = buildGroupStats(structure.tocLayer, outcomes, extraction.pages, contentlessSet)
+   932→
+   933→  const merged: StoredAnalysis = {
+   934→    title: doc.title,
+   935→    summary: '',
+   936→    topics,
+   937→    definitions: mergeDefinitions(parts, 60),
+   938→    keyFacts: mergeStudyFacts(parts, 80, pageTextIndex),
+   939→    formulas: mergeFormulas(parts, 50, pageTextIndex),
+   940→    misconceptions: mergeMisconceptions(parts, 40),
+   941→    keyPages: [...new Set(topics.flatMap(t => t.pages.slice(0, 3)))].filter(p => p >= 1).sort((a, b) => a - b).slice(0, 60),
+   942→    unreadableSections: mergeUnreadable(parts, 16),
+   943→    studyGaps: [],
+   944→    coverageNote: buildCoverageNote(cov, { imageContent: imageContentPages.length, nonContent: nonContentPages.length }),
+   945→    pipelineVersion: PIPELINE_VERSION,
+   946→    coverage: cov,
+   947→    sectionOutcomes: outcomes,
+   948→    structure: {
+   949→      kind: structure.kind,
+   950→      tocValidated: structure.tocValidated,
+   951→      tocEntries: structure.toc.length,
+   952→      headingCount: structure.headings.length,
+   953→      printedPageOffset: structure.printed.offset,
+   954→      printedRomanFrontMatter: structure.printed.romanFrontMatter,
+   955→      // the ORIGINAL-STRUCTURE layer: the document's own contents entries with
+   956→      // body-match status, its body headings, and the printed page labels that
+   957→      // were actually read — recorded, never silently dropped
+   958→      toc: structure.tocLayer.slice(0, 200),
+   959→      headings: structure.headings.slice(0, 120).map(h => ({ title: h.title, page: h.page, level: h.level, fromToc: h.fromToc })),
+   960→      tocMatched: structure.tocLayer.filter(e => e.matched).length,
+   961→      tocUnmatched: structure.tocLayer.filter(e => !e.matched).length,
+   962→      printedLabels: structure.printed.labels,
+   963→      tocPages: structure.tocPages,
+   964→      contentlessPages,
+   965→      // v6: evidence split of the furniture-text pages (see coverage note)
+   966→      imageContentPages,
+   967→      nonContentPages,
+   968→      groupStats,
+   969→    },
+   970→    _parts: parts, // retained so a partial retry keeps every successful section
+   971→  }
+   972→  merged.summary = await summarise(doc.title, extraction.pages, merged)
+   973→  merged.studyGaps = deriveStudyGaps(merged, cov)
+   974→
+   975→  const partial = !cov.complete
+   976→  const contentPages = cov.readablePages - (cov.contentlessPages ?? 0)
+   977→  const pendingBits: string[] = []
+   978→  if (cov.unitsFailed > 0) pendingBits.push(`${cov.unitsFailed} failed section${cov.unitsFailed === 1 ? '' : 's'}`)
+   979→  if (cov.unitsSkipped > 0) pendingBits.push(`${cov.unitsSkipped} skipped section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} pages)`)
+   980→  if (cov.scannedPages > 0) pendingBits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} awaiting OCR`)
+   981→  await db.studyDocument.update({
+   982→    where: { id: documentId },
+   983→    data: {
+   984→      status: 'READY',
+   985→      statusDetail: partial
+   986→        ? `Ready (partially analysed) — analysed ${cov.analysedPages} of ${cov.totalPages} pages across ${cov.unitsOk}/${cov.unitsTotal} sections${pendingBits.length > 0 ? `; still requiring processing: ${pendingBits.join(', ')}` : ''}.`
+   987→        : `Ready — fully analysed: ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; every one of the ${cov.totalPages} pages was analysed or verified to carry no content.`,
+   988→      analysisJson: JSON.stringify(merged),
+   989→    },
+   990→  })
+   991→}
+   992→
+   993→// ─── Group accounting ─────────────────────────────────────────────────────────
+   994→
+   995→/**
+   996→ * Per-group (front matter / chapters / appendices / other) processing status
+   997→ * over the document's own contents entries. An entry is:
+   998→ *   • OK      — every one of its analysable pages sits in a successful unit;
+   999→ *   • partial — some pages analyse, others failed/skipped/pending;
+  1000→ *   • failed  — no page of it was analysed;
+  1001→ *   • notAnalysable — its span holds NO analysable content at all (image-only
+  1002→ *     reprint): nothing to analyse, distinct from a processing failure.
+  1003→ * Image-only, contentless and failed-extraction pages are excluded from the
+  1004→ * denominator (they are accounted at the extraction level, not semantic).
+  1005→ */
+  1006→export function buildGroupStats(
+  1007→  tocLayer: StructureTocEntry[],
+  1008→  outcomes: SectionOutcome[],
+  1009→  extractionPages: ExtractedPage[],
+  1010→  contentlessSet: Set<number>,
+  1011→): { group: StructureGroup; total: number; ok: number; partial: number; failed: number; notAnalysable: number }[] {
+  1012→  const statusByPage = new Map<number, 'OK' | 'FAILED' | 'SKIPPED' | 'NONE'>()
+  1013→  for (let p = 1; p <= 4000; p++) statusByPage.set(p, 'NONE')
+  1014→  for (const o of outcomes) {
+  1015→    for (let p = o.fromPage; p <= o.toPage; p++) statusByPage.set(p, o.status)
+  1016→  }
+  1017→  const analysable = new Set(
+  1018→    extractionPages.filter(p => !p.scanned && p.text.length > 0 && !contentlessSet.has(p.page)).map(p => p.page),
+  1019→  )
+  1020→  const groups: StructureGroup[] = ['FRONT', 'CHAPTER', 'APPENDIX', 'OTHER']
+  1021→  const out: { group: StructureGroup; total: number; ok: number; partial: number; failed: number; notAnalysable: number }[] = []
+  1022→  for (const group of groups) {
+  1023→    const entries = tocLayer.filter(e => (e.group ?? 'OTHER') === group)
+  1024→    if (entries.length === 0) continue
+  1025→    let ok = 0
+  1026→    let partial = 0
+  1027→    let failed = 0
+  1028→    let notAnalysable = 0
+  1029→    for (const e of entries) {
+  1030→      const from = e.startPage ?? e.physicalPage
+  1031→      const to = Math.max(from ?? 0, e.endPage ?? e.physicalPage ?? from ?? 0)
+  1032→      if (from == null) { failed++; continue }
+  1033→      const pages: number[] = []
+  1034→      for (let p = from; p <= to; p++) if (analysable.has(p)) pages.push(p)
+  1035→      if (pages.length === 0) { notAnalysable++; continue } // image-only span — nothing to analyse
+  1036→      const okCount = pages.filter(p => statusByPage.get(p) === 'OK').length
+  1037→      const skipCount = pages.filter(p => statusByPage.get(p) === 'SKIPPED').length
+  1038→      if (okCount === pages.length) ok++
+  1039→      else if (okCount > 0 || skipCount > 0) partial++
+  1040→      else failed++
+  1041→    }
+  1042→    out.push({ group, total: entries.length, ok, partial, failed, notAnalysable })
+  1043→  }
+  1044→  return out
+  1045→}
+  1046→
+  1047→// ─── Per-section analysis ─────────────────────────────────────────────────────
+  1048→
+  1049→type SectionResult =
+  1050→  | { part: SectionAnalysis; skippedReason?: undefined }
+  1051→  | { part: null; skippedReason: string }
+  1052→  | { part: null; skippedReason?: undefined }
+  1053→
+  1054→const RATE_LIMIT_BACKOFF_MS = 15_000
+  1055→
+  1056→/**
+  1057→ * Analyse one unit with provider-failure strategies that keep the pipeline
+  1058→ * honest AND convergent:
+  1059→ *   • 429 rate limiting → ONE bounded 15 s backoff, then give up (the section
+  1060→ *     stays FAILED and the existing partial-retry path covers it);
+  1061→ *   • provider content filter (some legitimate dense name/term lists trip it
+  1062→ *     and an identical retry can NEVER succeed) → split the unit into smaller
+  1063→ *     page-range sub-chunks and analyse each independently, merging what the
+  1064→ *     provider accepts; if every sub-chunk is refused, the unit is SKIPPED
+  1065→ *     with a recorded reason instead of looping as FAILED forever.
+  1066→ */
+  1067→async function analyseSection(docTitle: string, unit: AnalysisUnit, totalUnits: number): Promise<SectionResult> {
+  1068→  try {
+  1069→    return { part: await analyseUnit(docTitle, unit, totalUnits) }
+  1070→  } catch (err) {
+  1071→    if (isRateLimitError(err)) {
+  1072→      console.warn(`[riishe analyse unit ${unit.index + 1}/${totalUnits}] rate limited — backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s once`)
+  1073→      await new Promise(r => setTimeout(r, RATE_LIMIT_BACKOFF_MS))
+  1074→      try {
+  1075→        return { part: await analyseUnit(docTitle, unit, totalUnits) }
+  1076→      } catch (err2) {
+  1077→        if (!isContentFilterError(err2)) {
+  1078→          console.error(`[riishe analyse unit ${unit.index + 1}/${totalUnits} ${unit.title ?? `pages ${unit.fromPage}-${unit.toPage}`}]`, err2)
+  1079→          return { part: null }
+  1080→        }
+  1081→        err = err2
+  1082→      }
+  1083→    }
+  1084→    if (!isContentFilterError(err)) {
+  1085→      console.error(`[riishe analyse unit ${unit.index + 1}/${totalUnits} ${unit.title ?? `pages ${unit.fromPage}-${unit.toPage}`}]`, err)
+  1086→      return { part: null }
+  1087→    }
+  1088→  }
+  1089→
+  1090→  // Content-filter refusal → try smaller page-range sub-chunks of this unit.
+  1091→  const subChunks = splitUnitPages(unit)
+  1092→  if (subChunks.length <= 1) {
+  1093→    return recoverRefusedUnit(unit)
+  1094→  }
+  1095→  console.warn(`[riishe analyse unit ${unit.index + 1}/${totalUnits}] content-filtered — retrying as ${subChunks.length} sub-chunks`)
+  1096→  const mergedParts: SectionAnalysis[] = []
+  1097→  for (const [i, chunk] of subChunks.entries()) {
+  1098→    try {
+  1099→      mergedParts.push(await analyseUnit(docTitle, chunk, totalUnits))
+  1100→    } catch (chunkErr) {
+  1101→      if (!isContentFilterError(chunkErr)) {
+  1102→        console.error(`[riishe analyse unit ${unit.index + 1}/${totalUnits} sub-chunk ${i + 1}/${subChunks.length}]`, chunkErr)
+  1103→      }
+  1104→      // filter-refused sub-chunks are dropped; remaining chunks still count
+  1105→    }
+  1106→  }
+  1107→  if (mergedParts.length === 0) {
+  1108→    return recoverRefusedUnit(unit, subChunks.length)
+  1109→  }
+  1110→  return { part: mergeSectionAnalyses(mergedParts) }
+  1111→}
+  1112→
+  1113→/**
+  1114→ * v6 — a provider refusal must not prevent ordinary document extraction when
+  1115→ * the source contains benign lists of examination locations (or any similar
+  1116→ * reference table). Before giving up, the unit's pages are parsed by the
+  1117→ * DETERMINISTIC reference-list extractor: entries come verbatim from the PDF
+  1118→ * text layer, source order and grouping preserved, unreadable rows reported.
+  1119→ * The recovered section is marked as a different METHOD in the outcomes —
+  1120→ * never presented as AI analysis, never blended into its numbers.
+  1121→ */
+  1122→function recoverRefusedUnit(unit: AnalysisUnit, refusedParts?: number): SectionResult {
+  1123→  const list = extractReferenceList(unit.text)
+  1124→  if (!list || list.totalEntries === 0) {
+  1125→    return {
+  1126→      part: null,
+  1127→      skippedReason: refusedParts
+  1128→        ? `The AI provider's safety filter refused this section's text in full and in ${refusedParts} smaller parts (dense lists of names or categories are a known trigger), and no structured list could be recovered deterministically. Its pages are accounted as skipped, not analysed — no content was invented for them.`
+  1129→        : 'The AI provider\'s safety filter refused to process this section\'s text (dense lists of names or categories are a known trigger), and no structured list could be recovered deterministically. Its pages are accounted as skipped, not analysed — no content was invented for them.',
+  1130→    }
+  1131→  }
+  1132→  const title = unit.title ?? 'Reference list'
+  1133→  const deterministicNote = list.unreadableRows.length > 0 || list.serialGaps.length > 0
+  1134→    ? `Recovered ${list.totalEntries} entries deterministically from the PDF text layer after the AI provider refused the raw text${list.serialGaps.length > 0 ? `; serial gaps: ${list.serialGaps.join('; ')}` : ''}${list.unreadableRows.length > 0 ? `; ${list.unreadableRows.length} row(s) could not be parsed` : ''}.`
+  1135→    : `Recovered ${list.totalEntries} entries in ${list.groups.length} group(s) deterministically from the PDF text layer after the AI provider refused the raw text.`
+  1136→  return {
+  1137→    part: {
+  1138→      topics: [{
+  1139→        name: title,
+  1140→        subtopics: list.groups.flatMap(g => g.entries).slice(0, 12),
+  1141→        pages: pagesBetween(unit.fromPage, unit.toPage),
+  1142→        list,
+  1143→      }],
+  1144→      definitions: [],
+  1145→      keyFacts: [{
+  1146→        text: deterministicNote,
+  1147→        page: unit.fromPage,
+  1148→        kind: 'summary',
+  1149→      }],
+  1150→      formulas: [],
+  1151→      misconceptions: [],
+  1152→      unreadable: list.unreadableRows,
+  1153→      deterministic: true,
+  1154→      deterministicNote,
+  1155→    },
+  1156→  }
+  1157→}
+  1158→
+  1159→/** Split a unit into 2–4 page-range sub-chunks (halves, quarters for 8+ pages). */
+  1160→export function splitUnitPages(unit: AnalysisUnit): AnalysisUnit[] {
+  1161→  const pageCount = unit.toPage - unit.fromPage + 1
+  1162→  if (pageCount < 2) return [unit]
+  1163→  const parts = pageCount >= 8 ? 4 : 2
+  1164→  const size = Math.ceil(pageCount / parts)
+  1165→  const out: AnalysisUnit[] = []
+  1166→  for (let from = unit.fromPage; from <= unit.toPage; from += size) {
+  1167→    const to = Math.min(from + size - 1, unit.toPage)
+  1168→    const subText = unit.text
+  1169→      .split(/\n\n+/)
+  1170→      .filter(block => {
+  1171→        const m = /^\[page (\d+)\]/.exec(block)
+  1172→        return m ? Number(m[1]) >= from && Number(m[1]) <= to : true
+  1173→      })
+  1174→      .join('\n\n')
+  1175→    out.push({ ...unit, fromPage: from, toPage: to, text: subText, chars: subText.length })
+  1176→  }
+  1177→  return out.length > 0 ? out : [unit]
+  1178→}
+  1179→
+  1180→export function mergeSectionAnalyses(parts: SectionAnalysis[]): SectionAnalysis {
+  1181→  return {
+  1182→    topics: parts.flatMap(p => p.topics ?? []).slice(0, 12),
+  1183→    definitions: parts.flatMap(p => p.definitions ?? []).slice(0, 20),
+  1184→    keyFacts: parts.flatMap(p => p.keyFacts ?? []).slice(0, 20),
+  1185→    formulas: parts.flatMap(p => p.formulas ?? []).slice(0, 10),
+  1186→    misconceptions: parts.flatMap(p => p.misconceptions ?? []).slice(0, 10),
+  1187→    unreadable: parts.flatMap(p => p.unreadable ?? []).slice(0, 10),
+  1188→    deterministic: parts.some(p => p.deterministic) || undefined,
+  1189→    deterministicNote: parts.map(p => p.deterministicNote).find(Boolean) || undefined,
+  1190→  }
+  1191→}
+  1192→
+  1193→function unitDescriptor(unit: AnalysisUnit): string {
+  1194→  const range = unit.fromPage === unit.toPage ? `page ${unit.fromPage}` : `pages ${unit.fromPage}–${unit.toPage}`
+  1195→  if (unit.kind === 'SECTION' && unit.title) return `the section "${unit.title}" (${range} of the uploaded PDF)`
+  1196→  if (unit.kind === 'FRONT') return `the front matter (${range} of the uploaded PDF)`
+  1197→  if (unit.kind === 'OVERFLOW') return `an excerpt of ${range} of the uploaded PDF`
+  1198→  return `${range} of the uploaded PDF`
+  1199→}
+  1200→
+  1201→async function analyseUnit(docTitle: string, unit: AnalysisUnit, totalUnits: number): Promise<SectionAnalysis> {
+  1202→  return chatJson<SectionAnalysis>({
+  1203→    system: SYSTEM,
+  1204→    user: `Analyse ${unitDescriptor(unit)} — part ${unit.index + 1} of ${totalUnits} covering the whole document ("${docTitle}"). Extract ONLY what is present in the text below.
+  1205→
+  1206→Return JSON with this exact shape:
+  1207→{
+  1208→  "topics": [{"name": string, "subtopics": string[], "pages": number[]}],
+  1209→  "definitions": [{"term": string, "meaning": string, "page": number}],
+  1210→  "keyFacts": [{"text": string, "page": number, "kind": "verbatim"|"summary"}],
+  1211→  "formulas": [{"text": string, "page": number}],
+  1212→  "misconceptions": [{"misconception": string, "correction": string, "page": number}],
+  1213→  "unreadable": string[]
+  1214→}
+  1215→
+  1216→Rules:
+  1217→- "topics": the concrete topics/concepts this text actually covers, using the document's own headings and terminology (3-8 at most; fewer is fine). Topic names must be SHORT noun phrases (≤ 8 words) — never full sentences. Do NOT invent topics, do NOT echo the section title unless the text genuinely develops it, and do NOT promote every heading you see.
+  1218→- REFERENCE LISTS (abbreviations, glossaries, indexes, rosters, fee/centre/name tables): return exactly ONE topic named after the section's own heading or the list's own title, with the ACTUAL entries from the list as its subtopics (up to 12, verbatim, most study-relevant). NEVER invent thematic groupings the document did not write (e.g. "Government Bodies", "Educational Abbreviations" for an abbreviations list).
+  1219→- "subtopics": concepts or key terms under each topic, found in this text — they are verified against the pages and invented or garbled ones are dropped.
+  1220→- "pages" must cite page numbers from the [page N] markers in the text — never other numbers.
+  1221→- "keyFacts": every fact MUST cite the [page N] it was read from, and MUST say "kind": "verbatim" when the statement/numbers are copied exactly from the text, or "summary" when you condensed it. Never state a fact the text does not support. Facts without a correct page are flagged and lose credibility — be precise.
+  1222→- If this text is from a question paper, answer key or marks scheme, extract the subject areas the questions test (not the questions themselves) and note it in keyFacts.
+  1223→- "unreadable": list page labels whose text is garbled, truncated or incomprehensible ([] if none).
+  1224→- "misconceptions": only if the text supports a correction (common wrong belief vs what the text says).
+  1225→- "formulas": mathematical/scientific formulas or rules stated in the text ([] if none). Each entry: {"text": string, "page": number}.
+  1226→  · TRANSCRIBE VERBATIM: copy the formula exactly as the document prints it — keep its own letters, subscripts, brackets, operators and even its own typos. If the document writes "u_A, u_C" where "u_B" was clearly intended, transcribe "u_A, u_C" anyway; do not silently fix the source.
+  1227→  · If a formula appears only as an image or is described in words, return the describing sentence verbatim as the text — it will be flagged for review rather than trusted.
+  1228→  · NEVER reconstruct, simplify or re-typeset a formula that is not literally written in the text.
+  1229→
+  1230→${fenceDocumentText(docTitle, unit.text)}`,
+  1231→  })
+  1232→}
+  1233→
+  1234→async function summarise(title: string, pages: ExtractedPage[], merged: StoredAnalysis): Promise<string> {
+  1235→  // Grounded summary from the first readable pages + identified topic names
+  1236→  const head = pages
+  1237→    .filter(p => !p.scanned && p.text)
+  1238→    .slice(0, 3)
+  1239→    .map(p => `[page ${p.page}]\n${p.text}`)
+  1240→    .join('\n\n')
+  1241→    .slice(0, 3000)
+  1242→  try {
+  1243→    const res = await chatJson<{ summary: string }>({
+  1244→      system: SYSTEM,
+  1245→      user: `Write a 2–3 sentence summary of this study document ("${title}") for a student, strictly from the text. Return JSON: {"summary": string}
+  1246→
+  1247→Known topics identified: ${merged.topics.slice(0, 12).map(t => t.name).join(', ') || '(none)'}.
+  1248→
+  1249→${fenceDocumentText(title, head)}`,
+  1250→    })
+  1251→    return String(res.summary ?? '').slice(0, 800)
+  1252→  } catch {
+  1253→    // Summary is cosmetic — fall back to a factual non-AI line rather than failing the job
+  1254→    return `Study document with ${merged.topics.length} identified topic${merged.topics.length === 1 ? '' : 's'}.`
+  1255→  }
+  1256→}
+  1257→
+  1258→function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics): string[] {
+  1259→  const gaps: string[] = []
+  1260→  if (a.topics.length === 0) gaps.push('No clear topics were identified — the text may be too sparse for question generation.')
+  1261→  if (a.definitions.length === 0) gaps.push('No key definitions were found — you may need supporting material for terminology-heavy questions.')
+  1262→  if (a.formulas.length === 0) gaps.push('No formulas or rules were detected — calculation-based questions will not be generated.')
+  1263→  const unverifiedFacts = a.keyFacts.filter(f => f.status === 'UNVERIFIED').length
+  1264→  if (unverifiedFacts > 0) gaps.push(`${unverifiedFacts} study note${unverifiedFacts === 1 ? '' : 's'} could not be verified against any page of the document — ${unverifiedFacts === 1 ? 'it is' : 'they are'} flagged in the notes, do not rely on ${unverifiedFacts === 1 ? 'it' : 'them'} without checking the source.`)
+  1265→  const reviewFormulas = a.formulas.filter(f => f.status === 'NEEDS_REVIEW').length
+  1266→  if (reviewFormulas > 0) gaps.push(`${reviewFormulas} formula${reviewFormulas === 1 ? '' : 's'} could not be verified against the extracted text (likely printed as an image in the PDF) — ${reviewFormulas === 1 ? 'it is' : 'they are'} flagged for review and will not be treated as verified.`)
+  1267→  if (a.unreadableSections.length > 0) gaps.push(`${a.unreadableSections.length} section${a.unreadableSections.length === 1 ? '' : 's'} were unreadable and excluded from the analysis.`)
+  1268→  if (cov.scannedPages > 0) gaps.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' needs' : 's need'} OCR to be analysed — OCR is not available yet.`)
+  1269→  if ((cov.contentlessPages ?? 0) > 0) gaps.push(`${cov.contentlessPages} page${(cov.contentlessPages ?? 0) === 1 ? ' carries' : 's carry'} no analysable text — the content there is an image (or the page is blank) and is accounted separately.`)
+  1270→  if (cov.failedExtractionPages > 0) gaps.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} not part of this analysis.`)
+  1271→  if (cov.notExtractedPages > 0) gaps.push(`The document has ${cov.notExtractedPages} page${cov.notExtractedPages === 1 ? '' : 's'} beyond what this environment can process — they were never read, so this analysis does not cover them.`)
+  1272→  if (cov.unitsFailed > 0) gaps.push(`${cov.unanalysedPages} content page${cov.unanalysedPages === 1 ? ' is' : 's are'} not yet covered (failed sections) — retry the analysis to include them.`)
+  1273→  if (cov.unitsSkipped > 0) gaps.push(`${cov.unitsSkipped} section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} page${cov.skippedPages === 1 ? '' : 's'}) were skipped because the AI provider's safety filter refused their text — see the section breakdown for the exact reason.`)
+  1274→  return gaps
+  1275→}
+  1276→
+  1277→/** Delete a stored file (used when a document row is removed). */
+  1278→export async function deleteStoredFile(storedPath: string): Promise<void> {
+  1279→  try {
+  1280→    await unlink(storedPath)
+  1281→  } catch { /* already gone */ }
+  1282→}
+  1283→
