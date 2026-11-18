@@ -48,3 +48,11 @@ There is no unit-test runner yet (see roadmap). Feature verification today uses 
 - `prisma db push` script passes `--accept-data-loss` — use deliberately.
 - `src/lib/db.ts` logs every SQL query; expect verbose `dev.log` output.
 - In-process job state resets on server restart; failed Riishe jobs offer explicit retry.
+
+## Phase 2A additions
+
+- Tests: `bun test` (focused unit suites in tests/unit/).
+- Migrations: `bun run db:backup` → edit schema → `bun run db:migrate` → `bun run db:status`. Never edit applied migrations; never reset the real DB (see docs/PHASE2A_DATABASE_MIGRATIONS.md).
+- Env: `DATABASE_URL` plus optional `DB_QUERY_LOG=1` (SQL diagnostics), `TESSERACT_BIN`/`POPPLER_BIN`/`TESSDATA_PREFIX` (OCR binary/tessdata overrides).
+- Identity: student sessions use the `bean_session` httpOnly cookie; auth mutations enforce same-origin; see docs/PHASE2A_IDENTITY.md.
+- PYQ import: see docs/PHASE2A_PYQ_INGESTION.md (format spec + review workflow + CLI).

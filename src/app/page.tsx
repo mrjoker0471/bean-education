@@ -54,7 +54,16 @@ export default function Page() {
             {route.view === 'practice' && <PracticeView doc={route.doc} topics={route.topics} />}
             {route.view === 'topics' && <TopicsView />}
             {route.view === 'settings' && <SettingsView />}
-            {route.view === 'auth' && <AuthView onAuthed={() => navigate({ view: 'settings' })} />}
+            {route.view === 'auth' && (
+              <AuthView
+                onAuthed={() => {
+                  // AuthView performs its own fetch (deliberately store-free);
+                  // the shell syncs the session into the store, then continues.
+                  void useAppStore.getState().refreshAuth()
+                  navigate({ view: 'settings' })
+                }}
+              />
+            )}
             {route.view === 'not-found' && <NotFound />}
           </>
         )}
