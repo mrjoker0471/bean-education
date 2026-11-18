@@ -124,8 +124,12 @@ function ReportsPanel() {
   const [failed, setFailed] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    api.myReports()
-      .then(res => { setData(res); setFailed(null) })
+    // Complaints and appeals live on separate guarded endpoints — fetch both.
+    Promise.all([api.myReports(), api.myAppeals()])
+      .then(([complaints, appeals]) => {
+        setData({ complaints: complaints.complaints, appeals: appeals.appeals })
+        setFailed(null)
+      })
       .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load your reports.'))
   }, [])
 

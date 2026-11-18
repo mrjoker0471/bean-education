@@ -59,6 +59,8 @@ import type {
   ReviewCreateResponse,
   TeacherResponseDTO,
   MyReportsResponse,
+  OwnComplaintDTO,
+  OwnAppealDTO,
   TeacherTrustSummaryResponse,
   AdminTrustOverviewResponse,
   AdminTrustReviewsResponse,
@@ -586,7 +588,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  myReports: () => jsonFetch<MyReportsResponse>('/api/teach/complaints'),
+  myReports: () => jsonFetch<{ complaints: OwnComplaintDTO[] }>('/api/teach/complaints'),
+  myAppeals: () => jsonFetch<{ appeals: OwnAppealDTO[] }>('/api/teach/appeals'),
   addComplaintInfo: (id: string, detail: string) =>
     jsonFetch<{ ok: boolean }>(`/api/teach/complaints/${encodeURIComponent(id)}`, {
       method: 'PATCH',
