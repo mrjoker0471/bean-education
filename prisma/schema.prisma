@@ -395,6 +395,10 @@ model Student {
   classBookings   ClassBooking[]
   // BEAN Live Classroom (Phase 5): per-person verified attendance evidence.
   liveParticipants LiveClassParticipant[]
+  // BEAN Trust & Quality (Phase 6)
+  reviewsWritten    ClassReview[]
+  complaintsFiled   TeachComplaint[]
+  appealsFiled      TeachAppeal[]
 
   @@index([role])
 }
@@ -542,6 +546,11 @@ model TeacherProfile {
   updatedAt          DateTime  @updatedAt
   student            Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
   classSessions      ClassSession[]
+  // BEAN Trust & Quality (Phase 6)
+  classReviews       ClassReview[]
+  reviewResponses    TeacherReviewResponse[]
+  trustActions       TrustAction[]
+  complaintsAbout    TeachComplaint[]
 
   @@index([verificationStatus])
 }
@@ -593,6 +602,8 @@ model ClassSession {
   bookings          ClassBooking[]
   // BEAN Live Classroom (Phase 5): one primary live session per scheduled class.
   liveSession       LiveClassSession?
+  // BEAN Trust & Quality (Phase 6)
+  reviews           ClassReview[]
 
   @@index([status, startsAt])
   @@index([teacherProfileId, startsAt])
@@ -610,6 +621,8 @@ model ClassBooking {
   updatedAt          DateTime  @updatedAt
   classSession       ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
   student            Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // BEAN Trust & Quality (Phase 6): a review is tied to exactly one booking.
+  review             ClassReview?
 
   // One booking record per student per class — rebooking after cancellation
   // re-activates the SAME row (never a duplicate), keeping history intact.
@@ -725,4 +738,168 @@ model LiveWhiteboardState {
   updatedById        String // Student.id of the teacher who saved
   updatedAt          DateTime @updatedAt
   liveSession        LiveClassSession @relation(fields: [liveClassSessionId], references: [id], onDelete: Cascade)
+}
+
+// ─── BEAN Trust & Quality (Phase 6): verified reviews, complaints, appeals ───
+// Additive milestone on top of Phase 4A/5. Reviews are ALWAYS tied to one real
+// booking with final ATTENDED status (DB-level unique constraint on bookingId).
+// Complaints are private support records — never public, never part of rating
+// math. All moderation/admin decisions keep append-only event history. There
+// are still NO payments, wallets or refunds: the pilot stays free (Phase 8).
+
+// Verified class review. One per booking (bookingId unique). Rating bounds are
+// enforced by server validation (Zod + service check) on every write path.
+model ClassReview {
+  id               String    @id @default(cuid())
+  bookingId        String    @unique // one review per booking — DB-level guarantee
+  classSessionId   String
+  teacherProfileId String
+  studentId        String
+  rating           Int // 1..5 — validated server-side on create AND edit
+  title            String? // optional, bounded (5..120 chars)
+  reviewText       String // bounded (20..2000 chars), plain text only
+  status           String    @default("PUBLISHED") // PUBLISHED | FLAGGED | HIDDEN
+  // FLAGGED keeps the review publicly visible (flagging is never auto-hiding);
+  // it is excluded from aggregate metrics while under moderation and returns
+  // to PUBLISHED when an admin decides to keep it.
+  isVerified       Boolean   @default(true) // true by construction: booking-verified path only
+  showDisplayName  Boolean   @default(false) // explicit student consent to show their displayName
+  editedAt         DateTime? // set on in-window self edits (7-day window)
+  publishedAt      DateTime?
+  moderatedAt      DateTime? // last admin moderation decision time
+  moderationReason String? // PRIVATE — visible to admins and the review author only
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  booking          ClassBooking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  classSession     ClassSession      @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile    @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  student          Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  response         TeacherReviewResponse?
+
+  @@index([classSessionId, status])
+  @@index([teacherProfileId, status])
+  @@index([studentId, createdAt])
+}
+
+// Teacher's public reply under a review. One per review (unique FK); only the
+// approved owner teacher of the reviewed class can create it. Teachers can
+// never edit the student's review itself.
+model TeacherReviewResponse {
+  id               String    @id @default(cuid())
+  reviewId         String    @unique // one response per review
+  teacherProfileId String // must be the reviewed class's owner profile
+  responseText     String // bounded (20..1000 chars), plain text only
+  editedAt         DateTime? // in-window self edit (7-day window)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  review           ClassReview     @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile  @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([teacherProfileId])
+}
+
+// Private complaint / incident report. Never public, never in teacher-facing
+// DTOs beyond an anonymous open-count. Sensitive categories (safeguarding,
+// harassment, discrimination) are restricted to ADMIN eyes server-side.
+model TeachComplaint {
+  id               String    @id @default(cuid())
+  complainantId    String // Student.id of the reporter — never exposed to teachers
+  classSessionId   String? // optional product relationship anchor
+  classBookingId   String? // optional: the reporter's own booking in that class
+  teacherProfileId String? // optional: teacher the complaint concerns
+  category         String // TEACHING_QUALITY | MISLEADING_CLASS_DESCRIPTION | TEACHER_CONDUCT | STUDENT_CONDUCT | SAFEGUARDING | HARASSMENT | DISCRIMINATION | CLASS_CANCELLATION | TECHNICAL_PROBLEM | ATTENDANCE_DISPUTE | OTHER
+  severity         String    @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL — server-derived, not client-asserted
+  isSensitive      Boolean   @default(false) // SAFEGUARDING | HARASSMENT | DISCRIMINATION → ADMIN-only visibility
+  subject          String // bounded (8..120)
+  description      String // bounded (30..4000)
+  status           String    @default("OPEN") // OPEN | ACKNOWLEDGED | UNDER_REVIEW | WAITING_FOR_INFORMATION | RESOLVED | DISMISSED
+  assignedAdminId  String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  complainant      Student          @relation(fields: [complainantId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile?  @relation(fields: [teacherProfileId], references: [id], onDelete: SetNull)
+  events           ComplaintEvent[]
+
+  @@index([status, severity])
+  @@index([complainantId, createdAt])
+  @@index([assignedAdminId, status])
+  @@index([teacherProfileId])
+}
+
+// Append-only complaint history: every status change, assignment, note and
+// decision is recorded once and never rewritten (duplicates are no-ops).
+model ComplaintEvent {
+  id          String   @id @default(cuid())
+  complaintId String
+  actorId     String // Student.id of complainant or admin
+  actorRole   String // role held at event time
+  action      String // CREATED | ACKNOWLEDGED | UNDER_REVIEW | WAITING_FOR_INFORMATION | RESOLVED | DISMISSED | ASSIGNMENT_CHANGED | NOTE_ADDED | INFO_PROVIDED | ESCALATED
+  detail      String? // bounded note — PRIVATE (admins; complainant sees own-provided info only)
+  createdAt   DateTime @default(now())
+  complaint   TeachComplaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId, createdAt])
+}
+
+// Teacher trust restriction / notice record. NOTICE and WARNING are records
+// without enforcement; PAUSE_LISTINGS hides current listings and blocks new
+// bookings; SUSPEND_PUBLISHING blocks class creation/publishing;
+// EMERGENCY_STOP (the immediate-safeguarding procedure) additionally blocks
+// live classroom start/token for this teacher's classes. Restrictions expire
+// predictably (endsAt) and are deactivated by REINSTATE. Filing a complaint
+// NEVER creates a trust action automatically.
+model TrustAction {
+  id               String    @id @default(cuid())
+  teacherProfileId String
+  action           String // NOTICE | WARNING | PAUSE_LISTINGS | SUSPEND_PUBLISHING | EMERGENCY_STOP | REINSTATE
+  reason           String // mandatory documented grounds (20..1000)
+  startsAt         DateTime  @default(now())
+  endsAt           DateTime? // null = until explicitly reinstated
+  isActive         Boolean   @default(true) // false for REINSTATE rows and ended restrictions
+  createdByAdminId String
+  endedAt          DateTime? // set on expiry sweep / reinstatement
+  endedById        String?
+  createdAt        DateTime  @default(now())
+  teacherProfile   TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([teacherProfileId, isActive])
+}
+
+// Appeal against a complaint decision, review moderation or trust action.
+// The original decision is never silently overwritten: the appeal carries its
+// own decision record, and OVERTURNED applies only documented restorations.
+model TeachAppeal {
+  id                 String    @id @default(cuid())
+  appellantId        String // Student.id — must hold the product relationship
+  targetType         String // COMPLAINT_DECISION | REVIEW_MODERATION | TRUST_ACTION
+  targetId           String // TeachComplaint.id | ClassReview.id | TrustAction.id
+  originalDecisionById String? // server-captured: admin who made the original decision (self-review ban)
+  reason             String // bounded (30..2000)
+  status             String    @default("SUBMITTED") // SUBMITTED | UNDER_REVIEW | UPHELD | OVERTURNED | CLOSED
+  assignedReviewerId String?
+  decision           String? // UPHELD | OVERTURNED | CLOSED
+  decisionNote       String?
+  decidedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  appellant          Student     @relation(fields: [appellantId], references: [id], onDelete: Cascade)
+  events             AppealEvent[]
+
+  @@index([appellantId, status])
+  @@index([targetType, targetId])
+}
+
+// Append-only appeal history.
+model AppealEvent {
+  id        String   @id @default(cuid())
+  appealId  String
+  actorId   String
+  actorRole String
+  action    String // SUBMITTED | ASSIGNED | UNDER_REVIEW | DECIDED | CLOSED
+  detail    String?
+  createdAt DateTime @default(now())
+  appeal    TeachAppeal @relation(fields: [appealId], references: [id], onDelete: Cascade)
+
+  @@index([appealId, createdAt])
 }
