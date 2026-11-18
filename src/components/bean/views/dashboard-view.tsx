@@ -79,33 +79,11 @@ function DocStatusBadge({ status }: { status: string }) {
 }
 
 export function DashboardView() {
-  const navigate = useAppStore(s => s.navigate)
   const authedStudent = useAppStore(s => s.authedStudent)
   const authChecked = useAppStore(s => s.authChecked)
-  const [data, setData] = useState<DashboardResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
-  useEffect(() => {
-    if (!authedStudent) {
-      setLoading(false)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    api
-      .studentDashboard()
-      .then(d => !cancelled && setData(d))
-      .catch(e => !cancelled && setError(e instanceof Error ? e.message : 'Could not load your dashboard.'))
-      .finally(() => !cancelled && setLoading(false))
-    return () => {
-      cancelled = true
-    }
-  }, [authedStudent, reloadKey])
-
-  if (!authChecked || loading) {
+  if (!authChecked) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading dashboard">
         <Loader2 className="h-6 w-6 animate-spin text-gold" />
@@ -122,22 +100,53 @@ export function DashboardView() {
           Sign in to see your learning profile, continue where you left off and track your goals. Guest mode keeps
           working everywhere else.
         </p>
-        <Button className="mt-6 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'auth' })}>
+        <Button className="mt-6 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => useAppStore.getState().navigate({ view: 'auth' })}>
           Sign in or create an account
         </Button>
       </div>
     )
   }
 
-  if (error || !data) {
+  // Keyed child: a retry re-mounts and re-runs the fetch with a clean state
+  // (loading state derives from the initial render, never from a sync setState
+  // inside the effect — which React's lint rules rightly warn about).
+  return <DashboardData key={reloadKey} onRetry={() => setReloadKey(k => k + 1)} />
+}
+
+function DashboardData({ onRetry }: { onRetry: () => void }) {
+  const navigate = useAppStore(s => s.navigate)
+  const [data, setData] = useState<DashboardResponse | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .studentDashboard()
+      .then(d => !cancelled && setData(d))
+      .catch(e => !cancelled && setFailed(e instanceof Error ? e.message : 'Could not load your dashboard.'))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Initial state is loading; it resolves only via the async callbacks above.
+  if (!data && !failed) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading dashboard">
+        <Loader2 className="h-6 w-6 animate-spin text-gold" />
+      </div>
+    )
+  }
+
+  if (failed || !data) {
     return (
       <div className="mx-auto max-w-md px-4 py-24 text-center">
         <EmptyState
           icon={RefreshCw}
           title="Could not load your dashboard"
-          description={error ?? 'Something went wrong on our side.'}
+          description={failed ?? 'Something went wrong on our side.'}
           actionLabel="Try again"
-          onAction={() => setReloadKey(k => k + 1)}
+          onAction={onRetry}
         />
       </div>
     )
