@@ -27,6 +27,7 @@ import { db } from '@/lib/db'
 import { requireStudent, sameOrigin } from '@/lib/auth'
 import { SEAT_CLAIM_SQL, SEAT_RELEASE_SQL } from '@/lib/teach-booking'
 import { toMyBookingDTO } from '@/lib/teach'
+import { trustStateFor, restrictionMessage } from '@/lib/trust'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const outcome = await db.$transaction(async (tx: Tx) => {
       const session = await tx.classSession.findUnique({
         where: { id },
-        include: { teacherProfile: { select: { studentId: true, teachingName: true } } },
+        include: { teacherProfile: { select: { id: true, studentId: true, teachingName: true } } },
       })
       if (!session) return { kind: 'notFound' as const }
       // Drafts are invisible; cancelled classes cannot take bookings.
@@ -61,6 +62,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // INSIDE the transaction so it cannot race the teacher's start call.
       const liveSession = await tx.liveClassSession.findUnique({ where: { classSessionId: id }, select: { status: true } })
       if (liveSession && liveSession.status !== 'FAILED') return { kind: 'started' as const }
+      // Phase 6: listings paused by an active trust restriction accept no NEW
+      // bookings — existing seat-holders are untouched (their booking never
+      // gets revoked by a complaint or investigation).
+      const trust = await trustStateFor(session.teacherProfile.id, now)
+      if (trust.pausedListings) return { kind: 'paused' as const }
       // Self-booking is forbidden — a teacher cannot seat their own class.
       if (session.teacherProfile.studentId === student.id) return { kind: 'self' as const }
 
@@ -96,6 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         self: 403,
         duplicate: 409,
         full: 409,
+        paused: 403,
       }
       const message: Record<Exclude<typeof outcome.kind, 'ok'>, string> = {
         notFound: 'Class not found',
@@ -104,6 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         self: 'You cannot reserve a seat in your own class.',
         duplicate: 'You already hold a seat in this class.',
         full: 'All seats are taken — check back if someone cancels.',
+        paused: restrictionMessage({ pausedListings: true, suspendedPublishing: false, emergencyStop: false, restricted: true }),
       }
       return NextResponse.json({ error: message[outcome.kind] }, { status: status[outcome.kind] })
     }

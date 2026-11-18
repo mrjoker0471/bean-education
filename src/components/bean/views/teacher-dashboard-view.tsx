@@ -15,7 +15,7 @@
 // the free pilot never charges anything.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, GraduationCap, Plus, Users, CalendarDays, Clock, Globe, Pencil, Rocket, Undo2, Ban, CheckCircle2, XCircle, Eye, EyeOff, AlertTriangle } from 'lucide-react'
+import { Loader2, GraduationCap, Plus, Users, CalendarDays, Clock, Globe, Pencil, Rocket, Undo2, Ban, CheckCircle2, XCircle, Eye, EyeOff, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,9 +28,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
 import { TeacherLiveClassButton } from '@/components/bean/classroom/classroom-entry'
+import { RatingStars } from '@/components/bean/trust/quality-metrics'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
-import type { LiveEvidenceDTO, MyClassDTO, TeachApplicationDTO, TeachOwnerBookingDTO } from '@/lib/types'
+import type { LiveEvidenceDTO, MyClassDTO, TeachApplicationDTO, TeachOwnerBookingDTO, TeacherTrustSummaryResponse } from '@/lib/types'
 import {
   COMMON_TIMEZONES,
   FREE_PILOT_PRICE_LABEL,
@@ -229,10 +230,17 @@ function DashboardPanel({ onProfileChanged }: { onProfileChanged: () => void }) 
         <TabsList className="bg-elevated">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="classes">My classes</TabsTrigger>
+          <TabsTrigger value="trust">Trust &amp; Quality</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
           <ProfilePanel onChanged={onProfileChanged} />
+        </TabsContent>
+
+        {/* Phase 6: Trust & Quality — verified metrics, reviews, responses,
+            anonymous open-complaint count, restrictions and appeal status. */}
+        <TabsContent value="trust" className="mt-4">
+          <TrustPanel />
         </TabsContent>
 
         <TabsContent value="classes" className="mt-4">
@@ -877,6 +885,155 @@ function ClassFormPanel({
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}{submitLabel}
         </Button>
       </DialogFooter>
+    </div>
+  )
+}
+
+// ─── Phase 6: teacher Trust & Quality panel ──────────────────────────────────
+// Loads GET /api/teach/trust (server-authoritative). Shows the verified
+// quality metrics, recent public reviews (with the teacher's own responses),
+// an ANONYMOUS open-complaint count (never complaint content or reporter
+// identity), any trust restrictions with their reasons, and appeal status.
+// Teachers respond to reviews and file appeals from here; review responses
+// are edited in place via the shared review section primitives.
+
+function TrustPanel() {
+  const navigate = useAppStore(s => s.navigate)
+  const [summary, setSummary] = useState<TeacherTrustSummaryResponse | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api.teacherTrust()
+      .then(res => { setSummary(res); setFailed(null) })
+      .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load your trust dashboard.'))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  if (failed && !summary) {
+    return <EmptyState icon={ShieldCheck} title="Could not load trust data" description={failed} actionLabel="Try again" onAction={load} />
+  }
+  if (!summary) {
+    return <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-label="Loading trust data"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
+  }
+
+  const q = summary.quality
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Verified quality metrics — server-computed, complaint-free. */}
+      <section className="rounded-xl border border-border bg-card p-5">
+        <h2 className="font-display text-lg font-semibold text-foreground">Your verified quality metrics</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Computed from real records only — published verified reviews and class outcomes. Complaints never affect these numbers.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-lg border border-border bg-elevated px-3 py-3">
+            <p className="text-xs text-muted-foreground">Verified rating</p>
+            <p className="mt-1 font-display text-xl font-semibold text-foreground">
+              {q.sampleSufficient ? q.averageRating?.toFixed(1) : '—'}
+            </p>
+            {!q.sampleSufficient && <p className="mt-1 text-[11px] text-muted-foreground">New teacher — not enough reviews yet</p>}
+          </div>
+          <div className="rounded-lg border border-border bg-elevated px-3 py-3">
+            <p className="text-xs text-muted-foreground">Verified reviews</p>
+            <p className="mt-1 font-display text-xl font-semibold text-foreground">{q.reviewCount}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-elevated px-3 py-3">
+            <p className="text-xs text-muted-foreground">Classes completed</p>
+            <p className="mt-1 font-display text-xl font-semibold text-foreground">{q.completedClasses}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-elevated px-3 py-3">
+            <p className="text-xs text-muted-foreground">Completion rate</p>
+            <p className="mt-1 font-display text-xl font-semibold text-foreground">
+              {q.completionRate !== null ? `${Math.round(q.completionRate * 100)}%` : '—'}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Anonymous open-complaint notification — content stays confidential. */}
+      <section className={`rounded-xl border p-5 ${summary.openComplaintCount > 0 ? 'border-gold/40 bg-gold/5' : 'border-border bg-card'}`}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-foreground">Open concerns</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {summary.openComplaintCount === 0
+                ? 'No open concerns right now. Filing a report never changes your classes or ratings automatically — administrators investigate before any decision.'
+                : `You have ${summary.openComplaintCount} open concern${summary.openComplaintCount === 1 ? '' : 's'} under administrator review. Report details stay confidential — only authorised administrators can read them, and decisions are documented before anything changes.`}
+            </p>
+          </div>
+          <ShieldCheck className={`h-8 w-8 shrink-0 ${summary.openComplaintCount > 0 ? 'text-gold' : 'text-border'}`} aria-hidden />
+        </div>
+      </section>
+
+      {/* Trust restrictions + appeal status (records with reasons). */}
+      {summary.restrictions.length > 0 && (
+        <section className="rounded-xl border border-destructive/40 bg-destructive/5 p-5">
+          <h2 className="font-display text-lg font-semibold text-foreground">Trust records &amp; restrictions</h2>
+          <div className="mt-3 flex flex-col gap-2">
+            {summary.restrictions.map(r => (
+              <div key={r.id} className="rounded-lg border border-border bg-elevated px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={r.currentlyEnforced ? 'border-destructive/40 text-destructive' : 'border-border text-muted-foreground'}>
+                    {r.action.replace(/_/g, ' ')}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(r.startsAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                    {r.endsAt ? ` → until ${new Date(r.endsAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}` : ' → until reinstated'}
+                  </span>
+                  {!r.isActive && <span className="text-[11px] text-muted-foreground">(ended)</span>}
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">{r.reason}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            You can appeal a restriction from{' '}
+            <button className="font-medium text-gold underline-offset-2 hover:underline" onClick={() => navigate({ view: 'my-reports' })}>My reports &amp; appeals</button>.
+          </p>
+        </section>
+      )}
+      {summary.appealStatus !== 'NONE' && (
+        <p className="rounded-lg border border-border bg-elevated px-4 py-3 text-xs text-muted-foreground">
+          Latest appeal status: <span className="font-medium text-foreground">{summary.appealStatus.replace(/_/g, ' ')}</span>
+        </p>
+      )}
+
+      {/* Recent public reviews with the teacher's own responses. */}
+      <section className="rounded-xl border border-border bg-card p-5">
+        <h2 className="font-display text-lg font-semibold text-foreground">Recent verified reviews</h2>
+        {summary.recentReviews.length === 0 ? (
+          <p className="mt-3 rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+            No verified reviews yet — reviews appear after classes end and attendance is confirmed.
+          </p>
+        ) : (
+          <div className="mt-3 flex max-h-96 flex-col gap-3 overflow-y-auto pr-1">
+            {summary.recentReviews.map(review => (
+              <article key={review.id} className="rounded-lg border border-border bg-elevated p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <RatingStars rating={review.rating} />
+                  {review.title && <span className="text-sm font-medium text-foreground">{review.title}</span>}
+                  <span className="text-xs text-muted-foreground">{new Date(review.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                  {review.ownStatus === 'FLAGGED' && <Badge variant="outline" className="border-gold/40 text-gold">Under moderation — still visible</Badge>}
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {review.reviewer.displayName ? `${review.reviewer.displayName} · ` : ''}{review.reviewer.label}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{review.reviewText}</p>
+                {review.response && (
+                  <div className="mt-2.5 rounded-md border border-gold/30 bg-gold/5 px-3 py-2">
+                    <p className="text-xs font-medium text-gold">Your response</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{review.response.responseText}</p>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Respond to reviews from each class page — one public response per review, editable for 7 days. Teachers can never edit a student&apos;s review.
+        </p>
+      </section>
     </div>
   )
 }

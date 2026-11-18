@@ -913,6 +913,8 @@ export interface PublicTeacherDTO {
   portfolioUrl: string | null
   classCount: number
   memberSince: string
+  /** Phase 6 verified quality metrics (server-computed; absent fields = insufficient sample). */
+  quality?: PublicQualityDTO
 }
 
 export interface PublicTeacherDetailDTO extends PublicTeacherDTO {
@@ -944,6 +946,8 @@ export interface TeachClassDetailDTO extends PublicClassDTO {
   teacherQualifications: string
   teacherExperienceYears: number
   teacherVerified: boolean
+  /** Phase 6: server-computed verified quality metrics for the teacher. */
+  teacherQuality: PublicQualityDTO
   isOwner: boolean
   myBooking: MyBookingDTO | null
   /** Owner-only: enrolled students (display names — never emails). */
@@ -1132,4 +1136,188 @@ export interface LiveWhiteboardResponse {
   snapshot: WBSnapshotDTO | null
   version: number
   updatedAt?: string
+}
+
+// ─── BEAN Trust & Quality (Phase 6): verified reviews, complaints, appeals ───
+
+export interface PublicReviewDTO {
+  id: string
+  rating: number
+  title: string | null
+  reviewText: string
+  createdAt: string
+  editedAt: string | null
+  reviewer: { label: string; displayName: string | null }
+  response: { responseText: string; createdAt: string; editedAt: string | null } | null
+  ownStatus?: 'PUBLISHED' | 'FLAGGED' | 'HIDDEN'
+  ownModerationReason?: string | null
+  canEdit?: boolean
+}
+
+export interface PublicQualityDTO {
+  averageRating: number | null
+  reviewCount: number
+  completedClasses: number
+  completionRate: number | null
+  publishedClasses: number
+  sampleSufficient: boolean
+}
+
+export interface ClassReviewsResponse {
+  reviews: PublicReviewDTO[]
+  /** The requesting student's own eligible booking for this class (to render the composer). */
+  myEligibility: { canReview: boolean; bookingId?: string; reason?: string }
+}
+
+export interface ReviewCreateResponse {
+  review: PublicReviewDTO
+}
+
+export interface TeacherResponseDTO {
+  id: string
+  reviewId: string
+  responseText: string
+  createdAt: string
+  editedAt: string | null
+}
+
+export interface ComplaintEventDTO {
+  id: string
+  action: string
+  detail: string | null
+  actorRole: string
+  createdAt: string
+}
+
+export interface OwnComplaintDTO {
+  id: string
+  category: string
+  severity: string
+  isSensitive: boolean
+  subject: string
+  description: string
+  status: string
+  classSessionId: string | null
+  classTitle: string | null
+  createdAt: string
+  resolvedAt: string | null
+  events: ComplaintEventDTO[]
+}
+
+export interface MyReportsResponse {
+  complaints: OwnComplaintDTO[]
+  appeals: OwnAppealDTO[]
+}
+
+export interface OwnAppealDTO {
+  id: string
+  targetType: string
+  targetId: string
+  reason: string
+  status: string
+  decision: string | null
+  decisionNote: string | null
+  decidedAt: string | null
+  createdAt: string
+  events: ComplaintEventDTO[]
+}
+
+export interface TeacherTrustSummaryResponse {
+  quality: PublicQualityDTO
+  recentReviews: PublicReviewDTO[]
+  responses: TeacherResponseDTO[]
+  /** Anonymous open-complaint count — never complaint content. */
+  openComplaintCount: number
+  restrictions: { id: string; action: string; reason: string; startsAt: string; endsAt: string | null; isActive: boolean; currentlyEnforced: boolean }[]
+  appealStatus: 'NONE' | 'SUBMITTED' | 'UNDER_REVIEW' | 'UPHELD' | 'OVERTURNED' | 'CLOSED'
+}
+
+export interface AdminTrustOverviewResponse {
+  newComplaints: number
+  openInvestigations: number
+  sensitiveOpen: number
+  flaggedReviews: number
+  hiddenReviews: number
+  pendingAppeals: number
+  activeRestrictions: number
+}
+
+export interface AdminReviewModerationItem {
+  id: string
+  rating: number
+  title: string | null
+  reviewText: string
+  status: 'PUBLISHED' | 'FLAGGED' | 'HIDDEN'
+  createdAt: string
+  moderatedAt: string | null
+  moderationReason: string | null
+  classSession: { id: string; title: string } | null
+  teacher: { id: string; teachingName: string } | null
+  reviewer: { id: string; displayName: string | null; email: string }
+  response: { responseText: string } | null
+}
+
+export interface AdminTrustReviewsResponse {
+  reviews: AdminReviewModerationItem[]
+}
+
+export interface AdminComplaintDTO {
+  id: string
+  category: string
+  severity: string
+  isSensitive: boolean
+  subject: string
+  description: string
+  status: string
+  classSessionId: string | null
+  classTitle: string | null
+  createdAt: string
+  resolvedAt: string | null
+  complainant: { id: string; displayName: string | null; email: string }
+  assignedAdminId: string | null
+  teacherProfileId: string | null
+  classBookingId: string | null
+  events: (ComplaintEventDTO & { detailFull: string | null })[]
+}
+
+export interface AdminTrustComplaintsResponse {
+  complaints: AdminComplaintDTO[]
+}
+
+export interface AdminTrustTeacherRow {
+  teacherProfileId: string
+  teachingName: string
+  studentId: string
+  verificationStatus: string
+  isPublished: boolean
+  reviewCount: number
+  averageRating: number | null
+  openComplaints: number
+  totalComplaints: number
+  activeRestrictions: string[]
+  restrictions: { id: string; action: string; reason: string; startsAt: string; endsAt: string | null; isActive: boolean; currentlyEnforced: boolean }[]
+}
+
+export interface AdminTrustTeachersResponse {
+  teachers: AdminTrustTeacherRow[]
+}
+
+export interface AdminAppealDTO {
+  id: string
+  targetType: string
+  targetId: string
+  reason: string
+  status: string
+  decision: string | null
+  decisionNote: string | null
+  decidedAt: string | null
+  createdAt: string
+  appellant: { id: string; displayName: string | null; email: string }
+  originalDecisionById: string | null
+  assignedReviewerId: string | null
+  events: ComplaintEventDTO[]
+}
+
+export interface AdminTrustAppealsResponse {
+  appeals: AdminAppealDTO[]
 }

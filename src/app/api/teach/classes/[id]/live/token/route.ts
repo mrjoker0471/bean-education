@@ -26,6 +26,7 @@ import {
   TOKEN_TAIL_MINUTES,
 } from '@/lib/livekit/live'
 import { createParticipantToken, isLivekitConfigured, lastLivekitConnectionError } from '@/lib/livekit/config'
+import { trustStateFor, restrictionMessage } from '@/lib/trust'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -56,6 +57,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     })
     if (!cls || cls.status === 'DRAFT') {
       return NextResponse.json({ error: 'Class not found' }, { status: 404 })
+    }
+
+    // Phase 6 EMERGENCY_STOP: while the immediate-safeguarding halt is active
+    // for this teacher, no tokens are issued (start and join are both closed).
+    // Confirmed bookings are preserved — the halt ends on admin reinstatement.
+    {
+      const trust = await trustStateFor(cls.teacherProfile.id, now)
+      if (trust.emergencyStop) {
+        return NextResponse.json({ error: restrictionMessage(trust) }, { status: 403 })
+      }
     }
 
     const isOwner = cls.teacherProfile.studentId === student.id && cls.teacherProfile.verificationStatus === 'APPROVED'

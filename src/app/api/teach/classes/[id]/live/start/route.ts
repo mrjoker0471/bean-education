@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sameOrigin } from '@/lib/auth'
 import { requireApprovedTeacher, appendAudit, AUDIT_ENTITY } from '@/lib/teach'
+import { trustStateFor, restrictionMessage } from '@/lib/trust'
 import {
   isInsideLiveWindow,
   LIVE_END_REASON,
@@ -73,6 +74,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { student, profile } = guard
     const { id } = await params
     const now = new Date()
+
+    // Phase 6 EMERGENCY_STOP: the immediate-safeguarding procedure blocks any
+    // new live room for this teacher until an admin reinstates. Ordinary
+    // complaints NEVER reach this path — teaching confirmed students continues
+    // while investigations run.
+    const trust = await trustStateFor(profile.id, now)
+    if (trust.emergencyStop) {
+      return NextResponse.json({ error: restrictionMessage(trust) }, { status: 403 })
+    }
+
     const monthKey = usageMonthKey(now)
     const budget = liveBudgetConfig().monthlyBudgetMinutes
 

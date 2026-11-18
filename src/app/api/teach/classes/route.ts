@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sameOrigin } from '@/lib/auth'
+import { trustStateFor, restrictionMessage } from '@/lib/trust'
 import {
   CAPACITY_MAX,
   CLASSES_PAGE_SIZE_DEFAULT,
@@ -73,6 +74,16 @@ export async function GET(req: NextRequest) {
       teacherProfile: {
         verificationStatus: 'APPROVED' as const,
         isPublished: true,
+        // Phase 6: teachers with an active PAUSE_LISTINGS restriction are
+        // hidden from public discovery (existing seat-holders keep access via
+        // their bookings — reservations are never revoked by a complaint).
+        trustActions: {
+          none: {
+            action: 'PAUSE_LISTINGS',
+            isActive: true,
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+          },
+        },
         ...(teacherName ? { teachingName: { contains: teacherName } } : {}),
       },
       ...(teacherId ? { teacherProfileId: teacherId } : {}),
@@ -123,6 +134,14 @@ export async function POST(req: NextRequest) {
     const guard = await requireApprovedTeacher()
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
     const { student, profile } = guard
+
+    // Phase 6 trust enforcement: SUSPEND_PUBLISHING blocks class creation.
+    // (PAUSE_LISTINGS blocks publishing/listings only — a paused teacher may
+    // still prepare drafts; existing reservations are never revoked.)
+    const trust = await trustStateFor(profile.id, new Date())
+    if (trust.suspendedPublishing) {
+      return NextResponse.json({ error: restrictionMessage(trust) }, { status: 403 })
+    }
 
     const parsed = teachClassCreateSchema.safeParse(await req.json().catch(() => null))
     if (!parsed.success) {

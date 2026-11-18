@@ -2,6 +2,29 @@
 
 All notable changes to BEAN Education. Format based on Keep a Changelog.
 
+## Phase 6 — BEAN Trust & Quality (2026-11-19)
+
+Branch `feat/bean-trust-quality-phase-6`. Additive milestone: every Phase 4A/5 surface, route and rule is unchanged; still no payments, wallets or refunds (free pilot — refund rules are Phase 8).
+
+### Added
+- Trust & quality data model: additive migration `20261119050000_phase6_trust_quality` with 7 new tables — `ClassReview` (one review per booking, `bookingId` UNIQUE at DB level), `TeacherReviewResponse` (one reply per review), `TeachComplaint` + append-only `ComplaintEvent`, `TrustAction`, `TeachAppeal` (+ append-only `AppealEvent`) — 2 unique indexes + 11 lookup indexes; zero columns added to existing tables.
+- Verified reviews (`POST/GET /api/teach/classes/:id/reviews`, `PATCH /api/teach/reviews/:reviewId`): eligibility is a real ATTENDED booking after class end (server-evaluated, identity from the session cookie); one review per booking with P2002 → 409 on racing duplicates; author self-edit within a 7-day window (HIDDEN reviews cannot be edited); reviewers render as "Verified student" plus an opt-in consented displayName — never emails or account ids.
+- Review moderation: teacher/ADMIN flag with a written reason (flagging NEVER auto-hides — FLAGGED stays publicly visible but is excluded from aggregates), ADMIN-only HIDE/RESTORE/KEEP_PUBLISHED with documented reasons, every transition audited (`REVIEW_*` on `TeachAuditEvent`).
+- Teacher responses: one public reply per review by the reviewed class's owner teacher (unique FK), 7-day edit window, audited; teachers can never edit a student's review.
+- Quality metrics: server-computed from authoritative rows only (`src/lib/trust-quality.ts`) — averageRating over PUBLISHED+verified reviews, reviewCount, completed/completionRate, publishedClasses; below the 3-review sample the UI honestly shows "New teacher — not enough verified reviews yet" instead of a fabricated score. Complaint data is structurally excluded from the math.
+- Private complaints: 11 categories, severity + sensitivity SERVER-DERIVED (clients cannot assert them), legitimate-relationship rule (booking holder or class teacher; platform-level only for SAFEGUARDING/HARASSMENT/OTHER), append-only case history with redacted admin notes for the complainant, 10/day rate limit. Teachers see only an anonymous open-complaint count — never content or reporter identity; there are no public complaint endpoints.
+- Trust actions: admin-issued NOTICE / WARNING (record-only), PAUSE_LISTINGS (hide browse + detail from non-seat-holders, block NEW bookings inside the booking transaction), SUSPEND_PUBLISHING (block create + publish), EMERGENCY_STOP (blocks live start AND join tokens — the immediate-safeguarding procedure), REINSTATE (ends every enforcing row, individually audited); optional `endsAt` expiry evaluated at enforcement time; documented reason mandatory. Filing a complaint NEVER creates a trust action (static tests).
+- Appeals: against complaint decisions, review moderation or trust actions with relationship checks; duplicate open appeals 409; 5/day rate limit; `originalDecisionById` captured server-side from the audit trail so a deciding admin cannot be the original decision maker (self-review ban, 403); only the assigned reviewer may decide; OVERTURNED applies documented restorations (review → PUBLISHED + REVIEW_RESTORED; trust action → deactivated + TRUST_REINSTATE; complaint → re-opened UNDER_REVIEW with original events preserved). Appeals never create payments or refunds.
+- ADMIN Trust Center at `#/admin/trust` (overview counters, review queues, complaint investigation with filters/full notes, teacher trust actions, appeal adjudication) + student `#/my-reports` (own complaints & appeals with timelines) + public `#/trust-policy` (policy page with the exact safeguarding guidance wording; no invented emergency numbers). Integrations: class detail (quality line, review section, "Report a concern"), My bookings (per-booking report entry), teacher dashboard (Trust & Quality tab), footer (Trust & Safety), Teacher Review view (Trust Center entry).
+- Enforcement hooks in Phase 4A/5 routes (additive): class create/publish checks, browse-filter + detail hiding for paused teachers (seat-holders keep access), booking-transaction pause check, live start/token EMERGENCY_STOP checks.
+- Tests: 6 new suites — trust-quality 23 (pure rules), free-pilot-protection 9 (static no-payment/no-auto-consequence guards), trust-review-route 19, trust-complaint-route 20, trust-action-route 19, trust-appeal-route 21 — 111 new tests → **349 tests / 28 files passing**.
+- Docs: 5 new PHASE6_* docs (trust-quality, review-policy, complaints-and-appeals, safeguarding, security) + PHASE6_RESULTS (executed numbers, browser E2E, honest gaps); README/ARCHITECTURE/DEVELOPMENT/DEVELOPMENT_ROADMAP/DECISIONS updated.
+
+### Security
+- Authorization stays server-side end-to-end: ADMIN-guarded trust surfaces (`requireAdmin`), ownership intrinsic to the session identity (foreign complaints get a bare 404, no existence leak), paused-teacher classes return the same 404 as missing ones while owners and seat-holders keep access.
+- Same-origin + Zod on every mutation; plain-text-only validation rejects control characters (no HTML is ever stored or rendered — React escaping only); rate limits: reviews 10/day, complaints 10/day, appeals 5/day, flags 20/day (durable 24 h row counts — the flag cap counts append-only audit events).
+- Privacy DTO rules enforced by construction (`src/lib/trust-dto.ts`): public reviews never carry identity or complaint data; admin DTOs are the only surfaces with reporter/reviewer identity; complaints never appear in teacher-facing DTOs beyond the anonymous count.
+
 ## Phase 4A — BEAN Teach marketplace foundation (2026-11-18)
 
 Branch `feat/bean-teach-marketplace` (from merged main f573b54).

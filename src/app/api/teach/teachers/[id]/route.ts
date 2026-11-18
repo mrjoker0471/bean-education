@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { toPublicTeacher, toPublicClass } from '@/lib/teach'
+import { teacherQualityFor } from '@/lib/trust-quality'
+import { trustStateFor } from '@/lib/trust'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -19,11 +21,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Teacher not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     }
 
-    const classes = await db.classSession.findMany({
-      where: { teacherProfileId: profile.id, status: 'PUBLISHED', startsAt: { gt: new Date() } },
-      orderBy: { startsAt: 'asc' },
-      take: 50,
-    })
+    // Phase 6: a PAUSE_LISTINGS restriction hides this teacher's class
+    // listings from public view — the profile stays visible (with quality
+    // metrics), but no upcoming classes are listed.
+    const trust = await trustStateFor(profile.id, new Date())
+    const classes = trust.pausedListings
+      ? []
+      : await db.classSession.findMany({
+          where: { teacherProfileId: profile.id, status: 'PUBLISHED', startsAt: { gt: new Date() } },
+          orderBy: { startsAt: 'asc' },
+          take: 50,
+        })
 
     const publicProfile = toPublicTeacher(profile, classes.length)
     return NextResponse.json(
@@ -33,6 +41,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           // Class detail page also shows reviewed qualifications/experience —
           // these were part of the approved profile, so they are public.
           qualificationsText: profile.qualificationsText,
+          quality: await teacherQualityFor(profile.id),
         },
         classes: classes.map((c) => toPublicClass(c, profile)),
       },

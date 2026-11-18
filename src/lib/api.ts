@@ -55,6 +55,18 @@ import type {
   LiveTokenResponse,
   LiveWhiteboardResponse,
   WBSnapshotDTO,
+  ClassReviewsResponse,
+  ReviewCreateResponse,
+  TeacherResponseDTO,
+  MyReportsResponse,
+  OwnComplaintDTO,
+  OwnAppealDTO,
+  TeacherTrustSummaryResponse,
+  AdminTrustOverviewResponse,
+  AdminTrustReviewsResponse,
+  AdminTrustComplaintsResponse,
+  AdminTrustTeachersResponse,
+  AdminTrustAppealsResponse,
 } from './types'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -539,4 +551,102 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(snapshot),
     }),
+
+  // ─── BEAN Trust & Quality (Phase 6): reviews, complaints, appeals ───
+  classReviews: (classId: string) =>
+    jsonFetch<ClassReviewsResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/reviews`),
+  createReview: (
+    classId: string,
+    body: { rating: number; title?: string; reviewText: string; showDisplayName?: boolean },
+  ) =>
+    jsonFetch<ReviewCreateResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/reviews`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  editReview: (reviewId: string, patch: { rating?: number; title?: string | null; reviewText?: string; showDisplayName?: boolean }) =>
+    jsonFetch<ReviewCreateResponse>(`/api/teach/reviews/${encodeURIComponent(reviewId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  respondToReview: (reviewId: string, responseText: string) =>
+    jsonFetch<{ response: TeacherResponseDTO }>(`/api/teach/reviews/${encodeURIComponent(reviewId)}/response`, {
+      method: 'POST',
+      body: JSON.stringify({ responseText }),
+    }),
+  editReviewResponse: (reviewId: string, responseText: string) =>
+    jsonFetch<{ response: TeacherResponseDTO }>(`/api/teach/reviews/${encodeURIComponent(reviewId)}/response`, {
+      method: 'PATCH',
+      body: JSON.stringify({ responseText }),
+    }),
+  flagReview: (reviewId: string, reason: string) =>
+    jsonFetch<{ ok: boolean; status: string }>(`/api/teach/reviews/${encodeURIComponent(reviewId)}/flag`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  fileComplaint: (body: { category: string; classSessionId?: string; subject: string; description: string }) =>
+    jsonFetch<{ complaint: { id: string; status: string; isSensitive: boolean } }>('/api/teach/complaints', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  myReports: () => jsonFetch<{ complaints: OwnComplaintDTO[] }>('/api/teach/complaints'),
+  myAppeals: () => jsonFetch<{ appeals: OwnAppealDTO[] }>('/api/teach/appeals'),
+  addComplaintInfo: (id: string, detail: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/teach/complaints/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ detail }),
+    }),
+  fileAppeal: (body: { targetType: string; targetId: string; reason: string }) =>
+    jsonFetch<{ appeal: { id: string; status: string } }>('/api/teach/appeals', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  teacherTrust: () => jsonFetch<TeacherTrustSummaryResponse>('/api/teach/trust'),
+
+  adminTrustOverview: () => jsonFetch<AdminTrustOverviewResponse>('/api/admin/trust/overview'),
+  adminTrustReviews: (filter: 'flagged' | 'hidden' | 'published' | 'all' = 'flagged') =>
+    jsonFetch<AdminTrustReviewsResponse>(`/api/admin/trust/reviews?filter=${filter}`),
+  adminModerateReview: (reviewId: string, body: { action: 'KEEP_PUBLISHED' | 'HIDE' | 'RESTORE'; reason: string }) =>
+    jsonFetch<{ ok: boolean; status: string }>(`/api/admin/trust/reviews/${encodeURIComponent(reviewId)}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  adminTrustComplaints: (opts: { status?: string; category?: string; severity?: string; q?: string; sensitive?: boolean } = {}) => {
+    const p = new URLSearchParams()
+    if (opts.status) p.set('status', opts.status)
+    if (opts.category) p.set('category', opts.category)
+    if (opts.severity) p.set('severity', opts.severity)
+    if (opts.q) p.set('q', opts.q)
+    if (opts.sensitive) p.set('sensitive', '1')
+    const qs = p.toString()
+    return jsonFetch<AdminTrustComplaintsResponse>(`/api/admin/trust/complaints${qs ? `?${qs}` : ''}`)
+  },
+  adminComplaintAction: (
+    id: string,
+    body: {
+      action: 'ACKNOWLEDGE' | 'START_REVIEW' | 'REQUEST_INFO' | 'NOTE' | 'ASSIGN' | 'ESCALATE' | 'RESOLVE' | 'DISMISS'
+      note?: string
+      assignedAdminId?: string
+    },
+  ) =>
+    jsonFetch<{ ok: boolean; status?: string; unchanged?: boolean }>(
+      `/api/admin/trust/complaints/${encodeURIComponent(id)}/action`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  adminTrustTeachers: (q?: string) =>
+    jsonFetch<AdminTrustTeachersResponse>(`/api/admin/trust/teachers${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  adminTrustAction: (teacherProfileId: string, body: { action: string; reason: string; endsAt?: string }) =>
+    jsonFetch<{ ok: boolean; id: string; reinstated: number }>(
+      `/api/admin/trust/teachers/${encodeURIComponent(teacherProfileId)}/actions`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  adminTrustAppeals: (status?: string) =>
+    jsonFetch<AdminTrustAppealsResponse>(`/api/admin/trust/appeals${status ? `?status=${status}` : ''}`),
+  adminAppealAction: (
+    appealId: string,
+    body: { action: 'ASSIGN' | 'DECIDE' | 'CLOSE_WITHOUT_DECISION'; reviewerId?: string; decision?: 'UPHELD' | 'OVERTURNED'; decisionNote?: string },
+  ) =>
+    jsonFetch<{ ok: boolean; decision?: string }>(
+      `/api/admin/trust/appeals/${encodeURIComponent(appealId)}/action`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 }

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { TEACHERS_PAGE_SIZE_MAX, toPublicTeacher } from '@/lib/teach'
+import { teacherQualityBatch } from '@/lib/trust-quality'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -22,9 +23,19 @@ export async function GET(req: NextRequest) {
     const pageSize = Math.max(1, Math.min(TEACHERS_PAGE_SIZE_MAX, Number(url.searchParams.get('pageSize')) || 24))
 
     // Only approved AND published profiles are publicly discoverable.
+    // Phase 6: teachers with an active PAUSE_LISTINGS restriction are excluded
+    // from public discovery until reinstated (or the restriction expires).
+    const now = new Date()
     const where = {
       verificationStatus: 'APPROVED' as const,
       isPublished: true,
+      trustActions: {
+        none: {
+          action: 'PAUSE_LISTINGS',
+          isActive: true,
+          OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        },
+      },
       ...(q ? { OR: [{ teachingName: { contains: q } }, { headline: { contains: q } }] } : {}),
       ...(subject ? { subjectsJson: { contains: `"${subject}"` } } : {}),
       ...(level ? { levelsJson: { contains: `"${level}"` } } : {}),
@@ -52,7 +63,13 @@ export async function GET(req: NextRequest) {
       : []
     const countMap = new Map(counts.map((c) => [c.teacherProfileId, c._count._all]))
 
-    const teachers = profiles.map((p) => toPublicTeacher(p, countMap.get(p.id) ?? 0))
+    // Phase 6 verified quality metrics — server-computed from real records.
+    const qualityMap = await teacherQualityBatch(ids)
+
+    const teachers = profiles.map((p) => ({
+      ...toPublicTeacher(p, countMap.get(p.id) ?? 0),
+      quality: qualityMap.get(p.id),
+    }))
     return NextResponse.json(
       { teachers, total, page, pageSize },
       { headers: { 'Cache-Control': 'no-store' } },

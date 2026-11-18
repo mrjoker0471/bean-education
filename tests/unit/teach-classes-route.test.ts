@@ -79,6 +79,12 @@ function seedClass(overrides: Partial<FakeClass> = {}): FakeClass {
 }
 
 const fakeDb = {
+  // Phase 6: the create/list routes consult trust restrictions
+  // (trustStateFor → trustAction.findMany). No restriction rows exist in
+  // these Phase 4A scenarios → create/list flow unchanged.
+  trustAction: {
+    findMany: async () => [],
+  },
   teacherProfile: {
     findUnique: async ({ where }: { where: { studentId?: string; id?: string } }) => {
       if (where.studentId) return [...state.profiles.values()].find(p => p.studentId === where.studentId) ?? null

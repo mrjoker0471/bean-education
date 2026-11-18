@@ -52,6 +52,11 @@ function resetState() {
 }
 
 const fakeDb = {
+  // Phase 6: the token route consults trust restrictions (trustStateFor →
+  // EMERGENCY_STOP blocking). No restriction rows exist here → flow unchanged.
+  trustAction: {
+    findMany: async () => [],
+  },
   classSession: {
     findUnique: async ({ where }: { where: { id: string } }) => state.classes.get(where.id) ?? null,
   },
@@ -69,7 +74,13 @@ mock.module('@/lib/auth', () => ({
   sameOrigin: () => true,
   getSessionStudent: async () => state.student,
 }))
+// Spread the REAL config so every named export another module imports
+// (liveBudgetConfig, livekitCredentials, …) still exists when bun's
+// retroactive mock rebinding points later test files at THIS mock — only the
+// three token-route seams are overridden.
+const livekitConfigReal = await import('@/lib/livekit/config')
 mock.module('@/lib/livekit/config', () => ({
+  ...livekitConfigReal,
   createParticipantToken: async (opts: { identity: string; room: string; canPublishSources?: string[]; name: string; ttlSeconds: number; metadata?: string }) => {
     state.minted.push({ identity: opts.identity, role: JSON.parse(opts.metadata ?? '{}').role, sources: opts.canPublishSources, room: opts.room })
     return `jwt-for-${opts.identity}`
