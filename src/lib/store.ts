@@ -35,6 +35,10 @@ export type Route =
   | { view: 'teach-review' }
   // Phase 5 — BEAN Live Classroom (additive)
   | { view: 'classroom'; classId: string }
+  // Phase 6 — BEAN Trust & Quality (additive)
+  | { view: 'admin-trust' }
+  | { view: 'my-reports' }
+  | { view: 'trust-policy' }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -102,6 +106,13 @@ export function parseHash(hash: string): Route {
     // Phase 5 — BEAN Live Classroom
     case 'classroom':
       return parts[1] ? { view: 'classroom', classId: decodeURIComponent(parts[1]) } : { view: 'not-found' }
+    // Phase 6 — BEAN Trust & Quality
+    case 'admin':
+      return parts[1] === 'trust' ? { view: 'admin-trust' } : { view: 'not-found' }
+    case 'my-reports':
+      return { view: 'my-reports' }
+    case 'trust-policy':
+      return { view: 'trust-policy' }
     default:
       return { view: 'not-found' }
   }
@@ -157,6 +168,10 @@ export function routeToHash(route: Route): string {
     case 'teach-review': return '#/teach/review'
     // Phase 5 — BEAN Live Classroom
     case 'classroom': return `#/classroom/${encodeURIComponent(route.classId)}`
+    // Phase 6 — BEAN Trust & Quality
+    case 'admin-trust': return '#/admin/trust'
+    case 'my-reports': return '#/my-reports'
+    case 'trust-policy': return '#/trust-policy'
     default: return '#/'
   }
 }

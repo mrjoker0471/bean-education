@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sameOrigin } from '@/lib/auth'
 import { requireApprovedTeacher, toPublicClass } from '@/lib/teach'
+import { trustStateFor, restrictionMessage } from '@/lib/trust'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -23,6 +24,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { profile } = guard
 
     const { id } = await params
+
+    // Phase 6 trust enforcement: both listing restrictions block publishing.
+    const trust = await trustStateFor(profile.id, new Date())
+    if (trust.pausedListings || trust.suspendedPublishing) {
+      return NextResponse.json({ error: restrictionMessage(trust) }, { status: 403 })
+    }
+
     const session = await db.classSession.findUnique({ where: { id } })
     if (!session || session.teacherProfileId !== profile.id) {
       return NextResponse.json({ error: 'Class not found' }, { status: 404 })

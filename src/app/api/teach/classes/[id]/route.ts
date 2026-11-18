@@ -21,6 +21,8 @@ import {
   toPublicClass,
 } from '@/lib/teach'
 import { teachClassPatchSchema } from '@/lib/teach-schema'
+import { trustStateFor, restrictionMessage } from '@/lib/trust'
+import { teacherQualityFor } from '@/lib/trust-quality'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -43,8 +45,25 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     // Visibility: drafts are owner-only; everything else (published/cancelled)
     // is publicly viewable so booked students can always check their class.
+    // Phase 6: a teacher with an active PAUSE_LISTINGS restriction is hidden
+    // from public view (404 to unrelated callers) — but the owner AND any
+    // seat-holder keep full access (reservations are never revoked).
     if (session.status === 'DRAFT' && !isOwner) {
       return NextResponse.json({ error: 'Class not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (!isOwner) {
+      const myBookingPre = student
+        ? await db.classBooking.findUnique({
+            where: { classSessionId_studentId: { classSessionId: session.id, studentId: student.id } },
+          })
+        : null
+      const holdsSeat = !!myBookingPre && myBookingPre.status !== 'CANCELLED'
+      if (!holdsSeat) {
+        const trust = await trustStateFor(session.teacherProfile.id, new Date())
+        if (trust.pausedListings) {
+          return NextResponse.json({ error: 'Class not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+        }
+      }
     }
 
     const myBookingRow = student
@@ -73,6 +92,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           teacherQualifications: session.teacherProfile.qualificationsText,
           teacherExperienceYears: session.teacherProfile.experienceYears,
           teacherVerified: session.teacherProfile.verificationStatus === 'APPROVED',
+          // Phase 6: verified quality metrics (server-computed from real records).
+          teacherQuality: await teacherQualityFor(session.teacherProfile.id),
           isOwner,
           myBooking: myBookingRow
             ? toMyBookingDTO(myBookingRow, session, session.teacherProfile.teachingName)
