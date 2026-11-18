@@ -32,6 +32,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# local databases & user-uploaded documents (NEVER commit)
+*.db
+*.sqlite
+*.sqlite3
+/db/
 
 # vercel
 .vercel
@@ -50,5 +57,10 @@ test
 prompt
 
 server.log
+
+# agent working context & temp files
+/agent-ctx/
+/tmp/
+
 # Skills directory
 /skills/
