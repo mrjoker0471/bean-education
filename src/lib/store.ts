@@ -27,6 +27,12 @@ export type Route =
   | { view: 'workspace' }
   | { view: 'goals' }
   | { view: 'pyq-studio' }
+  // Phase 4A — BEAN Teach marketplace (additive; every existing route unchanged)
+  | { view: 'classes'; tab?: 'browse' | 'bookings' }
+  | { view: 'class'; classId: string }
+  | { view: 'teach-apply' }
+  | { view: 'teach-dashboard' }
+  | { view: 'teach-review' }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -81,6 +87,16 @@ export function parseHash(hash: string): Route {
       return { view: 'goals' }
     case 'pyq-studio':
       return { view: 'pyq-studio' }
+    // Phase 4A — BEAN Teach marketplace
+    case 'classes':
+      return parts[1]
+        ? { view: 'class', classId: decodeURIComponent(parts[1]) }
+        : { view: 'classes', tab: params.get('tab') === 'bookings' ? 'bookings' : 'browse' }
+    case 'teach':
+      if (parts[1] === 'apply') return { view: 'teach-apply' }
+      if (parts[1] === 'dashboard') return { view: 'teach-dashboard' }
+      if (parts[1] === 'review') return { view: 'teach-review' }
+      return { view: 'not-found' }
     default:
       return { view: 'not-found' }
   }
@@ -128,6 +144,12 @@ export function routeToHash(route: Route): string {
     case 'workspace': return '#/workspace'
     case 'goals': return '#/goals'
     case 'pyq-studio': return '#/pyq-studio'
+    // Phase 4A — BEAN Teach marketplace
+    case 'classes': return `#/classes${route.tab === 'bookings' ? '?tab=bookings' : ''}`
+    case 'class': return `#/classes/${encodeURIComponent(route.classId)}`
+    case 'teach-apply': return '#/teach/apply'
+    case 'teach-dashboard': return '#/teach/dashboard'
+    case 'teach-review': return '#/teach/review'
     default: return '#/'
   }
 }

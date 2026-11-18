@@ -17,7 +17,7 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 | Durable AI job queue + hourly quotas | Working (Phase 2A) |
 | PYQ ingestion rules (validation, dedupe, review gating) | Working (Phase 2A foundation, curator-gated in 2B) |
 | On-device AI (browser inference) | Capability detection + consent-gated adapter (foundation) |
-| BEAN Teach (teachers, classes, pilots) | Phase 4 (planned) |
+| BEAN Teach — teacher marketplace foundation (apply → admin approval → classes → free bookings) | Working on branch `feat/bean-teach-marketplace` (Phase 4A; free pilot — planned price is metadata only, no payments) |
 | Live classroom | Phase 5 (planned) |
 | Payments (Razorpay) | Final milestone only — intentionally absent |
 
@@ -31,6 +31,10 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 - docs/PHASE2B_RESULTS.md — executed test/verification numbers (82 unit tests, 37/37 API E2E, browser E2E)
 - docs/PHASE2B_SECURITY.md — role model, provisioning & recovery procedures
 - docs/PHASE2B_PYQ_CURATOR.md — curator handbook (import format, review workflow, limitations)
+- docs/BEAN_TEACH_IMPLEMENTATION.md — teacher marketplace guide (flows, state machines, API)
+- docs/BEAN_TEACH_DATABASE.md — the 4 new models, migration & baselining, seat-count invariants
+- docs/BEAN_TEACH_SECURITY.md — authorization model, endpoint matrix, privacy & abuse controls
+- docs/BEAN_TEACH_RESULTS.md — executed test/verification numbers (158 unit tests, live-server race evidence, browser E2E)
 - docs/DECISIONS.md — decision log (auth, data, git history, etc.)
 - CHANGELOG.md — notable changes
 

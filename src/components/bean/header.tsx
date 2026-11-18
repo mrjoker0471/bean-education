@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import {
   BookOpen,
   Bot,
+  ClipboardCheck,
   FlaskConical,
   FolderOpen,
   GraduationCap,
@@ -33,16 +34,20 @@ interface NavItem {
 // Learning, Goals). Guests keep exactly the previous navigation — guest mode
 // is still fully functional. PYQ Studio appears only for curator/admin roles
 // (the server enforces the same rule, so hiding it is not the security check).
+// Phase 4A: Classes is open to guests AND signed-in students (BEAN Teach
+// marketplace browsing is public); Teacher Review is admin-only.
 const SIGNED_IN_NAV: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, hash: '#/dashboard', activeFor: ['dashboard'] },
   { key: 'workspace', label: 'My Learning', icon: FolderOpen, hash: '#/workspace', activeFor: ['workspace', 'materials', 'riishe'] },
   { key: 'goals', label: 'Goals', icon: Target, hash: '#/goals', activeFor: ['goals'] },
+  { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class', 'teach-apply', 'teach-dashboard'] },
   { key: 'catalog', label: 'Exams', icon: BookOpen, hash: '#/catalog', activeFor: ['catalog', 'exam', 'topic', 'test', 'result'] },
   { key: 'progress', label: 'My Progress', icon: TrendingUp, hash: '#/progress', activeFor: ['progress'] },
 ]
 
 const GUEST_NAV: NavItem[] = [
   { key: 'catalog', label: 'Exams', icon: BookOpen, hash: '#/catalog', activeFor: ['catalog', 'exam', 'topic', 'test', 'result'] },
+  { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class'] },
   { key: 'materials', label: 'My Materials', icon: FolderOpen, hash: '#/materials', activeFor: ['materials', 'riishe'] },
   { key: 'progress', label: 'My Progress', icon: TrendingUp, hash: '#/progress', activeFor: ['progress'] },
 ]
@@ -54,9 +59,15 @@ export function Header() {
   const [open, setOpen] = useState(false)
 
   const isCurator = authedStudent?.role === 'PYQ_CURATOR' || authedStudent?.role === 'ADMIN'
+  const isAdmin = authedStudent?.role === 'ADMIN'
 
   const navItems: NavItem[] = authedStudent
-    ? [...SIGNED_IN_NAV, ...(isCurator ? [{ key: 'pyq', label: 'PYQ Studio', icon: ShieldCheck, hash: '#/pyq-studio', activeFor: ['pyq-studio'] }] as NavItem[] : [])]
+    ? [
+        ...SIGNED_IN_NAV,
+        ...(isCurator ? [{ key: 'pyq', label: 'PYQ Studio', icon: ShieldCheck, hash: '#/pyq-studio', activeFor: ['pyq-studio'] }] as NavItem[] : []),
+        // Phase 4A: teacher application review — administrators only.
+        ...(isAdmin ? [{ key: 'teach-review', label: 'Teacher Review', icon: ClipboardCheck, hash: '#/teach/review', activeFor: ['teach-review'] }] as NavItem[] : []),
+      ]
     : GUEST_NAV
 
   const riisheItem: NavItem = { key: 'riishe', label: 'Riishe AI', icon: Sparkles, hash: '#/riishe', activeFor: ['riishe', 'materials'] }

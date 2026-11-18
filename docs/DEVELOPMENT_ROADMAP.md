@@ -26,6 +26,10 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 
 ## Phase 4 — BEAN Teach (teacher marketplace)
 
+**Phase 4A (COMPLETE 2026-11-18):** marketplace foundation shipped on branch `feat/bean-teach-marketplace` — teacher application lifecycle + admin review queue (teacher capability is an APPROVED `TeacherProfile`, not a new role), teacher dashboard (public profile, class creation/publish/unpublish/cancel, attendance marking after class end), student marketplace (`#/classes` discovery with filters + free reservations with atomic seat claiming + My bookings), append-only `TeachAuditEvent` trail. Free pilot only: the planned price is stored as metadata and never charged; no payments exist. Results and evidence: docs/BEAN_TEACH_RESULTS.md; guide: docs/BEAN_TEACH_IMPLEMENTATION.md.
+
+**Phase 4B candidates (not scheduled):** remaining Phase 4 refinements — quality/reviews/attendance improvements (verified reviews and teacher quality indicators otherwise remain Phase 6). The live classroom is Phase 5, not 4B. The bullets below describe the full phase scope; 4A covered the marketplace foundation only.
+
 - Teacher registration, profile, identity/qualification verification workflows.
 - Teaching subjects, class creation (duration, price metadata, capacity, minimum enrolment), scheduling, student discovery.
 - Free pilot reservations, booking history, teacher dashboard.

@@ -389,6 +389,10 @@ model Student {
   updatedAt       DateTime  @updatedAt
   sessions        Session[]
   goals           StudyGoal[]
+  // BEAN Teach (Phase 4A): teacher capability = an approved TeacherProfile,
+  // NOT a new role — one account can be student, curator/admin and teacher.
+  teacherProfile  TeacherProfile?
+  classBookings   ClassBooking[]
 
   @@index([role])
 }
@@ -501,4 +505,111 @@ model JobQuota {
 
   @@unique([ownerKey, kind, windowKey])
   @@index([windowStart])
+}
+
+// ─── BEAN Teach (Phase 4A): teacher marketplace — free pilot foundation ──────
+// Teachers are NOT a new role. The teacher capability is an APPROVED
+// TeacherProfile attached to the existing authenticated Student, so the single
+// Student.role field (STUDENT | PYQ_CURATOR | ADMIN) is untouched and accounts
+// that are also PYQ curators or administrators stay valid. All classes in this
+// milestone are FREE PILOTS: no orders, payments, wallets or payouts exist.
+// `plannedPricePaise` is stored as metadata for a future milestone only.
+
+model TeacherProfile {
+  id                 String    @id @default(cuid())
+  studentId          String    @unique // one profile per Student
+  teachingName       String // public teaching name — never a real-name requirement
+  headline           String
+  bio                String
+  subjectsJson       String // JSON string[]
+  levelsJson         String // JSON string[] — education levels served
+  languagesJson      String // JSON string[]
+  qualificationsText String // qualification details reviewed by admins
+  experienceYears    Int
+  portfolioUrl       String? // optional public portfolio / professional profile URL
+  // Verification state machine: PENDING → APPROVED | REJECTED. Resubmission
+  // after rejection — or a verification-relevant profile edit by an APPROVED
+  // teacher — returns the profile to PENDING (re-review). Only APPROVED +
+  // isPublished profiles appear in the public marketplace.
+  verificationStatus String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  isPublished        Boolean   @default(false) // set true automatically on approval; teacher can unpublish
+  reviewedBy         String? // Student.id of the admin who decided the current state
+  reviewedAt         DateTime?
+  reviewNote         String? // latest decision note — PRIVATE (applicant + admins only)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  student            Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classSessions      ClassSession[]
+
+  @@index([verificationStatus])
+}
+
+// Append-only audit trail for BEAN Teach. One row per decision: teacher
+// review (TEACHER_PROFILE), class cancellation (CLASS_SESSION) and attendance
+// marking (CLASS_BOOKING). Rows are NEVER updated or deleted — a re-review
+// appends a new event, so earlier decisions remain provable.
+// (Polymorphic by design: entityId is a plain string, no FK on purpose.)
+model TeachAuditEvent {
+  id         String   @id @default(cuid())
+  entityType String // TEACHER_PROFILE | CLASS_SESSION | CLASS_BOOKING
+  entityId   String // TeacherProfile.id | ClassSession.id | ClassBooking.id
+  actorId    String // Student.id of the actor (applicant / teacher / admin)
+  actorRole  String // role held at decision time (STUDENT | PYQ_CURATOR | ADMIN)
+  action     String // SUBMIT | RESUBMIT | EDIT_REVIEW | APPROVE | REJECT | CLASS_CANCELLED | ATTENDANCE_MARKED
+  detail     String? // context (e.g. rejection reason, attendance transition)
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model ClassSession {
+  id                String    @id @default(cuid())
+  teacherProfileId  String
+  title             String
+  description       String
+  subject           String
+  targetLevel       String // education level the class is aimed at
+  language          String
+  durationMinutes   Int // 60..360 in 30-minute increments (enforced server-side)
+  startsAt          DateTime // stored in UTC; display renders in `timeZone`
+  timeZone          String // IANA time zone selected by the teacher
+  capacity          Int // 1..50
+  minimumStudents   Int // 1..capacity
+  // Seats currently held = bookings whose status is NOT CANCELLED. Maintained
+  // ONLY inside transactions with conditional updates (see
+  // src/lib/teach-booking.ts) so concurrent last-seat bookings cannot overrun.
+  bookedCount       Int       @default(0)
+  // METADATA ONLY during the free pilot — never charged, no order is created.
+  plannedPricePaise Int       @default(0)
+  status            String    @default("DRAFT") // DRAFT | PUBLISHED | CANCELLED | COMPLETED
+  publishedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  teacherProfile    TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  bookings          ClassBooking[]
+
+  @@index([status, startsAt])
+  @@index([teacherProfileId, startsAt])
+}
+
+model ClassBooking {
+  id                 String    @id @default(cuid())
+  classSessionId     String
+  studentId          String
+  status             String    @default("CONFIRMED") // CONFIRMED | CANCELLED | ATTENDED | NO_SHOW
+  bookedAt           DateTime  @default(now())
+  cancelledAt        DateTime?
+  attendanceMarkedAt DateTime? // set when the teacher marks ATTENDED / NO_SHOW
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  classSession       ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  student            Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  // One booking record per student per class — rebooking after cancellation
+  // re-activates the SAME row (never a duplicate), keeping history intact.
+  @@unique([classSessionId, studentId])
+  @@index([classSessionId, status])
+  @@index([studentId, status])
 }
