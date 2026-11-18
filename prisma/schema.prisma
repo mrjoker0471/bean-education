@@ -393,6 +393,8 @@ model Student {
   // NOT a new role — one account can be student, curator/admin and teacher.
   teacherProfile  TeacherProfile?
   classBookings   ClassBooking[]
+  // BEAN Live Classroom (Phase 5): per-person verified attendance evidence.
+  liveParticipants LiveClassParticipant[]
 
   @@index([role])
 }
@@ -589,6 +591,8 @@ model ClassSession {
   updatedAt         DateTime  @updatedAt
   teacherProfile    TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
   bookings          ClassBooking[]
+  // BEAN Live Classroom (Phase 5): one primary live session per scheduled class.
+  liveSession       LiveClassSession?
 
   @@index([status, startsAt])
   @@index([teacherProfileId, startsAt])
@@ -612,4 +616,113 @@ model ClassBooking {
   @@unique([classSessionId, studentId])
   @@index([classSessionId, status])
   @@index([studentId, status])
+}
+
+// ─── BEAN Live Classroom (Phase 5): realtime class delivery ──────────────────
+// Additive milestone on top of the Phase 4A marketplace. Realtime media is
+// carried by LiveKit Cloud; BEAN owns identity, authorisation, scheduling,
+// usage budgeting, attendance evidence and audit. No media is ever recorded,
+// stored or replayed — the classroom is live-only (docs/PHASE5_SECURITY.md).
+//
+// One LiveClassSession row exists per scheduled ClassSession (unique FK). A
+// room that FAILED before anyone joined may be retried by REUSING the same row
+// (the reviewed retry design) — history and audit stay in one place. An ENDED
+// session can never restart.
+
+model LiveClassSession {
+  id                          String    @id @default(cuid())
+  classSessionId              String    @unique // one primary live session per ClassSession
+  roomName                    String    @unique // server-generated opaque id — never an email or display name
+  status                      String    @default("READY") // READY | LIVE | ENDED | INTERRUPTED | FAILED
+  startedAt                   DateTime?
+  endedAt                     DateTime?
+  startedById                 String // Student.id of the owner teacher who started the room
+  endedById                   String? // Student.id of who ended it (owner teacher / provider event)
+  // BEAN-side conservative reservation against the monthly allowance:
+  // (confirmed bookings + 1 teacher) × scheduled duration. Released at
+  // finalisation; actual verified usage is then recorded once.
+  reservedParticipantMinutes  Int       @default(0)
+  actualParticipantMinutes    Int? // written exactly once by the single-use finalisation guard
+  usageFinalisedAt            DateTime? // set when usage was reconciled — makes double-finalisation impossible
+  usageMonthKey               String // "2026-11" (UTC) — the month whose allowance this session reserved
+  endReason                   String? // teacher_ended | provider_room_finished | failed_room_creation | failed_unknown
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  classSession                ClassSession        @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  participants                LiveClassParticipant[]
+  whiteboard                  LiveWhiteboardState?
+
+  @@index([status])
+  @@index([usageMonthKey])
+}
+
+// Per-person verified attendance evidence. Rows are created/updated ONLY by
+// signed LiveKit webhook events (idempotent processing) — never by client
+// claims. Connection intervals are clamped so out-of-order events can never
+// produce negative durations or double-counted time.
+model LiveClassParticipant {
+  id                    String    @id @default(cuid())
+  liveClassSessionId    String
+  studentId             String // Student.id — the opaque BEAN identity behind the LiveKit participant
+  participantIdentity   String // LiveKit identity ("bean:<studentId>") — unique within a live session
+  participantRole       String // TEACHER | STUDENT
+  firstJoinedAt         DateTime?
+  activeSince           DateTime? // open connection interval (null = currently disconnected)
+  lastLeftAt            DateTime?
+  totalConnectedSeconds Int       @default(0) // accumulated verified connected time
+  reconnectCount        Int       @default(0) // completed reconnections (join → leave → join)
+  lastEventAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  liveSession           LiveClassSession @relation(fields: [liveClassSessionId], references: [id], onDelete: Cascade)
+  student               Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([liveClassSessionId, participantIdentity])
+  @@index([liveClassSessionId])
+  @@index([studentId])
+}
+
+// Webhook processing state. `providerEventId` (LiveKit's own event id) is
+// unique, so redeliveries can never double-apply accounting. No raw payloads
+// are stored — only the minimum needed for idempotency and debugging.
+model LiveKitWebhookEvent {
+  id               String    @id @default(cuid())
+  providerEventId  String    @unique // LiveKit event.id — idempotency key
+  eventName        String // room_started | room_finished | participant_joined | participant_left | participant_connection_aborted
+  roomName         String
+  receivedAt       DateTime  @default(now())
+  processedAt      DateTime?
+  processingStatus String    @default("PROCESSED") // PROCESSED | SKIPPED | FAILED
+  errorCode        String? // short machine-readable reason when SKIPPED/FAILED
+
+  @@index([roomName, receivedAt])
+}
+
+// Monthly participant-minute accounting. `reservedParticipantMinutes` holds
+// conservative in-flight reservations; `usedParticipantMinutes` grows only
+// from verified webhook/finalisation evidence. Availability is ALWAYS computed
+// as budget − reserved − used inside a single conditional UPDATE — the amount
+// can never go negative and concurrent room starts cannot oversubscribe.
+model LiveUsageMonth {
+  id                         String   @id @default(cuid())
+  monthKey                   String   @unique // "2026-11" (UTC)
+  budgetParticipantMinutes   Int
+  reservedParticipantMinutes Int      @default(0)
+  usedParticipantMinutes     Int      @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+// Whiteboard snapshot for late joiners. One row per live session (unique FK);
+// written ONLY by the session's teacher through a BEAN API. Bounded by strict
+// server-side limits (max snapshot bytes + max strokes) — no images, no
+// recordings, no arbitrary HTML/script payloads.
+model LiveWhiteboardState {
+  id                 String   @id @default(cuid())
+  liveClassSessionId String   @unique
+  snapshotJson       String // JSON WBProtocolSnapshot (validated, bounded)
+  version            Int      @default(0) // monotonically increasing snapshot version
+  updatedById        String // Student.id of the teacher who saved
+  updatedAt          DateTime @updatedAt
+  liveSession        LiveClassSession @relation(fields: [liveClassSessionId], references: [id], onDelete: Cascade)
 }

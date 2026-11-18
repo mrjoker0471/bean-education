@@ -12,6 +12,9 @@
 //
 // State rules (all enforced server-side, transactionally):
 //   • class must exist, be PUBLISHED and scheduled in the future
+//   • a live classroom session (Phase 5) blocks new bookings entirely — once
+//     the teacher has started (or reserved) the room, no new seats are handed
+//     out, and a cancelled booking can never (re)join after the room exists
 //   • a student can NEVER book their own class (403)
 //   • one booking record per student per class (unique constraint) — a
 //     CANCELLED booking is re-activated, never duplicated, and history is kept
@@ -54,6 +57,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (session.status === 'CANCELLED') return { kind: 'cancelled' as const }
       if (session.status === 'COMPLETED') return { kind: 'notFound' as const }
       if (session.startsAt.getTime() <= now.getTime()) return { kind: 'started' as const }
+      // Phase 5: a reserved/running live classroom freezes bookings. Checked
+      // INSIDE the transaction so it cannot race the teacher's start call.
+      const liveSession = await tx.liveClassSession.findUnique({ where: { classSessionId: id }, select: { status: true } })
+      if (liveSession && liveSession.status !== 'FAILED') return { kind: 'started' as const }
       // Self-booking is forbidden — a teacher cannot seat their own class.
       if (session.teacherProfile.studentId === student.id) return { kind: 'self' as const }
 
