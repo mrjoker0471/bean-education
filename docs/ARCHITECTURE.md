@@ -50,7 +50,7 @@ The teacher marketplace is a free pilot: no orders, payments, wallets or commiss
 
 Pipeline stages (honest-failure aware): upload validation → **durable job runner** (`jobs.ts` on RiisheJob/JobQuota tables: atomic CAS claims, lease recovery, bounded retries, durable hourly quotas — replaced the in-process Maps of Phase 1) → PDF extraction (per-page text, scanned-page detection, 400-page cap) → **OCR** (`ocr.ts`: Tesseract + pdftoppm for scanned pages, English/Tamil, per-page provenance, honest OCR_FAILED) → deterministic structure detection → AI section analysis (JSON-tolerant chat, injection fencing, 429 backoff, sub-chunking, deterministic fallback) → origin-aware topic canonicalisation → question generation (only VALIDATED questions publish) → grounded explanations → chat (TF-IDF retrieval, server-verified citations, persisted turns).
 
-## Data model (23 models, Prisma/SQLite, migration-managed)
+## Data model (28 models, Prisma/SQLite, migration-managed)
 
 - Catalogue: `Category → Exam → Stage → Subject → Unit → Topic` (cascade), `Note`, `Resource` per topic.
 - Bank: `Question` (sourceType ORIGINAL | PYQ_VERIFIED | PYQ_UNVERIFIED; provenance: `pyqHash`, `sourceRef`, `importedBatchId`, `reviewedBy/At/Note`), `TestTemplate`.
@@ -59,14 +59,28 @@ Pipeline stages (honest-failure aware): upload validation → **durable job runn
 - Student identity (2A) + roles (2B): `Student` (scrypt hash, `role` default STUDENT, `onboardedAt`), `Session` (hashed tokens), `StudyGoal`.
 - PYQ curation: `PyqImportBatch` (audit trail, curator `importedBy`), `PyqReviewEvent` (2B, append-only: reviewer, role held, action, justification, timestamp).
 - BEAN Teach (4A): `TeacherProfile` (one per Student; PENDING → APPROVED | REJECTED; re-review on verification-relevant edits), `ClassSession` (DRAFT → PUBLISHED → CANCELLED | COMPLETED; `bookedCount` maintained only transactionally), `ClassBooking` (one per student per class — rebooking re-activates the same row), `TeachAuditEvent` (append-only, polymorphic). `Student` gains back-relations `teacherProfile` + `classBookings`.
+- Live classroom (5): `LiveClassSession` (one per ClassSession; READY/LIVE/ENDED/INTERRUPTED/FAILED; single-use `usageFinalisedAt`), `LiveClassParticipant` (webhook-verified connection intervals, unique identity per session), `LiveKitWebhookEvent` (idempotency ledger, unique provider event id), `LiveUsageMonth` (monthly budget accounting, unique monthKey), `LiveWhiteboardState` (one snapshot per live session).
 
 Schema changes go through additive migrations only: `bun run db:backup` → edit schema → `bun run db:migrate` → `bun run db:status`. Never edit applied migrations; never reset the live DB (docs/PHASE2A_DATABASE_MIGRATIONS.md).
 
 ## Known architectural constraints
 
 - Single-node SQLite: job claims, quotas AND class-seat accounting are correct for one writer; transactions serialise and the conditional seat-claim UPDATE is the correctness mechanism; multi-process soft limits are documented in PHASE2A docs.
-- BEAN Teach is a free pilot: the planned price is metadata only and nothing in the schema or code can create a charge (ADR-019); the in-platform live classroom is Phase 5 and the UI says so honestly.
+- BEAN Teach is a free pilot: the planned price is metadata only and nothing in the schema or code can create a charge (ADR-019); the live classroom is live-only — no recording/egress exists in schema or code (ADR-020), and classrooms require LiveKit Cloud credentials (honest NOT_CONFIGURED state otherwise).
 - No email service: password reset / email verification remain unavailable (guest mode and scrypt auth unaffected); BEAN Teach has no notifications either — students discover cancellations via My bookings.
 - PYQ imports require a catalogue `examSlug` (hard FK) — college/university semester papers are not representable yet; surfaced honestly in the studio (docs/PHASE2B_PYQ_CURATOR.md).
 - On-device AI is foundation-scoped: capability detection + consent-gated adapter; the optional runtime is not shipped (docs/PHASE2A_AI_RUNTIME.md).
 - Production build should be re-verified in CI/staging (docs/PHASE2B_RESULTS.md § Static checks).
+
+## BEAN Live Classroom (Phase 5)
+
+Realtime class delivery on LiveKit Cloud, additive on top of Phase 4A. BEAN owns identity, authorisation, scheduling, usage budgeting, attendance evidence and audit; LiveKit carries media (WebRTC to its edge — media never transits BEAN).
+
+- **Server-only config** (`src/lib/livekit/config.ts`): credentials read from env at call time; `LIVEKIT_API_SECRET` never reaches the browser or logs; honest `NOT_CONFIGURED` status when absent (the rest of BEAN is unaffected).
+- **One `LiveClassSession` per `ClassSession`** (unique FK) with states READY → LIVE → ENDED | INTERRUPTED | FAILED. Start validates ownership, PUBLISHED status, the scheduled window (opens 15 min before `startsAt`) and ≥1 confirmed booking, then **atomically reserves `(confirmed + 1) × duration` participant-minutes** against `LiveUsageMonth` with ONE conditional SQL UPDATE (same pattern as the seat engine — SQLite serialises writes, concurrent starts cannot oversubscribe). Room names are server-generated opaque ids. Duplicate start returns the existing LIVE session; failed room creation releases the reservation; a FAILED session reuses the row on retry; ENDED never restarts. Bookings freeze once a live row exists (checked inside the booking transaction).
+- **Tokens** (`POST live/token`): role re-derived from DB state per request; JWT minted server-side with grants scoped by role (`canPublishSources` camera+microphone[+screen_share for teachers]; `roomAdmin`/`roomCreate`/`roomRecord` explicitly false). Identity is the opaque `bean:<studentId>`.
+- **Webhook** (`POST /api/webhooks/livekit`): raw body read before parsing; signature verified via `TokenVerifier` + SHA-256 body binding (`src/lib/livekit/webhook-verify.ts` — the same checks as `WebhookReceiver.receive`, with a tolerant JSON parse because `@livekit/protocol`'s generated decoder rejects every real-world `createdAt` shape); idempotent by unique `providerEventId`; interval accounting clamps out-of-order events so negative durations are impossible; `room_finished` finalises usage exactly once (INTERRUPTED).
+- **End** (`POST live/end`): transactional single-use finalisation guarded by `usageFinalisedAt` — intervals closed conservatively, verified actual minutes recorded once, reservation released once; `deleteRoom` best-effort afterwards.
+- **Whiteboard** (`src/lib/livekit/whiteboard.ts`): versioned zod protocol (fixed palette, normalised coords 0..1, ≤1000 points/stroke, ≤500 strokes, ≤200 KB) over LiveKit reliable data messages; mutations accepted only from TEACHER-metadata participants; persisted snapshots teacher-only via API with server re-validation; late joiners restore from snapshot + `request-sync`.
+- **Attendance evidence**: `LiveClassParticipant` rows are written ONLY by signed webhook processing; the owner-facing evidence endpoint adds a documented advisory suggestion (≥60% connected → ATTENDED, 30 s–60% → NO_SHOW) — the teacher always confirms or overrides via the unchanged Phase 4A endpoints.
+- **Free-pilot caps** (BEAN product decisions, not provider quotas): `BEAN_LIVEKIT_MONTHLY_BUDGET_MINUTES=4000`, `BEAN_LIVEKIT_MAX_CONCURRENT_PARTICIPANTS=80`, `BEAN_LIVEKIT_MAX_ROOM_PARTICIPANTS=51` — all env-configurable; availability is always `budget − reserved − used`; overtime overruns reduce availability honestly (ADR-021).

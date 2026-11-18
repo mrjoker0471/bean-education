@@ -225,6 +225,13 @@ export function TeacherLiveClassButton({ classId }: { classId: string }) {
       </Badge>
     )
   }
+  if (status.configurationStatus === 'NOT_CONFIGURED') {
+    return (
+      <Badge variant="outline" className="border-gold/40 text-gold" title="Add LiveKit credentials to enable live classrooms (docs/PHASE5_LIVEKIT_SETUP.md)">
+        Live rooms need LiveKit credentials
+      </Badge>
+    )
+  }
   return (
     <Badge variant="outline" className="border-border text-muted-foreground">
       Classroom not started yet

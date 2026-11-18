@@ -37,9 +37,7 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 
 ## Phase 5 — Live classroom
 
-- Video service integration within a small dev/test allowance.
-- Secure classroom access, teacher/student controls, audio/video, screen share, whiteboard, attendance, session completion, connection-failure handling.
-- Hard usage caps tied to the free allowance.
+**Phase 5 (COMPLETE 2026-11-18):** real live classrooms shipped on branch `feat/bean-live-classroom-phase-5` — LiveKit Cloud realtime media behind `#/classroom/:classId` with server-authorised access (role re-derived per token request; students need a confirmed booking, teachers an approved profile), teacher start/end with an atomic monthly participant-minute budget (BEAN caps: 4000 min/month, 80 concurrent, 51/room — reserved before the room starts, released/reconciled exactly once), teacher-only screen share, collaborative whiteboard (teacher-authored, validated, late-join restore), raise hand, participant moderation (audited), pre-join device consent screen, reconnection handling with honest retry, and webhook-verified attendance evidence feeding the existing Phase 4A attendance flow as an advisory suggestion. Live-only: no recording, egress, transcription or replay (ADR-020). Results and evidence: docs/PHASE5_RESULTS.md; guide: docs/PHASE5_LIVE_CLASSROOM.md; operator setup: docs/PHASE5_LIVEKIT_SETUP.md.
 
 ## Phase 6 — Trust and quality
 

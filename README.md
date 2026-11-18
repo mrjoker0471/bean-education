@@ -17,8 +17,8 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 | Durable AI job queue + hourly quotas | Working (Phase 2A) |
 | PYQ ingestion rules (validation, dedupe, review gating) | Working (Phase 2A foundation, curator-gated in 2B) |
 | On-device AI (browser inference) | Capability detection + consent-gated adapter (foundation) |
-| BEAN Teach — teacher marketplace foundation (apply → admin approval → classes → free bookings) | Working on branch `feat/bean-teach-marketplace` (Phase 4A; free pilot — planned price is metadata only, no payments) |
-| Live classroom | Phase 5 (planned) |
+| BEAN Teach — teacher marketplace foundation (apply → admin approval → classes → free bookings) | Working (Phase 4A, merged; free pilot — planned price is metadata only, no payments) |
+| Live classroom — real LiveKit rooms behind `#/classroom/:id` (auth, tokens, whiteboard, verified attendance, usage budget) | Working on branch `feat/bean-live-classroom-phase-5` (Phase 5; live-only, never recorded; needs LiveKit Cloud credentials — see docs/PHASE5_LIVEKIT_SETUP.md) |
 | Payments (Razorpay) | Final milestone only — intentionally absent |
 
 ## Documentation
@@ -35,6 +35,11 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 - docs/BEAN_TEACH_DATABASE.md — the 4 new models, migration & baselining, seat-count invariants
 - docs/BEAN_TEACH_SECURITY.md — authorization model, endpoint matrix, privacy & abuse controls
 - docs/BEAN_TEACH_RESULTS.md — executed test/verification numbers (158 unit tests, live-server race evidence, browser E2E)
+- docs/PHASE5_LIVE_CLASSROOM.md — live classroom guide (lifecycle, tokens, whiteboard protocol, reconnection)
+- docs/PHASE5_LIVEKIT_SETUP.md — how the owner enables LiveKit Cloud (env vars, webhook, troubleshooting)
+- docs/PHASE5_SECURITY.md — token grants, webhook verification, privacy, no-recording policy
+- docs/PHASE5_USAGE_BUDGET.md — the free-pilot participant-minute budget and its atomic enforcement
+- docs/PHASE5_RESULTS.md — executed test/verification numbers (238 unit tests, browser E2E, honest gaps)
 - docs/DECISIONS.md — decision log (auth, data, git history, etc.)
 - CHANGELOG.md — notable changes
 

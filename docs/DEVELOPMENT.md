@@ -80,3 +80,17 @@ Full happy path against the dev server on :3000 (guide with exact contracts: doc
 Suites: `bun test` — the teach coverage lives in `tests/unit/teach-*.test.ts` (application lifecycle; class creation/edit/publish/discovery rules; booking incl. concurrent last-seat, cancellation window, attendance timing; admin review; and the seat-claim SQL executed verbatim against a real in-memory SQLite engine). Route-level tests mock db/auth — the established pattern in this repo.
 
 Operator notes: role changes happen ONLY through `scripts/grant-role.ts`; teacher approval/rejection happens in the app at `#/teach/review`; both surfaces write append-only audit rows (PyqReviewEvent / TeachAuditEvent).
+
+## Testing the live classroom (Phase 5)
+
+Setup and full operator guide: docs/PHASE5_LIVEKIT_SETUP.md (LiveKit Cloud credentials in `.env`, optional webhook registration). Without credentials the classroom is honestly "not configured" — every other BEAN feature keeps working.
+
+1. **Enable LiveKit** — create a free LiveKit Cloud project, put `LIVEKIT_WS_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `.env` (placeholders documented in `.env.example`; never commit the real file). Restart `bun run dev`.
+2. **Run the Phase 4A journey first** — a teacher needs an APPROVED profile, a PUBLISHED class and ≥1 CONFIRMED booking before "Start Live Class" appears (see the BEAN Teach section above).
+3. **Start** — as the owner teacher, inside the scheduled window (15 min before → scheduled end), press **Start Live Class** (class page or teacher dashboard). BEAN reserves `(confirmed + 1) × duration` participant-minutes from the monthly allowance, creates the room, and routes to `#/classroom/:id`. The pre-join screen explains permissions, previews camera/mic (opt-in), and only connects after the user presses Join.
+4. **Join** — a student holding a confirmed seat sees **Join Live Classroom** on the class detail page and in My Bookings while the room is LIVE. Guests see a sign-in gate; cancelled/unbooked students are refused (server-side).
+5. **In the room** — camera/mic toggles, raise hand, participants panel, teacher screen share, teacher whiteboard (pen/eraser/colour/size/undo/clear) with live student sync; late joiners receive the saved board automatically.
+6. **End** — the teacher's "End class" asks for confirmation, disconnects everyone, finalises usage once, and the room cannot restart. The attendance strip in the teacher dashboard then shows verified live evidence (first joined, last left, connected time, reconnections) plus an ADVISORY ≥60% suggestion — the teacher still marks ATTENDED/NO_SHOW via the Phase 4A buttons.
+7. **Webhooks (recommended)** — register `POST <your-domain>/api/webhooks/livekit` in LiveKit Cloud for verified attendance evidence and interrupted-session reconciliation; deliveries are signature-verified and idempotent.
+
+Suites: `bun test` — the live-classroom coverage lives in `tests/unit/live-*.test.ts` (usage-budget SQL against real SQLite; start/token/end route matrices; webhook signature + idempotency with REAL signed tokens; whiteboard validation; attendance-evidence logic). The webhook verifier deliberately re-implements `WebhookReceiver`'s cryptographic checks with a tolerant JSON parse — see ADR-022.

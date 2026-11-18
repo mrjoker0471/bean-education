@@ -251,7 +251,7 @@ export interface LiveStatusDTO {
 /** Map a class + live session row to the safe public status DTO. */
 export function toLiveStatusDTO(
   cls: Pick<ClassSession, 'id' | 'startsAt' | 'durationMinutes' | 'status'>,
-  live: LiveClassSession | null,
+  live: Pick<LiveClassSession, 'status'> | null,
   participantCount: number | null,
   mayJoin: boolean,
   joinBlockReason: string | null,

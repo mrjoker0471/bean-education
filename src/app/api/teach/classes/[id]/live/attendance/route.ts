@@ -30,9 +30,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         id: true, teacherProfileId: true, durationMinutes: true, startsAt: true, status: true,
         bookings: { select: { studentId: true, status: true, bookedAt: true } },
         liveSession: {
-          select: { id: true, status: true, startedAt: true, endedAt: true },
-          include: {
-            participants: { select: { studentId: true, firstJoinedAt: true, lastLeftAt: true, activeSince: true, totalConnectedSeconds: true, reconnectCount: true, student: { select: { displayName: true } } } },
+          select: {
+            id: true,
+            status: true,
+            startedAt: true,
+            endedAt: true,
+            participants: {
+              select: {
+                studentId: true,
+                firstJoinedAt: true,
+                lastLeftAt: true,
+                activeSince: true,
+                totalConnectedSeconds: true,
+                reconnectCount: true,
+                student: { select: { displayName: true } },
+              },
+            },
           },
         },
       },
