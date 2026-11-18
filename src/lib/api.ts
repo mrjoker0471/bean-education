@@ -3,12 +3,18 @@
 import type {
   AttemptResultDTO,
   AttemptStateDTO,
+  AuthedStudent,
   BeanChatMessage,
   BeanContext,
   BeanSettings,
   CatalogResponse,
+  DashboardResponse,
   ExamDetailDTO,
   ExamListItem,
+  GoalDTO,
+  GoalStatus,
+  GuestClaims,
+  LearningLevel,
   MaterialDetailDTO,
   MaterialsResponseDTO,
   ProgressDTO,
@@ -21,6 +27,7 @@ import type {
   RiisheTestDetailDTO,
   RiisheTopicsResponseDTO,
   RiisheWeakTopicDTO,
+  StudentProfileDTO,
   TopicDetailDTO,
 } from './types'
 
@@ -269,4 +276,50 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ guestId, answers }),
     }),
+
+  // ─── Student identity (Phase 2A) ───
+  authMe: () => jsonFetch<{ student: AuthedStudent | null }>('/api/auth/me'),
+  authRegister: (body: { email: string; password: string; displayName?: string }) =>
+    jsonFetch<{ student: AuthedStudent }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+  authLogin: (body: { email: string; password: string }) =>
+    jsonFetch<{ student: AuthedStudent }>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  authLogout: () => jsonFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST', body: '{}' }),
+  claimGuest: (guestId: string) =>
+    jsonFetch<{ claims: GuestClaims }>('/api/auth/claim-guest', { method: 'POST', body: JSON.stringify({ guestId }) }),
+  exportAccount: async (): Promise<void> => {
+    const res = await fetch('/api/auth/account/export', { credentials: 'same-origin' })
+    if (!res.ok) {
+      let message = `Export failed (${res.status})`
+      try { const b = await res.json(); if (b?.error) message = b.error } catch { /* ignore */ }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `bean-export-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+  deleteStudentAccount: () =>
+    jsonFetch<{ ok: boolean }>('/api/auth/account/delete', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) }),
+
+  // ─── Student profile / goals / dashboard (Phase 2A) ───
+  studentProfile: () => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile'),
+  updateStudentProfile: (patch: {
+    displayName?: string | null
+    learningLevel?: LearningLevel | null
+    interests?: string[]
+    preferences?: { dailyMinutes?: number | null; language?: string | null; revisionStyle?: string | null; goalExam?: string | null }
+  }) => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile', { method: 'PATCH', body: JSON.stringify(patch) }),
+  studentGoals: () => jsonFetch<{ goals: GoalDTO[] }>('/api/student/goals'),
+  createStudentGoal: (body: { title: string; examId?: string; topicId?: string; targetDate?: string }) =>
+    jsonFetch<{ goal: GoalDTO }>('/api/student/goals', { method: 'POST', body: JSON.stringify(body) }),
+  updateStudentGoal: (id: string, patch: { title?: string; status?: GoalStatus; targetDate?: string | null }) =>
+    jsonFetch<{ goal: GoalDTO }>(`/api/student/goals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteStudentGoal: (id: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/student/goals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  studentDashboard: () => jsonFetch<DashboardResponse>('/api/student/dashboard'),
 }

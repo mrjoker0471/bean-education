@@ -19,9 +19,26 @@ import { detectStructure, detectContentlessPages, extractNumberToken, stripEntry
 import { canonicalizeTopics, normalizeTitle, jaccard, titleTokens, type TopicInput } from './dedupe'
 import { extractReferenceList } from './reference-list'
 import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE, isContentFilterError, isRateLimitError } from './ai'
+import { isOcrAvailable, ocrScannedPages } from './ocr'
 import { PIPELINE_VERSION, type DocumentAnalysis, type AnalyzedTopic, type SectionOutcome, type CoverageMetrics, type StructureTocEntry, type StructureGroup, type TopicItemClass, type FormulaNote, type StudyFact, type ListExtraction } from './types'
 
 const UNIT_CHARS = 6000 // per-model-call section budget
+
+// ─── OCR stage bookkeeping (Stage 1b) ─────────────────────────────────────────
+
+/** Honest record of what the OCR stage actually did, threaded into every
+ *  downstream coverage/status message so wording can never claim more than
+ *  happened. When `available` is false the pre-OCR behaviour is unchanged. */
+interface OcrStageInfo {
+  /** OCR engine was detected and usable (tesseract + pdftoppm + tessdata) */
+  available: boolean
+  /** pages OCR actually attempted (0 when unavailable / no scanned pages) */
+  attempted: number
+  /** attempted pages whose OCR text passed validation and was merged in */
+  ok: number
+  /** scanned pages never attempted because of the per-document OCR cap */
+  unattempted: number
+}
 
 const SYSTEM = `You are Riishe, the document-analysis engine of BEAN EXAMS, a document-first study platform. You analyse student-uploaded study material and produce precise, grounded structured analyses. Never invent content that is not in the provided text. If a field has no content, return an empty array.`
 
@@ -590,7 +607,11 @@ function buildCoverage(
   }
 }
 
-function buildCoverageNote(cov: CoverageMetrics, counts: { imageContent: number; nonContent: number }): string {
+function buildCoverageNote(
+  cov: CoverageMetrics,
+  counts: { imageContent: number; nonContent: number },
+  ocr?: OcrStageInfo | null,
+): string {
   const bits: string[] = []
   if (cov.unitsFailed > 0) {
     bits.push(`Analysed ${cov.analysedPages} of ${cov.readablePages - (cov.contentlessPages ?? 0)} content page${cov.readablePages - (cov.contentlessPages ?? 0) === 1 ? '' : 's'} — ${cov.unitsFailed} section${cov.unitsFailed === 1 ? '' : 's'} failed and can be retried without losing the sections that succeeded.`)
@@ -615,12 +636,36 @@ function buildCoverageNote(cov: CoverageMetrics, counts: { imageContent: number;
     bits.push(`The document has ${cov.totalPages} pages but only the first ${cov.totalPages - cov.notExtractedPages} could be processed in this environment — the remaining ${cov.notExtractedPages} were never read and are not part of this analysis.`)
   }
   if (cov.scannedPages > 0) {
-    bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} would need OCR, which is not available yet — ${cov.scannedPages === 1 ? 'it is' : 'they are'} excluded from the analysis.`)
+    if (ocr && ocr.available && ocr.attempted > 0) {
+      const failedAttempted = ocr.attempted - ocr.ok
+      const why: string[] = []
+      if (failedAttempted > 0) why.push(`OCR ran on ${ocr.attempted} page${ocr.attempted === 1 ? '' : 's'} but ${failedAttempted} produced no usable text`)
+      if (ocr.unattempted > 0) why.push(`${ocr.unattempted} were never OCR'd (the per-document OCR cap)`)
+      if (why.length === 0) why.push('OCR was attempted on them without a usable result')
+      bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} still ${cov.scannedPages === 1 ? 'awaits' : 'await'} usable text (${why.join('; ')}) — ${cov.scannedPages === 1 ? 'it is' : 'they are'} excluded from the analysis.`)
+    } else {
+      bits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} would need OCR, which is not available yet — ${cov.scannedPages === 1 ? 'it is' : 'they are'} excluded from the analysis.`)
+    }
   }
   return bits.join(' ')
 }
 
-// ─── Main job ─────────────────────────────────────────────────────────────────
+// ─── Main job ────────────────────────────────────────────────────────────────
+
+/** The NEEDS_OCR status line, honest about what actually happened: OCR that
+ *  ran and failed reads differently from OCR that was never available. */
+function needsOcrStatusDetail(
+  extraction: { scannedPages: number; failedPages: number },
+  ocr: OcrStageInfo | null,
+): string {
+  if (ocr?.available && ocr.attempted > 0) {
+    return `No usable text could be recovered from this document. OCR ran on ${ocr.attempted} image-only page${ocr.attempted === 1 ? '' : 's'} but none produced text that passed the usability check (too short or too garbled) — the scans may be low-quality, handwritten, or in a language the engine cannot read. Questions cannot be generated from this document.`
+  }
+  if (ocr?.available) {
+    return `No extractable text found — the pages could not be read by the PDF extractor (${extraction.failedPages} extraction failures; no image-only pages were found for OCR to attempt). Questions cannot be generated from this document.`
+  }
+  return `No extractable text found — every page looks like a scanned image or could not be read (${extraction.scannedPages} image-only, ${extraction.failedPages} extraction failures). OCR is not available in BEAN EXAMS yet, so Riishe cannot read this document. Questions cannot be generated from it.`
+}
 
 /**
  * Background job: extract text, detect the document's real structure, analyse
@@ -723,9 +768,80 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     }
   }
 
+  // ── Stage 1b: genuine OCR (Tesseract) for image-only pages ────────────────
+  // When the OCR engine is installed, scanned pages get a real second chance:
+  // each is rendered with pdftoppm and read with Tesseract. Pages whose OCR
+  // passes validation are merged back into the extraction (with provenance
+  // fields, so analysis and UI can tell OCR text from PDF-text-layer text);
+  // pages that fail keep their scanned flag and stay honestly "awaiting OCR".
+  // When the engine is NOT installed, nothing changes — the existing
+  // NEEDS_OCR path below applies unchanged.
+  let ocrStage: OcrStageInfo | null = null
+  {
+    const scannedTargets = extraction.pages.filter(p => p.scanned)
+    if (scannedTargets.length > 0) {
+      const availability = await isOcrAvailable()
+      if (!availability.available) {
+        ocrStage = { available: false, attempted: 0, ok: 0, unattempted: 0 }
+      } else {
+        await db.studyDocument.update({
+          where: { id: documentId },
+          data: {
+            status: 'EXTRACTING',
+            statusDetail: `Running OCR on ${scannedTargets.length} scanned page${scannedTargets.length === 1 ? '' : 's'}…`,
+            updatedAt: new Date(),
+          },
+        }).catch(() => {})
+        const ocr = await ocrScannedPages(doc.storedPath, scannedTargets.map(p => ({ page: p.page })), {
+          // keep the row's statusDetail/updatedAt honest (and stale-recovery
+          // safe) during long sequential OCR runs
+          onProgress: async (done, total, ok) => {
+            await db.studyDocument.update({
+              where: { id: documentId },
+              data: {
+                statusDetail: `Running OCR on ${total} scanned page${total === 1 ? '' : 's'} — ${done} done, ${ok} recovered…`,
+                updatedAt: new Date(),
+              },
+            }).catch(() => {})
+          },
+        })
+        let ok = 0
+        for (const r of ocr.results) {
+          const pg = extraction.pages.find(x => x.page === r.page)
+          if (!pg || !pg.scanned) continue
+          if (r.outcome === 'OCR_OK' && typeof r.text === 'string' && r.text.length > 0) {
+            // Merge the OCR text with provenance: the page is no longer
+            // "image-only awaiting OCR" — it now carries real, usable text.
+            pg.text = r.text
+            pg.chars = r.text.length
+            pg.scanned = false
+            pg.outcome = 'extracted'
+            pg.ocr = true
+            pg.ocrEngine = r.engine
+            pg.ocrLangs = r.langs
+            ok++
+          }
+          // OCR_FAILED pages keep scanned=true on purpose: they still count
+          // as awaiting usable OCR everywhere downstream — never faked.
+        }
+        extraction.scannedPages = extraction.pages.filter(p => p.scanned).length
+        extraction.textChars = extraction.pages.reduce((s, p) => s + p.chars, 0)
+        ocrStage = {
+          available: true,
+          attempted: ocr.results.length,
+          ok,
+          unattempted: Math.max(0, scannedTargets.length - ocr.results.length),
+        }
+      }
+    }
+  }
+
   const readablePages = extraction.pages.filter(p => !p.scanned && p.text.length > 0)
   const extractionNote = extraction.failedPages > 0
     ? ` ${extraction.failedPages} page${extraction.failedPages === 1 ? ' could' : 's could'} not be read by the PDF extractor and ${extraction.failedPages === 1 ? 'is' : 'are'} excluded from the analysis.`
+    : ''
+  const ocrRecoveredNote = ocrStage && ocrStage.available && ocrStage.attempted > 0
+    ? ` OCR recovered usable text for ${ocrStage.ok} of ${ocrStage.attempted} scanned page${ocrStage.attempted === 1 ? '' : 's'}${ocrStage.unattempted > 0 ? ` (${ocrStage.unattempted} more were beyond the per-document OCR cap)` : ''}.`
     : ''
   await db.studyDocument.update({
     where: { id: documentId },
@@ -734,8 +850,8 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       extractionJson: JSON.stringify(extraction.pages),
       status: readablePages.length === 0 ? 'NEEDS_OCR' : 'ANALYSING',
       statusDetail: readablePages.length === 0
-        ? `No extractable text found — every page looks like a scanned image or could not be read (${extraction.scannedPages} image-only, ${extraction.failedPages} extraction failures). OCR is not available in BEAN EXAMS yet, so Riishe cannot read this document. Questions cannot be generated from it.`
-        : `Riishe is mapping the document structure…${extractionNote}`,
+        ? needsOcrStatusDetail(extraction, ocrStage)
+        : `Riishe is mapping the document structure…${extractionNote}${ocrRecoveredNote}`,
     },
   })
 
@@ -767,7 +883,9 @@ export async function processDocument(documentId: string, opts?: { force?: boole
       where: { id: documentId },
       data: {
         status: 'NEEDS_OCR',
-        statusDetail: 'The PDF has pages but no readable text that Riishe can analyse. OCR is not available yet.',
+        statusDetail: ocrStage?.available
+          ? `The PDF has pages but no analysable structure was found in its readable text${ocrStage.attempted > 0 ? ` (OCR recovered ${ocrStage.ok} page${ocrStage.ok === 1 ? '' : 's'}, but the text still yields no analysable structure)` : ''}.`
+          : 'The PDF has pages but no readable text that Riishe can analyse. OCR is not available yet.',
       },
     })
     return
@@ -870,15 +988,16 @@ export async function processDocument(documentId: string, opts?: { force?: boole
     outcomes,
     summary: '',
     structure,
+    ocr: ocrStage,
   })
   merged.summary = await summarise(doc.title, extraction.pages, merged)
-  merged.studyGaps = deriveStudyGaps(merged, cov)
+  merged.studyGaps = deriveStudyGaps(merged, cov, ocrStage)
 
   await db.studyDocument.update({
     where: { id: documentId },
     data: {
       status: 'READY',
-      statusDetail: finalStatusDetail(cov, merged),
+      statusDetail: finalStatusDetail(cov, merged, ocrStage),
       analysisJson: JSON.stringify(merged),
     },
   })
@@ -886,13 +1005,21 @@ export async function processDocument(documentId: string, opts?: { force?: boole
 
 /** The READY status line: honest about partial coverage, listing exactly what
  *  still requires processing. Shared by the live job and the upgrade path so
- *  a recomputed analysis reads exactly like a freshly analysed one. */
-export function finalStatusDetail(cov: CoverageMetrics, merged: { topics: unknown[] }): string {
+ *  a recomputed analysis reads exactly like a freshly analysed one.
+ *  `ocr` carries the Stage 1b bookkeeping so remaining scanned pages are
+ *  described truthfully ("no usable OCR text" vs "OCR not available"). */
+export function finalStatusDetail(cov: CoverageMetrics, merged: { topics: unknown[] }, ocr?: OcrStageInfo | null): string {
   const partial = !cov.complete
   const pendingBits: string[] = []
   if (cov.unitsFailed > 0) pendingBits.push(`${cov.unitsFailed} failed section${cov.unitsFailed === 1 ? '' : 's'}`)
   if (cov.unitsSkipped > 0) pendingBits.push(`${cov.unitsSkipped} skipped section${cov.unitsSkipped === 1 ? '' : 's'} (${cov.skippedPages} pages)`)
-  if (cov.scannedPages > 0) pendingBits.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} awaiting OCR`)
+  if (cov.scannedPages > 0) {
+    pendingBits.push(
+      ocr && ocr.available && ocr.attempted > 0
+        ? `${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} with no usable OCR text`
+        : `${cov.scannedPages} image-only page${cov.scannedPages === 1 ? '' : 's'} awaiting OCR`,
+    )
+  }
   return partial
     ? `Ready (partially analysed) — analysed ${cov.analysedPages} of ${cov.totalPages} pages across ${cov.unitsOk}/${cov.unitsTotal} sections${pendingBits.length > 0 ? `; still requiring processing: ${pendingBits.join(', ')}` : ''}.`
     : `Ready — fully analysed: ${merged.topics.length} topic${merged.topics.length === 1 ? '' : 's'} across ${cov.unitsTotal} section${cov.unitsTotal === 1 ? '' : 's'}; every one of the ${cov.totalPages} pages was analysed or verified to carry no content.`
@@ -912,6 +1039,10 @@ export interface RecomputeOpts {
   summary: string
   /** structure detected over the same pages (Stage 2 output) */
   structure: ReturnType<typeof detectStructure>
+  /** OCR stage bookkeeping (Stage 1b) — reflected in coverage/status wording
+   *  so remaining scanned pages read truthfully. Absent/null = stage did not
+   *  run (no scanned pages or the caller is a recompute without OCR). */
+  ocr?: OcrStageInfo | null
 }
 
 /**
@@ -1012,7 +1143,7 @@ export function recomputeMergedAnalysis(opts: RecomputeOpts): { merged: StoredAn
     keyPages: [...new Set(topics.flatMap(t => t.pages.slice(0, 3)))].filter(p => p >= 1).sort((a, b) => a - b).slice(0, 60),
     unreadableSections: mergeUnreadable(opts.parts, 16),
     studyGaps: [],
-    coverageNote: buildCoverageNote(cov, { imageContent: imageContentPages.length, nonContent: nonContentPages.length }),
+    coverageNote: buildCoverageNote(cov, { imageContent: imageContentPages.length, nonContent: nonContentPages.length }, opts.ocr),
     pipelineVersion: PIPELINE_VERSION,
     coverage: cov,
     sectionOutcomes: opts.outcomes,
@@ -1040,7 +1171,7 @@ export function recomputeMergedAnalysis(opts: RecomputeOpts): { merged: StoredAn
     },
     _parts: opts.parts, // retained so a partial retry keeps every successful section
   }
-  merged.studyGaps = deriveStudyGaps(merged, cov)
+  merged.studyGaps = deriveStudyGaps(merged, cov, opts.ocr)
   return { merged, cov }
 }
 
@@ -1423,7 +1554,7 @@ ${fenceDocumentText(title, head)}`,
   }
 }
 
-function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics): string[] {
+function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics, ocr?: OcrStageInfo | null): string[] {
   const gaps: string[] = []
   if (a.topics.length === 0) gaps.push('No clear topics were identified — the text may be too sparse for question generation.')
   if (a.definitions.length === 0) gaps.push('No key definitions were found — you may need supporting material for terminology-heavy questions.')
@@ -1433,7 +1564,13 @@ function deriveStudyGaps(a: DocumentAnalysis, cov: CoverageMetrics): string[] {
   const reviewFormulas = a.formulas.filter(f => f.status === 'NEEDS_REVIEW').length
   if (reviewFormulas > 0) gaps.push(`${reviewFormulas} formula${reviewFormulas === 1 ? '' : 's'} could not be verified against the extracted text (likely printed as an image in the PDF) — ${reviewFormulas === 1 ? 'it is' : 'they are'} flagged for review and will not be treated as verified.`)
   if (a.unreadableSections.length > 0) gaps.push(`${a.unreadableSections.length} section${a.unreadableSections.length === 1 ? '' : 's'} were unreadable and excluded from the analysis.`)
-  if (cov.scannedPages > 0) gaps.push(`${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' needs' : 's need'} OCR to be analysed — OCR is not available yet.`)
+  if (cov.scannedPages > 0) {
+    gaps.push(
+      ocr && ocr.available && ocr.attempted > 0
+        ? `${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' still has' : 's still have'} no usable OCR text (the engine ran on ${ocr.attempted} page${ocr.attempted === 1 ? '' : 's'} but these did not yield readable text) — ${cov.scannedPages === 1 ? 'it is' : 'they are'} excluded from the analysis.`
+        : `${cov.scannedPages} image-only page${cov.scannedPages === 1 ? ' needs' : 's need'} OCR to be analysed — OCR is not available yet.`,
+    )
+  }
   if ((cov.contentlessPages ?? 0) > 0) gaps.push(`${cov.contentlessPages} page${(cov.contentlessPages ?? 0) === 1 ? ' carries' : 's carry'} no analysable text — the content there is an image (or the page is blank) and is accounted separately.`)
   if (cov.failedExtractionPages > 0) gaps.push(`${cov.failedExtractionPages} page${cov.failedExtractionPages === 1 ? ' could' : 's could'} not be read by the PDF extractor — ${cov.failedExtractionPages === 1 ? 'it is' : 'they are'} not part of this analysis.`)
   if (cov.notExtractedPages > 0) gaps.push(`The document has ${cov.notExtractedPages} page${cov.notExtractedPages === 1 ? '' : 's'} beyond what this environment can process — they were never read, so this analysis does not cover them.`)

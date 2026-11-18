@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { queueOnce } from '@/lib/riishe/jobs'
+import { enqueueJob } from '@/lib/riishe/jobs'
 import { processDocument } from '@/lib/riishe/pipeline'
+import { isOcrAvailable } from '@/lib/riishe/ocr'
 import { safeParse } from '@/lib/serialize'
 import { PIPELINE_VERSION, type DocumentAnalysis } from '@/lib/riishe/types'
 
@@ -33,7 +34,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: 'Material not found' }, { status: 404 })
     }
     if (doc.status === 'NEEDS_OCR' && !force) {
-      return NextResponse.json({ error: 'This document has no extractable text (scanned images) — OCR is not available yet, so retrying cannot help.' }, { status: 409 })
+      // Availability-aware, honest guidance: when the Tesseract engine is
+      // installed a retry WILL run real OCR on the scanned pages; when it is
+      // not, retrying cannot help and we say so.
+      const ocr = await isOcrAvailable()
+      const message = ocr.available
+        ? 'This document has no extractable PDF text (scanned images), but OCR is installed on this deployment — re-analysing it will run real OCR (Tesseract) on the scanned pages and may recover the text.'
+        : 'This document has no extractable text (scanned images) — OCR is not installed on this deployment, so retrying cannot help.'
+      return NextResponse.json({ error: message }, { status: 409 })
     }
     if (doc.status === 'READY' && !force) {
       const analysis = safeParse<DocumentAnalysis | null>(doc.analysisJson, null)
@@ -44,7 +52,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
       // Targeted partial retry — keep status READY (processDocument's partial
       // path requires it) and queue the job; it re-runs only failed sections.
-      void queueOnce(doc.guestId, `doc:${id}`, () => processDocument(id))
+      void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: id, ownerId: doc.guestId })
       return NextResponse.json({ ok: true, partial: true })
     }
     if (!['FAILED', 'QUEUED', 'READY', 'NEEDS_OCR'].includes(doc.status)) {
@@ -55,7 +63,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       where: { id },
       data: { status: 'QUEUED', statusDetail: force ? 'Queued for a full re-analysis…' : 'Queued for a retry…' },
     })
-    void queueOnce(doc.guestId, `doc:${id}`, () => processDocument(id, { force: Boolean(force) }))
+    void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: id, ownerId: doc.guestId, payload: { force: Boolean(force) } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[api/materials/[id]/retry]', err)

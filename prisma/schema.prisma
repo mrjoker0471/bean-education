@@ -177,9 +177,20 @@ model Question {
   subject            Subject? @relation(fields: [subjectId], references: [id])
   topic              Topic?   @relation(fields: [topicId], references: [id])
 
+  // ── PYQ provenance & import audit (Phase 2A) ──
+  pyqHash            String? // normalized content hash (text+options+key) for duplicate detection
+  sourceRef          String? // source citation / document reference (page, booklet, archive id)
+  importedBatchId    String? // PyqImportBatch.id — full audit trail of where this record came from
+  reviewedBy         String? // reviewer identity (studentId) when a PYQ was verified
+  reviewedAt         DateTime?
+  reviewNote         String? // reviewer's verification note
+
   @@index([examId])
   @@index([topicId])
   @@index([canonicalSlug])
+  @@index([pyqHash])
+  @@index([sourceType, year])
+  @@index([importedBatchId])
 }
 
 model TestTemplate {
@@ -209,6 +220,7 @@ model Attempt {
   id              String        @id @default(cuid())
   guestId         String?
   userId          String?
+  studentId       String? // set when a signed-in student owns this attempt (guest migration keeps guestId as well)
   templateId      String?
   examId          String?
   examLabel       String
@@ -236,6 +248,7 @@ model Attempt {
   riisheTest      RiisheTest?   @relation(fields: [riisheTestId], references: [id])
 
   @@index([guestId])
+  @@index([studentId])
   @@index([status])
 }
 
@@ -244,6 +257,7 @@ model Attempt {
 model StudyDocument {
   id             String   @id @default(cuid())
   guestId        String
+  studentId      String? // set when a signed-in student owns this document
   title          String // user-editable display title
   originalName   String
   storedPath     String // path under db/uploads (never web-served directly)
@@ -263,12 +277,14 @@ model StudyDocument {
   tests          RiisheTest[]
 
   @@index([guestId])
+  @@index([studentId])
   @@index([contentHash])
 }
 
 model RiisheTest {
   id               String        @id @default(cuid())
   guestId          String
+  studentId        String? // set when a signed-in student owns this test
   documentId       String // PRIMARY source document (workspace owner)
   title            String
   status           String        @default("QUEUED") // QUEUED | GENERATING | READY | FAILED
@@ -288,6 +304,7 @@ model RiisheTest {
   attempts         Attempt[]
 
   @@index([guestId])
+  @@index([studentId])
   @@index([documentId])
 }
 
@@ -333,6 +350,7 @@ model RiisheExplanation {
 model RiisheChatTurn {
   id              String   @id @default(cuid())
   guestId         String
+  studentId       String? // set when a signed-in student owns this turn
   documentId      String?
   attemptId       String?
   questionId      String?
@@ -344,6 +362,120 @@ model RiisheChatTurn {
   createdAt       DateTime @default(now())
 
   @@index([guestId, createdAt])
+  @@index([studentId, createdAt])
   @@index([documentId])
   @@index([attemptId, questionId])
+}
+
+// ─── Student identity (Phase 2A) ────────────────────────────────────────────
+// Credentials: scrypt password hashing (node:crypto) — passwords are NEVER
+// stored in plaintext. Sessions: a random 256-bit token lives only in an
+// httpOnly cookie; the database stores its SHA-256 hash.
+
+model Student {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String // scrypt$N$r$p$salt$hash
+  displayName     String?
+  learningLevel   String? // SCHOOL_6_8 | SCHOOL_9_10 | SCHOOL_11_12 | UNDERGRAD | POSTGRAD | PROFESSIONAL | COMPETITIVE | SKILL
+  interestsJson   String? // JSON string[] — subject interests
+  preferencesJson String? // JSON {dailyMinutes, language, revisionStyle, goalExam}
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sessions        Session[]
+  goals           StudyGoal[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique // sha256(token) — the raw token exists only in the cookie
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model StudyGoal {
+  id         String    @id @default(cuid())
+  studentId  String
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  title      String
+  examId     String?
+  topicId    String?
+  targetDate DateTime?
+  status     String    @default("ACTIVE") // ACTIVE | COMPLETED | ARCHIVED
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([studentId, status])
+}
+
+// ─── PYQ import audit trail (Phase 2A) ───────────────────────────────────
+// Every structured import is recorded with its source identity and counts;
+// only reviewed records may be relabelled PYQ_VERIFIED (see
+// docs/PHASE2A_PYQ_INGESTION.md).
+
+model PyqImportBatch {
+  id             String   @id @default(cuid())
+  paperTitle     String
+  examSlug       String? // catalogue exam identity when known
+  examLabel      String? // free-text exam identity when not in the catalogue
+  stageLabel     String?
+  subjectLabel   String?
+  year           Int?
+  session        String?
+  sourceCitation String?
+  fileName       String
+  importedBy     String? // studentId (authenticated) or guestId
+  totalRows      Int      @default(0)
+  createdCount   Int      @default(0)
+  duplicateCount Int      @default(0)
+  failedCount    Int      @default(0)
+  errorsJson     String? // JSON [{row, error}] — per-row audit
+  createdAt      DateTime @default(now())
+}
+
+// ─── Durable background jobs (Phase 2A) ────────────────────────────────
+// Replaces the in-process Maps in jobs.ts. One row per (kind, refId);
+// atomic claims inside a SQLite write transaction; lease-based recovery.
+
+model RiisheJob {
+  id          String    @id @default(cuid())
+  kind        String // DOCUMENT_ANALYSIS | TEST_GENERATION | EXPLANATION
+  refId       String // StudyDocument.id | RiisheTest.id | Attempt.id
+  ownerId     String // guestId or studentId — scope for limits & quotas
+  status      String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(2)
+  payloadJson String? // optional run parameters (e.g. {"force":true} for re-analysis)
+  error       String?
+  claimedAt   DateTime?
+  leaseUntil  DateTime?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([kind, refId])
+  @@index([status, leaseUntil])
+  @@index([ownerId, status])
+}
+
+// Hourly provider-protection quota, durable across restarts. `count` includes
+// in-flight reservations; failures/cancellations release their reservation.
+model JobQuota {
+  id          String   @id @default(cuid())
+  ownerKey    String // guestId or studentId
+  kind        String // analyse | generate | explain
+  windowKey   String // ISO hour bucket, e.g. "2026-11-18T09"
+  windowStart DateTime
+  count       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerKey, kind, windowKey])
+  @@index([windowStart])
 }

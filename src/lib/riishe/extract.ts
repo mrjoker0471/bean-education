@@ -1,8 +1,12 @@
 // ─── Riishe document extraction: real PDF text, page by page ─────────────────
 // Uses the already-installed pdfjs-dist (legacy build runs on Node without a
 // worker). Produces per-page text with character counts so scanned / image-only
-// pages are detected honestly — OCR is NOT available in this stack, and we say
-// so instead of pretending to have read such pages.
+// pages are detected honestly. This module does NOT OCR anything itself: when
+// the Tesseract engine is installed, the pipeline (pipeline.ts Stage 1b) runs
+// genuine OCR on the scanned pages afterwards and merges the recovered text
+// back into these page objects with provenance fields (ocr / ocrEngine /
+// ocrLangs) — pages that fail OCR keep their scanned flag and stay reported
+// as awaiting OCR instead of pretending to have been read.
 
 export interface ExtractedPage {
   page: number
@@ -17,6 +21,14 @@ export interface ExtractedPage {
    *  awaiting OCR" (form facsimiles, Gazette reprints) from a genuinely
    *  blank/decorative page. undefined = unknown (probe failed / legacy data). */
   imagePlates?: boolean
+  /** ── OCR provenance (Phase 2A, set by the pipeline's OCR stage) ──
+   *  true when this page's text came from Tesseract OCR of the rendered page
+   *  image, NOT from the PDF text layer. undefined/false = pdf.js text layer. */
+  ocr?: boolean
+  /** the OCR engine that produced this page's text (e.g. "tesseract-5") */
+  ocrEngine?: string
+  /** the tesseract language string used (e.g. "eng+tam") */
+  ocrLangs?: string
 }
 
 export interface ExtractionResult {

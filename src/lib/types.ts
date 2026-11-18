@@ -656,3 +656,68 @@ export interface RiisheTopicsResponseDTO {
   documents: RiisheTopicDocDTO[]
   totalTopics: number
 }
+
+// ─── Student identity (Phase 2A) ──────────────────────────────────────────────
+
+export type LearningLevel =
+  | 'SCHOOL_6_8' | 'SCHOOL_9_10' | 'SCHOOL_11_12' | 'UNDERGRAD'
+  | 'POSTGRAD' | 'PROFESSIONAL' | 'COMPETITIVE' | 'SKILL'
+
+export interface AuthedStudent {
+  id: string
+  email: string
+  displayName: string | null
+  learningLevel: string | null
+}
+
+export interface GuestClaims {
+  attempts: number
+  documents: number
+  tests: number
+  chatTurns: number
+}
+
+export interface StudentProfileDTO {
+  id: string
+  email: string
+  displayName: string | null
+  learningLevel: string | null
+  interests: string[]
+  preferences: Record<string, unknown>
+}
+
+export type GoalStatus = 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+
+export interface GoalDTO {
+  id: string
+  title: string
+  examId: string | null
+  topicId: string | null
+  targetDate: string | null
+  status: GoalStatus
+  createdAt: string
+  updatedAt: string
+  exam: { id: string; slug: string; name: string; shortName: string | null } | null
+  topic: { id: string; name: string } | null
+}
+
+export interface DashboardResponse {
+  profile: StudentProfileDTO
+  progress: {
+    attempts: {
+      count: number
+      submitted: number
+      accuracy: number | null
+      lastActivityAt: string | null
+      last7Days: number
+    }
+    riishe: {
+      documents: number
+      documentsReady: number
+      tests: number
+      accuracy: number | null
+    }
+  }
+  goals: GoalDTO[]
+  generatedAt: string
+}

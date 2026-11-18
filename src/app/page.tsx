@@ -17,6 +17,7 @@ import { RiisheView } from '@/components/bean/views/riishe-view'
 import { PracticeView } from '@/components/bean/views/practice-view'
 import { TopicsView } from '@/components/bean/views/topics-view'
 import { SettingsView } from '@/components/bean/views/settings-view'
+import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,7 @@ export default function Page() {
   const route = useAppStore(s => s.route)
   const init = useAppStore(s => s.init)
   const hydrated = useAppStore(s => s._hydrated)
+  const navigate = useAppStore(s => s.navigate)
 
   useEffect(() => { init() }, [init])
 
@@ -52,6 +54,16 @@ export default function Page() {
             {route.view === 'practice' && <PracticeView doc={route.doc} topics={route.topics} />}
             {route.view === 'topics' && <TopicsView />}
             {route.view === 'settings' && <SettingsView />}
+            {route.view === 'auth' && (
+              <AuthView
+                onAuthed={() => {
+                  // AuthView performs its own fetch (deliberately store-free);
+                  // the shell syncs the session into the store, then continues.
+                  void useAppStore.getState().refreshAuth()
+                  navigate({ view: 'settings' })
+                }}
+              />
+            )}
             {route.view === 'not-found' && <NotFound />}
           </>
         )}

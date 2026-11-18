@@ -369,6 +369,9 @@ export interface RiisheTestStats {
   generated: number
   validated: number
   rejected: number
+  /** Questions the LLM validator rejected but that passed programmatic checks —
+   *  retained with status FLAGGED for review, never published. */
+  flagged?: number
   byCategory: Partial<Record<QuestionCategory, number>>
   byDifficulty: { EASY: number; MEDIUM: number; HARD: number }
   llmCalls: number

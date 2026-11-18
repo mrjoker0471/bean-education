@@ -10,8 +10,12 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 | Area | Status |
 |---|---|
 | Exam catalogue + bank practice/revision tests, progress | Working (guest mode) |
-| Riishe document intelligence (upload → analysis → AI tests → explanations → chat) | Working |
-| Historical PYQ ingestion | Surfaces ready, ingestion pending |
+| Riishe document intelligence (upload → analysis → AI tests → explanations → chat) | Working (+ real OCR for scanned pages, English/Tamil) |
+| Student accounts (email/password, guest migration, export, deletion) | Working (Phase 2A) |
+| Study goals, learning profile, dashboard data model | Working (Phase 2A foundation) |
+| Durable AI job queue + hourly quotas | Working (Phase 2A) |
+| PYQ ingestion (import → review → verified) | Foundation ready; bank honestly zero-PYQ until a reviewed import |
+| On-device AI (browser inference) | Capability detection + consent-gated adapter (foundation) |
 | BEAN Teach (teachers, classes, pilots) | Phase 4 (planned) |
 | Live classroom | Phase 5 (planned) |
 | Payments (Razorpay) | Final milestone only — intentionally absent |
@@ -30,9 +34,12 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 ```bash
 bun install
 cp .env.example .env
-bun run db:push && bun run db:seed
+bun run db:deploy && bun run db:seed
 bun run dev
+bun test          # unit tests
 ```
+
+Before any schema change: `bun run db:backup` first (see docs/PHASE2A_DATABASE_MIGRATIONS.md).
 
 ## Protected paths (never commit)
 

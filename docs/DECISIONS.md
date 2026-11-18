@@ -37,3 +37,19 @@ Status: accepted. GitHub's OAuth device-flow endpoint (`github.com/login/device/
 ## ADR-009 — Remote history preserved via unrelated-histories merge (2026-11-18)
 
 Status: done. The GitHub repo contained a single "Initial commit" (README only). Local main was merged with `--allow-unrelated-histories`, keeping the owner's initial commit and README text intact as ancestors. No force-push; subsequent pushes are fast-forwards.
+
+## ADR-010 — Hand-rolled credential auth instead of next-auth (2026-11-18)
+
+Status: accepted. Phase 2A identity uses scrypt password hashing + SHA-256-hashed session tokens in httpOnly SameSite cookies, implemented in src/lib/auth.ts. next-auth (installed but never configured) was deliberately NOT used: the product needs exactly one credential flow with no third-party providers, and an unconfigured framework dependency adds attack surface without benefit. No paid authentication services. Consequences: password reset and email verification require an email service (not yet available) — documented limitations; the guest-first model remains fully functional and additive (`studentId` columns; claim keeps guest identity).
+
+## ADR-011 — Durable job state in SQLite, CAS claims (2026-11-18)
+
+Status: accepted. Riishe jobs and hourly quotas moved from module-level Maps to RiisheJob/JobQuota tables. Claims are atomic conditional UPDATEs (compare-and-set) — safe under SQLite single-writer serialisation for a single-node deployment; per-owner running limits are soft across processes (documented honestly). Lease heartbeats + expiry recovery replace in-memory staleness checks; retries are bounded (maxAttempts) and reservations are released on terminal failure/cancellation.
+
+## ADR-012 — OCR via Tesseract + pdftoppm, not Docling (2026-11-18)
+
+Status: accepted. Docling was evaluated and rejected for this runtime (Python/model-download weight vs the sandbox's constraints and the no-unnecessary-downloads rule). Tesseract 5.5 (eng+tam tessdata) + pdftoppm are user-space binaries with env-var overrides (TESSERACT_BIN/POPPLER_BIN/TESSDATA_PREFIX); the pipeline processes only scanned pages, validates usable text, and keeps per-page provenance. Honest failure states (OCR_FAILED / unavailable) are preserved end-to-end.
+
+## ADR-013 — On-device AI is consent-gated and foundation-scoped (2026-11-18)
+
+Status: accepted. Browser-local inference (WebLLM path) ships as capability detection + an adapter interface only; the optional runtime is intentionally not installed and NO model downloads without an explicit user action. Server-side Riishe/BEAN chat remains the default. Students' devices are never used for other users' inference; prompts/files stay on device. Transformers.js (embeddings) and a llama.cpp desktop engine are later integrations.

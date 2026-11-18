@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
+import { isValidAnswerIndex } from '@/lib/answer-index'
 import type { AttemptResultDTO } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -96,11 +97,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       questions: ids.map(qid => {
         const q = byId.get(qid)
         const selected = answers[qid]
-        const isAnswered = selected !== undefined && selected >= 0
+        const options = safeParse<string[]>(q?.optionsJson, [])
+        // Phase 2A: a stored index is only "answered" when it is inside the
+        // question's real option range — out-of-range values are rendered as
+        // skipped and can never produce undefined option text.
+        const isAnswered = isValidAnswerIndex(selected, options.length)
         return {
           id: qid,
           text: q?.text ?? '',
-          options: safeParse<string[]>(q?.optionsJson, []),
+          options,
           topicName: q?.topicName ?? undefined,
           topicId: q?.topicId ?? null,
           selectedIndex: isAnswered ? selected : null,
