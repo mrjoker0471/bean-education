@@ -21,6 +21,7 @@ import { OnboardingView } from '@/components/bean/views/onboarding-view'
 import { DashboardView } from '@/components/bean/views/dashboard-view'
 import { WorkspaceView } from '@/components/bean/views/workspace-view'
 import { GoalsView } from '@/components/bean/views/goals-view'
+import { PyqStudioView } from '@/components/bean/views/pyq-studio-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
@@ -62,6 +63,7 @@ export default function Page() {
             {route.view === 'dashboard' && <DashboardView />}
             {route.view === 'workspace' && <WorkspaceView />}
             {route.view === 'goals' && <GoalsView />}
+            {route.view === 'pyq-studio' && <PyqStudioView />}
             {route.view === 'auth' && (
               <AuthView
                 onAuthed={(student, mode) => {

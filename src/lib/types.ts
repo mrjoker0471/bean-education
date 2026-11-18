@@ -780,3 +780,81 @@ export interface DashboardResponse {
   recommendations: DashboardRecommendation[]
   generatedAt: string
 }
+
+// ─── PYQ curation (Phase 2B — curator/admin only) ────────────────────────────
+
+export type PyqVerificationStatus = 'UNVERIFIED' | 'VERIFIED' | 'REJECTED'
+
+export interface PyqBatchDTO {
+  id: string
+  paperTitle: string
+  examSlug: string | null
+  examLabel: string | null
+  stageLabel: string | null
+  subjectLabel: string | null
+  year: number | null
+  session: string | null
+  sourceCitation: string | null
+  fileName: string
+  importedBy: string | null
+  totalRows: number
+  createdCount: number
+  duplicateCount: number
+  failedCount: number
+  errors: { row: number; error: string }[]
+  errorCount: number
+  createdAt: string
+}
+
+export interface PyqBatchesResponse {
+  batches: PyqBatchDTO[]
+  count: number
+  note?: string
+}
+
+export interface PyqQuestionDTO {
+  id: string
+  text: string
+  options: string[]
+  correctIndex: number
+  explanation: string
+  difficulty: string
+  language: string
+  verificationStatus: PyqVerificationStatus
+  sourceType: string
+  sourcePaper: string | null
+  year: number | null
+  sourceRef: string | null
+  canonicalSlug: string
+  createdAt: string
+  batch: {
+    id: string
+    paperTitle: string
+    fileName: string
+    examSlug: string | null
+    year: number | null
+    session: string | null
+    importedBy: string | null
+    createdAt: string
+  } | null
+  review: {
+    reviewer: { email: string; displayName: string | null; role: string } | null
+    reviewedAt: string | null
+    reviewNote: string | null
+  }
+}
+
+export interface PyqQuestionsResponse {
+  questions: PyqQuestionDTO[]
+  total: number
+  counts: { UNVERIFIED: number; VERIFIED: number; REJECTED: number }
+}
+
+export interface PyqImportResult {
+  batchId: string
+  totalRows: number
+  createdCount: number
+  duplicateCount: number
+  failedCount: number
+  errors: { row: number; error: string }[]
+}
