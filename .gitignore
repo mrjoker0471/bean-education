@@ -64,3 +64,7 @@ server.log
 
 # Skills directory
 /skills/
+# runtime artifacts & local documents (never commit)
+/tool-results/
+/upload/
+/download/
