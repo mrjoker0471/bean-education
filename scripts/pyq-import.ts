@@ -1,11 +1,18 @@
-// ─── PYQ import CLI — Phase 2A ────────────────────────────────────────────────
-// Reads a structured PYQ JSON file and POSTs it to the local import API.
+// ─── PYQ import CLI — Phase 2A, curator-authenticated Phase 2B ───────────────
+// Reads a structured PYQ JSON file and POSTs it to the local import API as an
+// AUTHORISED CURATOR. Since Phase 2B the import endpoint is role-gated: pass
+// a signed-in curator/admin session cookie (bean_session token value).
 //
 // Usage:
-//   bun scripts/pyq-import.ts <file.json>                       # import
-//   bun scripts/pyq-import.ts <file.json> --dry-run             # validate only
-//   bun scripts/pyq-import.ts <file.json> --guest-id=importer1  # guest provenance
-//   PYQ_BASE_URL=http://localhost:3000 (default) / PYQ_GUEST_ID env supported
+//   bun scripts/pyq-import.ts <file.json>                          # import (needs PYQ_COOKIE)
+//   bun scripts/pyq-import.ts <file.json> --dry-run                # validate only (no auth needed)
+//   PYQ_COOKIE='bean_session=<token>' bun scripts/pyq-import.ts <file.json>
+//   PYQ_BASE_URL=http://localhost:3000 (default) / PYQ_COOKIE env supported
+//
+// How to get the cookie value: sign in as a curator/admin in the browser, then
+// copy the bean_session cookie value from DevTools → Application → Cookies
+// (httpOnly, so it must be copied manually — by design). Session tokens are
+// credentials: never commit them, never share them.
 //
 // The script is standalone (plain fetch, no src imports) so it runs outside the
 // Next build with zero path-alias issues. The dry-run validator below is a
@@ -70,7 +77,6 @@ interface Payload {
   year?: unknown
   session?: unknown
   sourceCitation?: unknown
-  guestId?: unknown
   items?: unknown
 }
 
@@ -136,12 +142,17 @@ async function main() {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
   const fileArg = args.find(a => !a.startsWith('--'))
-  const guestArg = args.find(a => a.startsWith('--guest-id='))
-  const guestId = guestArg ? guestArg.split('=')[1] : (process.env.PYQ_GUEST_ID ?? 'pyq-import-script')
+  const cookieArg = args.find(a => a.startsWith('--cookie='))
+  const cookie = cookieArg ? cookieArg.split('=').slice(1).join('=') : (process.env.PYQ_COOKIE ?? '')
   const baseUrl = process.env.PYQ_BASE_URL ?? 'http://localhost:3000'
 
   if (!fileArg) {
-    console.error('Usage: bun scripts/pyq-import.ts <file.json> [--dry-run] [--guest-id=<id>]')
+    console.error('Usage: bun scripts/pyq-import.ts <file.json> [--dry-run]  (imports need PYQ_COOKIE=<bean_session token>)')
+    process.exit(2)
+  }
+  if (!dryRun && !cookie.trim()) {
+    console.error('Refusing to import: /api/pyq/import is curator-only since Phase 2B.')
+    console.error("Sign in as a curator/admin, copy the bean_session cookie value, and re-run with PYQ_COOKIE='bean_session=<token>'.")
     process.exit(2)
   }
 
@@ -153,14 +164,13 @@ async function main() {
     process.exit(2)
   }
 
-  payload.guestId = guestId
   const itemCount = Array.isArray(payload.items) ? payload.items.length : 0
   console.log(`PYQ import${dryRun ? ' (DRY RUN)' : ''}`)
   console.log(`  file:        ${fileArg}`)
   console.log(`  paperTitle:  ${typeof payload.paperTitle === 'string' ? payload.paperTitle : '(missing)'}`)
   console.log(`  examSlug:    ${typeof payload.examSlug === 'string' ? payload.examSlug : '(missing)'}`)
   console.log(`  rows:        ${itemCount}`)
-  console.log(`  importedBy:  ${guestId} (guest)`)
+  console.log(`  auth:        curator session cookie ${dryRun ? '(not needed for dry-run)' : 'provided'}`)
 
   const errors = preflight(payload)
   if (errors.length > 0) {
@@ -178,7 +188,7 @@ async function main() {
 
   const res = await fetch(`${baseUrl}/api/pyq/import`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie },
     body: JSON.stringify(payload),
   })
   const body = (await res.json().catch(() => null)) as Record<string, unknown> | null

@@ -1,6 +1,10 @@
-// ─── PYQ structured import — Phase 2A ─────────────────────────────────────────
-// POST /api/pyq/import — imports a structured JSON file of previous-year
-// questions into the question bank with a full audit trail (PyqImportBatch).
+// ─── PYQ structured import — Phase 2A, role-gated Phase 2B ────────────────
+// POST /api/pyq/import — an authorised PYQ_CURATOR or ADMIN imports a
+// structured JSON file of previous-year questions into the question bank with
+// a full audit trail (PyqImportBatch). Guests and plain students are refused:
+// importing historical questions is a curation action with provenance
+// accountability — there is no unauthenticated import path in the public
+// production workflow (the operator CLI authenticates as a curator too).
 //
 // Honesty rules enforced here:
 //   • Every created row is sourceType 'PYQ_UNVERIFIED' + verificationStatus
@@ -14,10 +18,13 @@
 //   • examSlug is required because Question.examId is a hard foreign key:
 //     PYQ rows must attach to a real catalogue exam. examLabel / paperTitle
 //     remain free-text provenance metadata on the batch.
+//   • The catalogue currently only carries government-exam style entries
+//     (examSlug); college/university semester papers cannot be represented
+//     honestly yet — documented in docs/PHASE2B_PYQ_CURATOR.md.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { getSessionStudent } from '@/lib/auth'
+import { requirePyqCurator } from '@/lib/roles'
 import { z } from 'zod'
 import {
   validatePyqItem,
@@ -41,8 +48,6 @@ const bodySchema = z.object({
   year: z.number().int().min(PYQ_YEAR_MIN).max(PYQ_YEAR_MAX).optional(),
   session: z.string().max(100).optional(),
   sourceCitation: z.string().max(500).optional(),
-  // Guests may import (provenance records who); signed-in students are preferred.
-  guestId: z.string().min(8).max(64).optional(),
   items: z.array(z.record(z.string(), z.unknown())).min(1, 'items must contain at least 1 row').max(500, 'items is capped at 500 rows per import'),
 })
 
@@ -71,17 +76,14 @@ export async function POST(req: NextRequest) {
       const detail = parsed.error.issues.map(i => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ')
       return NextResponse.json({ error: `Invalid request — ${detail}` }, { status: 400 })
     }
-    const { paperTitle, fileName, examSlug, examLabel, stageLabel, subjectLabel, year, session, sourceCitation, guestId, items } = parsed.data
+    const { paperTitle, fileName, examSlug, examLabel, stageLabel, subjectLabel, year, session, sourceCitation, items } = parsed.data
 
-    // ── Auth: signed-in student preferred, explicit guestId allowed ──
-    const student = await getSessionStudent()
-    if (!student && !guestId) {
-      return NextResponse.json(
-        { error: 'Sign in, or pass a guestId (8..64 chars) — provenance must record who imported this paper.' },
-        { status: 401 },
-      )
+    // ── Role gate: imports are a curator/admin action — no guest path ──
+    const guard = await requirePyqCurator()
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status })
     }
-    const importedBy = student ? student.id : (guestId as string)
+    const importedBy = guard.student.id
 
     // ── Resolve the catalogue exam (hard FK requirement) ──
     const exam = await db.exam.findUnique({ where: { slug: examSlug }, select: { id: true, slug: true } })

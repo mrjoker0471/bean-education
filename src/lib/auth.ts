@@ -35,6 +35,10 @@ export interface AuthStudent {
   email: string
   displayName: string | null
   learningLevel: string | null
+  /** Authorization role — always 'STUDENT' unless promoted via the operator CLI. */
+  role: string
+  /** Set once the student completes onboarding (Phase 2B); null before that. */
+  onboardedAt: string | null
 }
 
 // ─── Passwords ──────────────────────────────────────────────────────────────────
@@ -100,14 +104,25 @@ export async function getSessionStudent(): Promise<AuthStudent | null> {
   if (!token) return null
   const row = await db.session.findUnique({
     where: { tokenHash: hashToken(token) },
-    include: { student: { select: { id: true, email: true, displayName: true, learningLevel: true } } },
+    include: {
+      student: {
+        select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true },
+      },
+    },
   })
   if (!row || row.expiresAt.getTime() < Date.now()) return null
   // Sliding renewal: extend when more than half the TTL has elapsed
   if (row.expiresAt.getTime() - Date.now() < SESSION_TTL_MS / 2) {
     await db.session.update({ where: { id: row.id }, data: { expiresAt: new Date(Date.now() + SESSION_TTL_MS), lastUsedAt: new Date() } }).catch(() => undefined)
   }
-  return row.student
+  return {
+    id: row.student.id,
+    email: row.student.email,
+    displayName: row.student.displayName,
+    learningLevel: row.student.learningLevel,
+    role: row.student.role,
+    onboardedAt: row.student.onboardedAt ? row.student.onboardedAt.toISOString() : null,
+  }
 }
 
 /** Destroy the current session (logout / account deletion). */

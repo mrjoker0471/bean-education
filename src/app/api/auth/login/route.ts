@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     const student = await db.student.findUnique({
       where: { email: parsed.data.email },
-      select: { id: true, email: true, displayName: true, learningLevel: true, passwordHash: true },
+      select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true, passwordHash: true },
     })
 
     const ok = await verifyPassword(parsed.data.password, student?.passwordHash ?? DUMMY_HASH)
@@ -63,6 +63,8 @@ export async function POST(req: NextRequest) {
         email: student.email,
         displayName: student.displayName,
         learningLevel: student.learningLevel,
+        role: student.role,
+        onboardedAt: student.onboardedAt ? student.onboardedAt.toISOString() : null,
       },
     })
   } catch (err) {
