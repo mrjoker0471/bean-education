@@ -2,7 +2,8 @@
 
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
-import type { BeanContext, BeanSettings } from './types'
+import { api } from './api'
+import type { AuthedStudent, BeanContext, BeanSettings } from './types'
 
 export type Route =
   | { view: 'home' }
@@ -19,6 +20,7 @@ export type Route =
   | { view: 'practice'; doc?: string; topics?: string }
   | { view: 'topics' }
   | { view: 'settings' }
+  | { view: 'auth' }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -60,6 +62,8 @@ export function parseHash(hash: string): Route {
       return { view: 'topics' }
     case 'settings':
       return { view: 'settings' }
+    case 'auth':
+      return { view: 'auth' }
     default:
       return { view: 'not-found' }
   }
@@ -100,6 +104,7 @@ export function routeToHash(route: Route): string {
     }
     case 'topics': return '#/topics'
     case 'settings': return '#/settings'
+    case 'auth': return '#/auth'
     default: return '#/'
   }
 }
@@ -109,12 +114,22 @@ interface AppState {
   guestId: string
   beanContext: BeanContext | null
   beanSettings: BeanSettings
+  /** Signed-in student (null = guest mode — fully functional). */
+  authedStudent: AuthedStudent | null
+  /** True once the initial session probe (/api/auth/me) has settled. */
+  authChecked: boolean
   _hydrated: boolean
   init: () => void
   navigate: (route: Route) => void
   setRoute: (route: Route) => void
   setBeanContext: (ctx: BeanContext | null) => void
   setBeanSettings: (s: Partial<BeanSettings>) => void
+  refreshAuth: () => Promise<void>
+  authSignIn: (email: string, password: string) => Promise<void>
+  authSignUp: (email: string, password: string, displayName?: string) => Promise<void>
+  authSignOut: () => Promise<void>
+  authDeleteAccount: () => Promise<void>
+  claimGuestData: () => Promise<{ attempts: number; documents: number; tests: number; chatTurns: number }>
 }
 
 const GUEST_KEY = 'bean_guest_id'
@@ -125,6 +140,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   guestId: '',
   beanContext: null,
   beanSettings: { style: 'exam-focused', showSourceContext: true },
+  authedStudent: null,
+  authChecked: false,
   _hydrated: false,
   init: () => {
     if (get()._hydrated) return
@@ -147,6 +164,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.addEventListener('hashchange', () => {
       set({ route: parseHash(window.location.hash) })
     })
+    // Session probe (Phase 2A): settle the signed-in/guest state once on boot.
+    void get().refreshAuth()
   },
   navigate: (route) => {
     const hash = routeToHash(route)
@@ -165,6 +184,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       localStorage.setItem(BEAN_SETTINGS_KEY, JSON.stringify(next))
     } catch { /* non-fatal */ }
+  },
+
+  // ─── Student identity (Phase 2A): additive — guest mode stays unchanged ───
+  refreshAuth: async () => {
+    try {
+      const { student } = await api.authMe()
+      set({ authedStudent: student, authChecked: true })
+    } catch {
+      set({ authedStudent: null, authChecked: true })
+    }
+  },
+  authSignIn: async (email, password) => {
+    const { student } = await api.authLogin({ email, password })
+    set({ authedStudent: student, authChecked: true })
+    // Auto-claim this device's guest data into the account (idempotent, safe:
+    // only rows with no owner are claimed; guest identity is preserved).
+    const gid = get().guestId
+    if (gid) await api.claimGuest(gid).catch(() => undefined)
+  },
+  authSignUp: async (email, password, displayName) => {
+    const { student } = await api.authRegister({ email, password, ...(displayName ? { displayName } : {}) })
+    set({ authedStudent: student, authChecked: true })
+    const gid = get().guestId
+    if (gid) await api.claimGuest(gid).catch(() => undefined)
+  },
+  authSignOut: async () => {
+    await api.authLogout()
+    set({ authedStudent: null })
+  },
+  authDeleteAccount: async () => {
+    await api.deleteStudentAccount()
+    set({ authedStudent: null })
+  },
+  claimGuestData: async () => {
+    const gid = get().guestId
+    if (!gid) return { attempts: 0, documents: 0, tests: 0, chatTurns: 0 }
+    const res = await api.claimGuest(gid)
+    return res.claims
   },
 }))
 

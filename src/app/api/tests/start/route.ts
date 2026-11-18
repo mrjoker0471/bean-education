@@ -21,6 +21,12 @@ interface TestConfig {
   negativeMark: number
 }
 
+// Phase 2A PYQ review workflow: REJECTED PYQ rows must never be selected for a
+// test (unverified PYQ rows may still appear — they are simply not yet
+// reviewed; rejected ones are confirmed wrong/unsuitable by a reviewer).
+// Applied to every availability count and question selection below.
+const SELECTABLE_QUESTION = { verificationStatus: { not: 'REJECTED' } } as const
+
 // Honour the exam's REAL marking scheme & pace when its stage pattern defines
 // one (e.g. CUET UG: +5 correct, −1 wrong, 50 Q / 60 min → 1.2 min per question).
 function cfgFromStagePattern(
@@ -77,7 +83,7 @@ export async function POST(req: NextRequest) {
       })
       if (!topic) return NextResponse.json({ error: 'Topic not found' }, { status: 404 })
       const exam = topic.unit.subject.stage.exam
-      const available = await db.question.count({ where: { topicId } })
+      const available = await db.question.count({ where: { topicId, ...SELECTABLE_QUESTION } })
       if (available < 4) {
         return NextResponse.json({ error: 'Not enough questions yet for a topic test — try the subject or mixed test instead.' }, { status: 409 })
       }
@@ -91,7 +97,7 @@ export async function POST(req: NextRequest) {
     } else if (examId && subjectId) {
       const subject = await db.subject.findUnique({ where: { id: subjectId }, include: { stage: { include: { exam: true } } } })
       if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
-      const available = await db.question.count({ where: { subjectId } })
+      const available = await db.question.count({ where: { subjectId, ...SELECTABLE_QUESTION } })
       if (available < 4) return NextResponse.json({ error: 'Not enough questions available yet.' }, { status: 409 })
       const count = Math.min(15, available)
       config = cfgFromStagePattern(subject.stage.patternJson, count)
@@ -124,7 +130,7 @@ export async function POST(req: NextRequest) {
         }
         if (answered.size > 0) {
           const rows = await db.question.findMany({
-            where: { id: { in: [...answered.keys()] }, examId },
+            where: { id: { in: [...answered.keys()] }, examId, ...SELECTABLE_QUESTION },
             select: { id: true, correctIndex: true },
           })
           revisionQuestionIds = rows
@@ -147,7 +153,7 @@ export async function POST(req: NextRequest) {
         attemptExamId = exam.id
         resumeKey = `revision:${examId}`
       } else {
-        const available = await db.question.count({ where: { examId } })
+        const available = await db.question.count({ where: { examId, ...SELECTABLE_QUESTION } })
         if (available < 4) return NextResponse.json({ error: 'Not enough questions available yet for this exam.' }, { status: 409 })
         const count = Math.min(25, available)
         const firstStage = await db.stage.findFirst({ where: { examId }, orderBy: { order: 'asc' } })
@@ -188,7 +194,7 @@ export async function POST(req: NextRequest) {
       chosen = shuffle(revisionQuestionIds).slice(0, config.count)
     } else {
       const ids = await db.question.findMany({
-        where: filter,
+        where: { ...filter, ...SELECTABLE_QUESTION },
         select: { id: true },
       })
       chosen = shuffle(ids.map(q => q.id)).slice(0, config.count)
