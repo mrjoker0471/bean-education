@@ -89,6 +89,11 @@ const fakeDb = {
   liveClassSession: {
     findUnique: async () => null,
   },
+  // Phase 6: the booking route consults trust restrictions (trustStateFor).
+  // No restriction rows exist in Phase 4A scenarios → bookings flow unchanged.
+  trustAction: {
+    findMany: async () => [],
+  },
   teacherProfile: {
     findUnique: async ({ where }: { where: { studentId?: string } }) => {
       if (!where?.studentId) return null

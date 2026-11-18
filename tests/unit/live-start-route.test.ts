@@ -73,6 +73,12 @@ const fakeDb = {
   classSession: {
     findUnique: async ({ where }: { where: { id: string } }) => state.classes.get(where.id) ?? null,
   },
+  // Phase 6: the start route consults trust restrictions (trustStateFor →
+  // EMERGENCY_STOP blocking). No restriction rows exist in these scenarios →
+  // start flow unchanged.
+  trustAction: {
+    findMany: async () => [],
+  },
   liveClassSession: {
     findUnique: async ({ where }: { where: { classSessionId?: string; id?: string } }) => {
       let row: FakeLive | null = null
