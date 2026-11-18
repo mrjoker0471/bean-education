@@ -83,6 +83,12 @@ const fakeDb = {
   classSession: {
     findUnique: async ({ where }: { where: { id: string } }) => state.classes.get(where.id) ?? null,
   },
+  // Phase 5: live-session rows do not exist in Phase 4A booking scenarios —
+  // the booking route checks this table inside its transaction (null = no
+  // live session → bookings flow exactly as before).
+  liveClassSession: {
+    findUnique: async () => null,
+  },
   teacherProfile: {
     findUnique: async ({ where }: { where: { studentId?: string } }) => {
       if (!where?.studentId) return null

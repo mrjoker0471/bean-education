@@ -952,6 +952,8 @@ export interface TeachClassDetailDTO extends PublicClassDTO {
 
 export interface TeachOwnerBookingDTO {
   id: string
+  /** Internal student id — owner-only, used to match verified live evidence. */
+  studentId: string
   status: TeachBookingStatus
   bookedAt: string
   cancelledAt: string | null
@@ -1038,4 +1040,96 @@ export interface AdminTeachApplicationsResponse {
   total: number
   page: number
   pageSize: number
+}
+
+// ─── BEAN Live Classroom (Phase 5): client-safe DTOs ─────────────────────────
+// No LiveKit types are imported here — the browser speaks only these shapes.
+
+export type LiveSessionState = 'NOT_STARTED' | 'LIVE' | 'ENDED' | 'FAILED' | 'INTERRUPTED' | 'READY'
+export type LiveConfigStatus = 'NOT_CONFIGURED' | 'CONFIGURED' | 'CONNECTION_ERROR' | 'AVAILABLE'
+
+export interface LiveStatusDTO {
+  classId: string
+  liveState: LiveSessionState
+  scheduledStart: string
+  scheduledEnd: string
+  windowOpens: string
+  windowCloses: string
+  /** Present only while LIVE — a count, never identities. */
+  participantCount: number | null
+  mayJoin: boolean
+  joinBlockReason: string | null
+  configurationStatus: LiveConfigStatus
+}
+
+export interface LiveStatusResponse {
+  status: LiveStatusDTO
+}
+
+export interface LiveStartResponse {
+  live: {
+    id: string
+    status: string
+    startedAt: string | null
+    reservedParticipantMinutes?: number
+  }
+  alreadyLive?: boolean
+  room?: { maxParticipants: number; emptyTimeoutSeconds: number }
+}
+
+export interface LiveTokenResponse {
+  token: string
+  wsUrl: string
+  room: { name: string; classTitle: string }
+  participant: { identity: string; displayName: string; role: 'TEACHER' | 'STUDENT' }
+  expiresInSeconds: number
+}
+
+export interface LiveEndResponse {
+  live: {
+    id: string
+    status: string
+    endedAt: string | null
+    actualParticipantMinutes: number | null
+  }
+  alreadyEnded?: boolean
+}
+
+/** Verified live attendance evidence shown to the owner teacher. */
+export interface LiveEvidenceDTO {
+  studentId: string
+  displayName: string | null
+  bookingStatus: string
+  firstJoinedAt: string | null
+  lastLeftAt: string | null
+  totalConnectedSeconds: number
+  reconnectCount: number
+  currentlyConnected: boolean
+  suggestedAttendance: 'ATTENDED' | 'NO_SHOW' | null
+}
+
+export interface LiveAttendanceResponse {
+  attendance: LiveEvidenceDTO[]
+  liveSession: { status: string; startedAt: string | null; endedAt: string | null } | null
+  note: string
+}
+
+/** Whiteboard snapshot shapes (mirrors the WB protocol, client-safe). */
+export interface WBStrokeDTO {
+  id: string
+  mode: 'pen' | 'eraser'
+  color: string
+  size: number
+  points: [number, number][]
+}
+
+export interface WBSnapshotDTO {
+  v: 1
+  strokes: WBStrokeDTO[]
+}
+
+export interface LiveWhiteboardResponse {
+  snapshot: WBSnapshotDTO | null
+  version: number
+  updatedAt?: string
 }

@@ -48,6 +48,13 @@ import type {
   TeachClassDetailDTO,
   TeachClassStatus,
   TeachTeachersResponse,
+  LiveAttendanceResponse,
+  LiveEndResponse,
+  LiveStartResponse,
+  LiveStatusResponse,
+  LiveTokenResponse,
+  LiveWhiteboardResponse,
+  WBSnapshotDTO,
 } from './types'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -507,5 +514,29 @@ export const api = {
     jsonFetch<{ application: AdminTeachApplicationDTO }>(`/api/admin/teach/applications/${encodeURIComponent(id)}/review`, {
       method: 'POST',
       body: JSON.stringify(body),
+    }),
+
+  // ─── BEAN Live Classroom (Phase 5): realtime class delivery ───
+  liveStatus: (classId: string) =>
+    jsonFetch<LiveStatusResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/live/status`),
+  liveStart: (classId: string) =>
+    jsonFetch<LiveStartResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/live/start`, { method: 'POST', body: '{}' }),
+  liveToken: (classId: string) =>
+    jsonFetch<LiveTokenResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/live/token`, { method: 'POST', body: '{}' }),
+  liveEnd: (classId: string) =>
+    jsonFetch<LiveEndResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/live/end`, { method: 'POST', body: '{}' }),
+  liveModerate: (classId: string, body: { action: 'MUTE_AUDIO' | 'REMOVE_PARTICIPANT'; identity: string; trackSid?: string; reason?: string }) =>
+    jsonFetch<{ ok: boolean; action: string }>(`/api/teach/classes/${encodeURIComponent(classId)}/live/moderate`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  liveAttendanceEvidence: (classId: string) =>
+    jsonFetch<LiveAttendanceResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/live/attendance`),
+  liveWhiteboard: (classId: string) =>
+    jsonFetch<LiveWhiteboardResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/live/whiteboard`),
+  liveSaveWhiteboard: (classId: string, snapshot: WBSnapshotDTO) =>
+    jsonFetch<{ ok: boolean; version: number }>(`/api/teach/classes/${encodeURIComponent(classId)}/live/whiteboard`, {
+      method: 'POST',
+      body: JSON.stringify(snapshot),
     }),
 }

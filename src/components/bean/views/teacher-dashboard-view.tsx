@@ -27,9 +27,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { TeacherLiveClassButton } from '@/components/bean/classroom/classroom-entry'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
-import type { MyClassDTO, TeachApplicationDTO, TeachOwnerBookingDTO } from '@/lib/types'
+import type { LiveEvidenceDTO, MyClassDTO, TeachApplicationDTO, TeachOwnerBookingDTO } from '@/lib/types'
 import {
   COMMON_TIMEZONES,
   FREE_PILOT_PRICE_LABEL,
@@ -267,6 +268,7 @@ function DashboardPanel({ onProfileChanged }: { onProfileChanged: () => void }) 
                 onEdit={setEditing}
                 actions={c => (
                   <>
+                    <TeacherLiveClassButton classId={c.id} />
                     <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={() => void lifecycle(() => api.teachUnpublishClass(c.id), 'Class unpublished — it is hidden from the marketplace')}>
                       <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Unpublish
                     </Button>
@@ -647,6 +649,19 @@ function BookingsStrip({ cls, attendance, onChanged }: { cls: MyClassDTO; attend
   const [busyId, setBusyId] = useState<string | null>(null)
   const ended = classEndTime(cls.startsAt, cls.durationMinutes).getTime() <= Date.now()
   const active = cls.bookings.filter(b => b.status !== 'CANCELLED')
+  const [evidence, setEvidence] = useState<LiveEvidenceDTO[] | null>(null)
+
+  // Verified live participation evidence (Phase 5): fetched once for the
+  // attendance view. Suggestions are advisory — the teacher confirms/overrides
+  // via the buttons below, exactly as before.
+  useEffect(() => {
+    if (!attendance || !ended) return
+    let cancelled = false
+    api.liveAttendanceEvidence(cls.id)
+      .then(res => { if (!cancelled) setEvidence(res.attendance) })
+      .catch(() => { if (!cancelled) setEvidence(null) })
+    return () => { cancelled = true }
+  }, [attendance, ended, cls.id])
 
   const mark = async (bookingId: string, status: 'ATTENDED' | 'NO_SHOW') => {
     setBusyId(bookingId)
@@ -669,25 +684,42 @@ function BookingsStrip({ cls, attendance, onChanged }: { cls: MyClassDTO; attend
     <div className="mt-3 border-t border-border pt-3">
       <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Enrolled students ({active.length})</p>
       <div className="flex max-h-96 flex-col gap-1.5 overflow-y-auto pr-1">
-        {active.map(b => (
-          <div key={b.id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-elevated px-3 py-2 text-sm">
-            <span className="truncate text-foreground">{b.studentName ?? 'Student'}</span>
-            <span className="flex shrink-0 items-center gap-2">
-              <Badge variant="outline" className={bookingStatusBadgeClass(b.status)}>{b.status.replace('_', ' ')}</Badge>
-              {attendance && ended && (b.status === 'CONFIRMED' || b.status === 'ATTENDED' || b.status === 'NO_SHOW') && (
-                <>
-                  <Button size="sm" variant="outline" className="h-7 border-success/40 px-2 text-success hover:bg-success/10" disabled={busyId === b.id} onClick={() => void mark(b.id, 'ATTENDED')}>
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 border-destructive/40 px-2 text-destructive hover:bg-destructive/10" disabled={busyId === b.id} onClick={() => void mark(b.id, 'NO_SHOW')}>
-                    <XCircle className="h-3.5 w-3.5" />
-                  </Button>
-                </>
-              )}
-            </span>
-          </div>
-        ))}
+        {active.map(b => {
+          const ev = evidence?.find(e => e.studentId === b.studentId)
+          return (
+            <div key={b.id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-elevated px-3 py-2 text-sm">
+              <span className="truncate text-foreground">
+                {b.studentName ?? 'Student'}
+                {ev && ev.totalConnectedSeconds >= 30 && (
+                  <span className="ml-2 text-[11px] text-muted-foreground">
+                    live evidence: {Math.floor(ev.totalConnectedSeconds / 60)}m connected · {ev.reconnectCount} reconnect{ev.reconnectCount === 1 ? '' : 's'}
+                    {ev.suggestedAttendance && ev.bookingStatus === 'CONFIRMED' ? ` · suggested ${ev.suggestedAttendance.replace('_', ' ').toLowerCase()}` : ''}
+                  </span>
+                )}
+                {ev && ev.totalConnectedSeconds < 30 && (
+                  <span className="ml-2 text-[11px] text-muted-foreground">live evidence: never meaningfully connected</span>
+                )}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <Badge variant="outline" className={bookingStatusBadgeClass(b.status)}>{b.status.replace('_', ' ')}</Badge>
+                {attendance && ended && (b.status === 'CONFIRMED' || b.status === 'ATTENDED' || b.status === 'NO_SHOW') && (
+                  <>
+                    <Button size="sm" variant="outline" className="h-7 border-success/40 px-2 text-success hover:bg-success/10" disabled={busyId === b.id} onClick={() => void mark(b.id, 'ATTENDED')}>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 border-destructive/40 px-2 text-destructive hover:bg-destructive/10" disabled={busyId === b.id} onClick={() => void mark(b.id, 'NO_SHOW')}>
+                      <XCircle className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+              </span>
+            </div>
+          )
+        })}
       </div>
+      {evidence && evidence.length > 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground">Connection evidence comes from verified provider events — never from a student simply opening the page. You always confirm or override the final status.</p>
+      )}
       {attendance && !ended && cls.status === 'PUBLISHED' && (
         <p className="mt-2 text-[11px] text-muted-foreground">Attendance unlocks after the class ends ({formatClassLocal(classEndTime(cls.startsAt, cls.durationMinutes).toISOString())}).</p>
       )}

@@ -90,3 +90,27 @@ Branch `feat/bean-learn-phase-2b` (from merged main 1b57633).
 ### Security
 - Uploads: file-first creation (no empty-storedPath window), compensating cleanup, orphan sweep, transactional deletes incl. chat turns, job cancellation.
 - Auth mutations guarded by same-origin; no plaintext secrets anywhere; no user data in logs.
+
+## Phase 5 — BEAN Live classroom (2026-11-18)
+
+Branch `feat/bean-live-classroom-phase-5` (from merged main 4dbc4d0). Additive milestone: every Phase 4A surface, route and rule is unchanged.
+
+### Added
+- Real live classrooms on LiveKit Cloud behind `#/classroom/:classId` (hash route + `page.tsx` mounting). Teacher starts the room from the class page or teacher dashboard inside the scheduled window (opens 15 min early); confirmed students join while the room is LIVE. Live-only: no recording, egress, transcription or replay anywhere.
+- Server-only LiveKit configuration (`src/lib/livekit/config.ts`): `LIVEKIT_WS_URL/HOST_URL/API_KEY/API_SECRET` (placeholders in `.env.example` only), honest configuration status surfaced to the UI (`NOT_CONFIGURED | CONFIGURED | CONNECTION_ERROR | AVAILABLE`), credentials never exposed or logged. The rest of BEAN stays fully usable when unconfigured.
+- Additive schema migration `20261118040000_phase5_live_classroom`: `LiveClassSession` (one per class, unique room name, single-use `usageFinalisedAt`), `LiveClassParticipant` (verified per-person connection evidence), `LiveKitWebhookEvent` (idempotency ledger), `LiveUsageMonth` (monthly accounting), `LiveWhiteboardState` (teacher-authored snapshot).
+- Live API group: `POST live/start` (owner-only, window + ≥1 booking checks, ATOMIC monthly reservation of `(confirmed+1) × duration` participant-minutes via conditional SQL, opaque room name, `maxParticipants` = confirmed+1 capped, duplicate start safe, failed room creation releases the reservation), `POST live/token` (role re-derived from DB; role-scoped grants; students never get screen share), `GET live/status` (safe public payload, participant COUNT only), `POST live/end` (single-use finalisation: intervals closed, usage reconciled once, room deleted best-effort), `POST live/moderate` (audited mute/remove), `GET/POST live/whiteboard` (teacher-only writes, bounded snapshots), `GET live/attendance` (verified evidence + advisory suggestion).
+- Signed webhook endpoint `POST /api/webhooks/livekit`: raw-body-first signature verification (TokenVerifier + sha256 body binding — the same checks as `WebhookReceiver.receive`, with a tolerant JSON parse because the protocol codegen rejects real-world `createdAt` shapes), idempotent processing keyed by provider event id, out-of-order-safe interval accounting, `room_finished` reconciliation (INTERRUPTED + single-use finalise).
+- Bookings freeze once a live session exists (checked inside the Phase 4A booking transaction): no seats sold after the room is reserved; cancelled bookings can never (re)join.
+- Collaborative whiteboard: teacher-only pen/eraser/colours/size/undo/clear over validated data messages (fixed palette, normalised coords, ≤500 strokes, ≤200 KB), students view-only, late joiners restore from the persisted snapshot + live sync, debounced persistence, high-DPI canvas. Raise hand via data messages. No images, no scripts.
+- BEAN-styled classroom UI (no imported conference skin): pre-join screen (opt-in camera preview, mic level test, device list, permission explainer — nothing activates before the user joins), responsive video grid with teacher highlighting, screen-share view, control bar (mic/cam/share/hand/board/participants/leave), participant panel with audited teacher moderation, connection states (CONNECTING/CONNECTED/RECONNECTING/DISCONNECTED/CONNECTION_FAILED/SESSION_ENDED) with honest retry that re-applies previous consent.
+- Entry points woven additively: class detail entry card, teacher dashboard Start/Open/Ended control, My Bookings live badges; attendance strip now shows verified live evidence (first joined, last left, connected time, reconnections) with the documented ≥60% attendance SUGGESTION — advisory only, the teacher still confirms/overrides via the Phase 4A endpoint.
+- Tests: 7 new suites / 80 tests — total 238 passing (158 pre-existing remain green), including the usage-budget SQL proven against real SQLite and real webhook signature verification.
+
+### Docs
+- New: `docs/PHASE5_LIVE_CLASSROOM.md`, `docs/PHASE5_LIVEKIT_SETUP.md`, `docs/PHASE5_SECURITY.md`, `docs/PHASE5_USAGE_BUDGET.md`, `docs/PHASE5_RESULTS.md`. Updated: README, ARCHITECTURE, DEVELOPMENT, DEVELOPMENT_ROADMAP, DECISIONS.
+
+### Security
+- `LIVEKIT_API_SECRET` server-only; no response contains it (tested). Participant identity is the opaque `bean:<studentId>` — never an email. Tokens are short-lived, room-specific, with `roomAdmin`/`roomCreate`/`roomRecord` explicitly denied — moderation and room management stay on the BEAN server (audited).
+- Usage budget cannot be oversubscribed under concurrent starts (conditional UPDATE re-checked at commit time, proven on real SQLite); reservations release on failure; finalisation is single-use; duplicate webhooks never double-count.
+- Same-origin + Zod on every mutation; ownership re-checked server-side on every request; append-only audit for start/end/mute/remove.

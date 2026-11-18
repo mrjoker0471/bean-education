@@ -19,6 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { BookingLiveBadge } from '@/components/bean/classroom/classroom-entry'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { MyBookingDTO, PublicClassDTO, TeachApplicationDTO } from '@/lib/types'
@@ -450,6 +451,11 @@ function BookingGroup({
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {/* Phase 5: live state (Scheduled / Live now / Completed) with the
+                    join action only when the server says this seat is eligible. */}
+                {b.classSession.status !== 'CANCELLED' && (
+                  <BookingLiveBadge classId={b.classSession.id} />
+                )}
                 <Badge variant="outline" className={bookingStatusBadgeClass(b.status)}>{b.status.replace('_', ' ')}</Badge>
                 {b.status === 'CONFIRMED' && b.classSession.status !== 'CANCELLED' && new Date(b.classSession.startsAt).getTime() > Date.now() && (
                   <Button variant="outline" size="sm" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => onCancel(b)}>
