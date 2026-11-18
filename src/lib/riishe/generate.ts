@@ -483,6 +483,17 @@ export async function generateTestJob(testId: string): Promise<void> {
   /** true when batches were refused by rate limiting — the failure message must
    *  say so instead of falsely claiming the document lacks content. */
   let providerThrottled = false
+  // ── Phase 2A exact accounting: every raw question the provider returned is
+  // counted into exactly one bucket (published / flagged / rejected) — no more
+  // batch-size estimates.
+  let totalGenerated = 0
+  let programmaticRejected = 0
+  let duplicateRejected = 0
+  let llmInvalidated = 0
+  let providerLostBatches = 0
+  /** Programmatic-valid questions the LLM validator rejected — retained as
+   *  FLAGGED for review, never published. */
+  const flagged: CandidateQuestion[] = []
 
   const cursor = { i: 0 }
 
@@ -522,25 +533,28 @@ export async function generateTestJob(testId: string): Promise<void> {
           raws = await callGenerate()
         } catch (err2) {
           providerFailed = providerFailed || isProviderUnavailable(err2)
+          providerLostBatches++
           console.error('[riishe generate] batch failed after rate-limit backoff:', err2)
           return
         }
       } else {
         if (isProviderUnavailable(err)) providerFailed = true
+        providerLostBatches++
         console.error('[riishe generate] batch failed:', err)
         return
       }
     }
+    totalGenerated += raws.length
 
     // Programmatic validation
     const passed: CandidateQuestion[] = []
     for (const raw of raws) {
       const v = programmaticValidate(raw, category, secs)
-      if ('reject' in v) continue
-      if (seenKeys.has(v.dupKey)) continue
+      if ('reject' in v) { programmaticRejected++; continue }
+      if (seenKeys.has(v.dupKey)) { duplicateRejected++; continue }
       // Near-duplicate check against everything so far
       const tokens = tokenSet(v.text)
-      if (candidates.some(c => jaccard(tokenSet(c.text), tokens) > 0.78)) continue
+      if (candidates.some(c => jaccard(tokenSet(c.text), tokens) > 0.78)) { duplicateRejected++; continue }
       seenKeys.add(v.dupKey)
       candidates.push(v)
       passed.push(v)
@@ -570,7 +584,15 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
           const q = passed[i]
           const idx = candidates.indexOf(q)
           if (verdict?.verdict === 'INVALID') {
+            // Phase 2A FLAGGED workflow: the question passed every programmatic
+            // check (structure, evidence verbatim in document, page bounds) but
+            // the LLM validator doubted the keyed answer. It is retained with
+            // status FLAGGED + the validator's note for review/audit, and it is
+            // NEVER published into questionIdsJson.
+            llmInvalidated++
             if (idx >= 0) candidates.splice(idx, 1)
+            q.validationNote = verdict.note ? `Validator flagged: ${String(verdict.note).slice(0, 180)}` : 'Validator flagged this question (keyed answer doubted)'
+            flagged.push(q)
           } else if (verdict?.note) {
             q.validationNote = String(verdict.note).slice(0, 200)
           }
@@ -615,14 +637,16 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
         statusDetail: providerFailed
           ? `Question generation failed: ${AI_UNAVAILABLE_MESSAGE}`
           : throttleNote,
-        statsJson: JSON.stringify(statsSnapshot(candidates, llmCalls, batches)),
+        statsJson: JSON.stringify(buildStats(published, [])),
       },
     })
     return
   }
 
   // Persist questions + publish (each question keeps the document that
-  // actually supports it, so provenance and page chips deep-link correctly)
+  // actually supports it, so provenance and page chips deep-link correctly).
+  // FLAGGED questions are stored for review but are NOT part of the published
+  // order — attempts can only ever draw on VALIDATED rows.
   await db.riisheQuestion.deleteMany({ where: { testId } })
   const rows = published.map((q, i) => ({
     testId,
@@ -640,10 +664,25 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
     status: 'VALIDATED',
     validationNote: q.validationNote ?? null,
   }))
-  await db.riisheQuestion.createMany({ data: rows })
-  const saved = await db.riisheQuestion.findMany({ where: { testId }, select: { id: true }, orderBy: { order: 'asc' } })
+  const flaggedRows = flagged.map((q, i) => ({
+    testId,
+    documentId: q.docId,
+    order: published.length + i + 1,
+    text: q.text,
+    optionsJson: JSON.stringify(q.options),
+    correctIndex: q.correctIndex,
+    explanation: q.explanation,
+    difficulty: q.difficulty,
+    category: q.category,
+    topic: q.topic,
+    pageRefsJson: JSON.stringify(q.pageRefs),
+    evidence: q.evidence.slice(0, 600),
+    status: 'FLAGGED',
+    validationNote: q.validationNote ?? 'Validator flagged this question (keyed answer doubted)',
+  }))
+  await db.riisheQuestion.createMany({ data: [...rows, ...flaggedRows] })
+  const saved = await db.riisheQuestion.findMany({ where: { testId, status: 'VALIDATED' }, select: { id: true }, orderBy: { order: 'asc' } })
 
-  const rejected = llmCalls > 0 ? Math.max(0, batches * BATCH_SIZE - candidates.length) : 0
   const honestNote = published.length < requested
     ? providerThrottled
       ? `${published.length} of the requested ${requested} questions validated — the AI provider rate-limited some batches, so the test is smaller than requested. Try generating again later for more.`
@@ -656,25 +695,32 @@ ${passed.map((q, i) => `Q${i}. ${q.text}\nOptions: ${q.options.map((o, j) => `${
       status: 'READY',
       statusDetail: honestNote,
       questionIdsJson: JSON.stringify(saved.map(q => q.id)),
-      statsJson: JSON.stringify(statsSnapshot(published, llmCalls, batches, rejected)),
+      statsJson: JSON.stringify(buildStats(published, flagged)),
     },
   })
 
-  function statsSnapshot(list: CandidateQuestion[], calls: number, batchCount: number, rejectedCount?: number): RiisheTestStats {
+  /** Phase 2A exact accounting: every raw question lands in exactly one bucket.
+   *  generated = published + flagged + rejected, where rejected covers
+   *  programmatic failures, duplicates, LLM-invalidated questions and validated
+   *  extras beyond the requested count (trimmed at publish). */
+  function buildStats(publishedList: CandidateQuestion[], flaggedList: CandidateQuestion[]): RiisheTestStats {
     const byCategory: RiisheTestStats['byCategory'] = {}
     const byDifficulty = { EASY: 0, MEDIUM: 0, HARD: 0 }
-    for (const q of list) {
+    for (const q of publishedList) {
       byCategory[q.category] = (byCategory[q.category] ?? 0) + 1
       byDifficulty[q.difficulty as 'EASY' | 'MEDIUM' | 'HARD']++
     }
+    const unpublishable = programmaticRejected + duplicateRejected + llmInvalidated
+      + Math.max(0, candidates.length - publishedList.length)
     return {
-      generated: list.length,
-      validated: list.length,
-      rejected: rejectedCount ?? Math.max(0, batchCount * BATCH_SIZE - list.length),
+      generated: totalGenerated,
+      validated: publishedList.length,
+      rejected: unpublishable,
+      flagged: flaggedList.length,
       byCategory,
       byDifficulty,
-      llmCalls: calls,
-      batches: batchCount,
+      llmCalls,
+      batches,
     }
   }
 

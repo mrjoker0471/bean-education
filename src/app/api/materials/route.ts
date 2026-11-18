@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, writeFile, unlink, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from '@/lib/riishe/types'
-import { recoverStaleDocuments, queueOnce, recoverStaleTests } from '@/lib/riishe/jobs'
+import { enqueueJob, recoverStaleDocuments, recoverStaleTests } from '@/lib/riishe/jobs'
 import { processDocument } from '@/lib/riishe/pipeline'
 
 export const dynamic = 'force-dynamic'
@@ -24,8 +24,8 @@ export async function GET(req: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     const guestId = parsed.data.guestId
 
-    await recoverStaleDocuments()
-    await recoverStaleTests()
+    await recoverPendingJobs()
+    await sweepOrphanUploads()
 
     const docs = await db.studyDocument.findMany({
       where: { guestId },
@@ -129,30 +129,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ documentId: existing.id, duplicate: true })
     }
 
-    const created = await db.studyDocument.create({
-      data: {
-        guestId: meta.guestId,
-        title: (meta.title ?? cleanTitle(file.name)).slice(0, 160),
-        originalName: cleanTitle(file.name),
-        storedPath: '', // set below once we have the id
-        mimeType: 'application/pdf',
-        fileSize: buffer.length,
-        status: 'QUEUED',
-        statusDetail: 'Queued for processing…',
-        contentHash,
-        examLabel: meta.examLabel?.slice(0, 120) ?? null,
-        subjectLabel: meta.subjectLabel?.slice(0, 120) ?? null,
-        topicLabel: meta.topicLabel?.slice(0, 120) ?? null,
-      },
-    })
-
-    const storedPath = path.join(UPLOAD_DIR, `${created.id}.pdf`)
+    // ── Phase 2A lifecycle integrity: file FIRST, then the row ──
+    // The row is created only after its file exists on disk with the final
+    // storedPath already set — the old empty-storedPath window (a row that
+    // could only ever FAIL) is gone. If the row write fails after the file
+    // was written, the file is removed again (compensating cleanup).
+    const id = randomUUID()
     await mkdir(UPLOAD_DIR, { recursive: true })
-    await writeFile(storedPath, buffer, { mode: 0o600 }) // never web-served directly; owner rw only
-    await db.studyDocument.update({ where: { id: created.id }, data: { storedPath } })
+    const storedPath = path.join(UPLOAD_DIR, `${id}.pdf`)
+    try {
+      await writeFile(storedPath, buffer, { mode: 0o600 }) // never web-served directly; owner rw only
+    } catch {
+      return NextResponse.json({ error: 'The upload failed while storing the file. Please try again.' }, { status: 500 })
+    }
 
-    // Kick the background pipeline (extraction → analysis). Never awaited by the request.
-    void queueOnce(meta.guestId, `doc:${created.id}`, () => processDocument(created.id))
+    let created
+    try {
+      created = await db.studyDocument.create({
+        data: {
+          id,
+          guestId: meta.guestId,
+          title: (meta.title ?? cleanTitle(file.name)).slice(0, 160),
+          originalName: cleanTitle(file.name),
+          storedPath,
+          mimeType: 'application/pdf',
+          fileSize: buffer.length,
+          status: 'QUEUED',
+          statusDetail: 'Queued for processing…',
+          contentHash,
+          examLabel: meta.examLabel?.slice(0, 120) ?? null,
+          subjectLabel: meta.subjectLabel?.slice(0, 120) ?? null,
+          topicLabel: meta.topicLabel?.slice(0, 120) ?? null,
+        },
+      })
+    } catch (rowErr) {
+      // Compensating cleanup: never leave a file with no row behind it
+      await unlink(storedPath).catch(() => undefined)
+      throw rowErr
+    }
+
+    // Kick the background pipeline (extraction → analysis) through the durable
+    // job queue. Never awaited by the request.
+    void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: created.id, ownerId: meta.guestId })
 
     return NextResponse.json({ documentId: created.id })
   } catch (err) {
@@ -163,6 +181,38 @@ export async function POST(req: NextRequest) {
 
 function cleanTitle(name: string): string {
   return name.replace(/[^\w\s.\-()]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Study document'
+}
+
+/** Reconcile pending/stale domain rows with the durable job queue (Phase 2A).
+ *  Exported from jobs.ts; kept here as a thin alias for readability. */
+async function recoverPendingJobs() {
+  await recoverStaleDocuments()
+  await recoverStaleTests()
+}
+
+/** Compensating cleanup for interrupted uploads (Phase 2A): files sitting in
+ *  db/uploads with no database row and older than one hour are removed. Rows
+ *  are always created AFTER their file exists, so only crash debris qualifies. */
+async function sweepOrphanUploads() {
+  try {
+    const entries = await readdir(UPLOAD_DIR).catch(() => [] as string[])
+    if (entries.length === 0) return
+    const cutoff = Date.now() - 60 * 60_000
+    const statList = await Promise.all(
+      entries
+        .filter(f => f.endsWith('.pdf') || f.endsWith('.pdf.tmp'))
+        .map(async f => ({ f, st: await stat(path.join(UPLOAD_DIR, f)).catch(() => null) })),
+    )
+    const candidates = statList.filter(s => s.st && s.st.mtimeMs < cutoff).map(s => path.join(UPLOAD_DIR, s.f))
+    if (candidates.length === 0) return
+    const known = await db.studyDocument.findMany({ where: { storedPath: { in: candidates } }, select: { storedPath: true } })
+    const knownSet = new Set(known.map(k => k.storedPath))
+    for (const p of candidates) {
+      if (!knownSet.has(p)) await unlink(p).catch(() => undefined)
+    }
+  } catch (err) {
+    console.warn('[materials sweep]', err)
+  }
 }
 
 function topicNames(analysisJson: string | null): string[] {

@@ -32,7 +32,7 @@ export async function GET() {
     }
 
     // unique original notes authored (canonical library) vs topic links
-    const uniqueNotes = await db.$queryRawUnsafe<{ c: number }>(
+    const uniqueNotes = await db.$queryRawUnsafe<{ c: number }[]>(
       'SELECT COUNT(DISTINCT canonicalSlug) as c FROM Note'
     )
 

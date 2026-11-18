@@ -8,9 +8,13 @@
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "postinstall": "bun scripts/copy-pdf-worker.mjs",
     "lint": "eslint .",
-    "db:push": "prisma db push --accept-data-loss",
+    "test": "bun test",
+    "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "db:backup": "mkdir -p db/backups && cp db/custom.db \"db/backups/custom-$(date +%Y%m%d-%H%M%S).db\"",
     "db:reset": "prisma migrate reset"
   },
   "dependencies": {

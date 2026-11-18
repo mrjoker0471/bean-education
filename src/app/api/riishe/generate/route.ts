@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { recoverStaleTests, queueOnce } from '@/lib/riishe/jobs'
+import { recoverStaleTests, enqueueJob, reserveQuota } from '@/lib/riishe/jobs'
 import { generateTestJob } from '@/lib/riishe/generate'
 import { DEFAULT_DISTRIBUTION, type QuestionCategory } from '@/lib/riishe/types'
 import { findExamPattern } from '@/lib/riishe/exam-pattern'
@@ -62,6 +62,13 @@ export async function POST(req: NextRequest) {
     }
 
     await recoverStaleTests()
+
+    // Durable hourly quota (Phase 2A): generation is expensive — reserve one
+    // slot before creating the test; the runner releases it if the job fails.
+    const reserved = await reserveQuota(guestId, 'generate')
+    if (!reserved) {
+      return NextResponse.json({ error: `Hourly limit reached for generation (${12}/hour) — please try again later.` }, { status: 429 })
+    }
 
     // Primary document = first requested (workspace form always has exactly one)
     const primary = docs.find(d => d.id === requestedIds[0]) ?? docs[0]
@@ -144,7 +151,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    void queueOnce(guestId, `test:${test.id}`, () => generateTestJob(test.id))
+    void enqueueJob({ kind: 'TEST_GENERATION', refId: test.id, ownerId: guestId })
 
     return NextResponse.json({ testId: test.id })
   } catch (err) {

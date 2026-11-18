@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { queueOnce } from '@/lib/riishe/jobs'
+import { enqueueJob } from '@/lib/riishe/jobs'
 import { processDocument } from '@/lib/riishe/pipeline'
 import { safeParse } from '@/lib/serialize'
 import { PIPELINE_VERSION, type DocumentAnalysis } from '@/lib/riishe/types'
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
       // Targeted partial retry — keep status READY (processDocument's partial
       // path requires it) and queue the job; it re-runs only failed sections.
-      void queueOnce(doc.guestId, `doc:${id}`, () => processDocument(id))
+      void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: id, ownerId: doc.guestId })
       return NextResponse.json({ ok: true, partial: true })
     }
     if (!['FAILED', 'QUEUED', 'READY', 'NEEDS_OCR'].includes(doc.status)) {
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       where: { id },
       data: { status: 'QUEUED', statusDetail: force ? 'Queued for a full re-analysis…' : 'Queued for a retry…' },
     })
-    void queueOnce(doc.guestId, `doc:${id}`, () => processDocument(id, { force: Boolean(force) }))
+    void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: id, ownerId: doc.guestId, payload: { force: Boolean(force) } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[api/materials/[id]/retry]', err)

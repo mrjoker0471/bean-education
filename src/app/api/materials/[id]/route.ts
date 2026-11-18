@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { recoverStaleDocuments, queueOnce } from '@/lib/riishe/jobs'
-import { processDocument, deleteStoredFile } from '@/lib/riishe/pipeline'
+import { enqueueJob, cancelJob, recoverStaleDocuments } from '@/lib/riishe/jobs'
+import { deleteStoredFile } from '@/lib/riishe/pipeline'
 import type { DocumentAnalysis } from '@/lib/riishe/types'
 
 export const dynamic = 'force-dynamic'
@@ -31,7 +31,21 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     // Self-heal: a QUEUED row with no live job (server restart) is re-kicked
     if (['QUEUED', 'FAILED'].includes(fresh.status)) {
-      void queueOnce(fresh.guestId, `doc:${fresh.id}`, () => processDocument(fresh.id))
+      void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: fresh.id, ownerId: fresh.guestId })
+    }
+
+    // Phase 2A storage integrity: a COMPLETE analysis no longer needs the
+    // private per-section retry state (_parts) — strip it lazily so stored
+    // rows shrink without touching any analysed content. Partial analyses
+    // keep _parts (a partial retry still needs every successful section).
+    if (fresh.analysisJson) {
+      try {
+        const parsed = JSON.parse(fresh.analysisJson) as { _parts?: unknown; coverage?: { complete?: boolean } }
+        if ('_parts' in parsed && parsed.coverage?.complete === true) {
+          delete parsed._parts
+          await db.studyDocument.update({ where: { id: fresh.id }, data: { analysisJson: JSON.stringify(parsed) } })
+        }
+      } catch { /* malformed rows are left untouched */ }
     }
 
     const analysis = safeAnalysis(fresh.analysisJson)
@@ -152,12 +166,25 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
     const doc = await ownedDocument(id, guestId)
     if (!doc) return NextResponse.json({ error: 'Material not found' }, { status: 404 })
 
-    // Attempts keep their (already submitted) history but lose the document link
-    await db.attempt.updateMany({ where: { documentId: id }, data: { documentId: null } })
-    // Cascade removes tests + questions; explanations live on attempts and stay for review history
-    await db.riisheTest.deleteMany({ where: { documentId: id } })
+    // Cancel any pending background job for this document first so the queue
+    // never re-processes a deleted row.
+    await cancelJob('DOCUMENT_ANALYSIS', id)
+
+    // Phase 2A: the whole DB removal is one transaction — attempts keep their
+    // (already submitted) history but lose the document link; the document's
+    // chat turns (previously orphaned) are deleted with it. Cascades remove
+    // tests + questions; explanations live on attempts and stay for review history.
+    await db.$transaction([
+      db.attempt.updateMany({ where: { documentId: id }, data: { documentId: null } }),
+      db.riisheTest.deleteMany({ where: { documentId: id } }),
+      db.riisheChatTurn.deleteMany({ where: { documentId: id } }),
+      db.studyDocument.delete({ where: { id } }),
+    ])
+
+    // File removal last: a failed unlink must not resurrect the row — the
+    // orphan sweep (materials GET) collects crash debris later.
     await deleteStoredFile(doc.storedPath)
-    await db.studyDocument.delete({ where: { id } })
+
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[api/materials/[id] DELETE]', err)

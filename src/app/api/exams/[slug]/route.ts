@@ -69,13 +69,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
       else if (row.sourceType === 'PYQ_UNVERIFIED') questionSources.PYQ_UNVERIFIED = row._count._all
     }
 
-    const topicCountAgg = await db.$queryRawUnsafe<{ c: number }>(`
+    const topicCountAgg = await db.$queryRawUnsafe<{ c: number }[]>(`
       SELECT COUNT(t.id) AS c FROM Topic t
       JOIN Unit u ON t.unitId = u.id
       JOIN Subject su ON u.subjectId = su.id
       JOIN Stage s ON su.stageId = s.id
       WHERE s.examId = ?`, exam.id)
-    const noteCountAgg = await db.$queryRawUnsafe<{ c: number }>(`
+    const noteCountAgg = await db.$queryRawUnsafe<{ c: number }[]>(`
       SELECT COUNT(n.id) AS c FROM Note n
       JOIN Topic t ON n.topicId = t.id
       JOIN Unit u ON t.unitId = u.id

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { safeParse, shuffle } from '@/lib/serialize'
+import { isValidAnswerIndex } from '@/lib/answer-index'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -67,6 +68,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const ordered = await loadAttemptQuestions(attempt)
 
+    // answeredCount must count VALID answers only (per-question option range)
+    const optionCounts = new Map(ordered.map(q => [q.id, q.options.length]))
+    const answeredCount = Object.entries(answers)
+      .filter(([qid, idx]) => isValidAnswerIndex(idx, optionCounts.get(qid) ?? 0)).length
+
     return NextResponse.json({
       id: attempt.id,
       title: attempt.title,
@@ -78,7 +84,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       config,
       serverNow: Date.now(),
       endsAt,
-      answeredCount: Object.keys(answers).length,
+      answeredCount,
       savedAnswers: answers, // resume support — refresh-safe
       questions: ordered,
     })
@@ -88,11 +94,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
+// Transport-level sanity bound only. The AUTHORITATIVE validity range is each
+// question's actual option count, enforced in scoreAttempt via isValidAnswerIndex.
 const submitSchema = z.object({
   guestId: z.string().min(8).max(64),
   answers: z.record(z.string(), z.number().int().min(0).max(5)),
   timeSpentSec: z.number().int().min(0).max(60 * 60 * 6),
 })
+
+/** Number of options a stored question carries (0 when the row is malformed). */
+function optionCountOf(optionsJson: string | null): number {
+  const opts = safeParse<string[]>(optionsJson ?? '', [])
+  return Array.isArray(opts) ? opts.length : 0
+}
 
 async function scoreAttempt(attemptId: string, answers: Record<string, number>, timeSpentSec: number, status: 'SUBMITTED' | 'TIMED_OUT') {
   const attempt = await db.attempt.findUnique({ where: { id: attemptId } })
@@ -101,20 +115,20 @@ async function scoreAttempt(attemptId: string, answers: Record<string, number>, 
   const ids = safeParse<string[]>(attempt.questionIdsJson, [])
 
   // Questions come from the bank or from Riishe's validated set — same scoring
-  interface ScoreRow { id: string; correctIndex: number; topicId: string | null; topicName: string | null }
+  interface ScoreRow { id: string; correctIndex: number; optionCount: number; topicId: string | null; topicName: string | null }
   let rows: ScoreRow[] = []
   if (attempt.source === 'RIISHE') {
     const rq = await db.riisheQuestion.findMany({
       where: { id: { in: ids } },
-      select: { id: true, correctIndex: true, topic: true },
+      select: { id: true, correctIndex: true, optionsJson: true, topic: true },
     })
-    rows = rq.map(q => ({ id: q.id, correctIndex: q.correctIndex, topicId: q.topic ? `t:${q.topic}` : null, topicName: q.topic ?? null }))
+    rows = rq.map(q => ({ id: q.id, correctIndex: q.correctIndex, optionCount: optionCountOf(q.optionsJson), topicId: q.topic ? `t:${q.topic}` : null, topicName: q.topic ?? null }))
   } else {
     const bq = await db.question.findMany({
       where: { id: { in: ids } },
-      select: { id: true, correctIndex: true, topicId: true, topic: { select: { name: true } } },
+      select: { id: true, correctIndex: true, optionsJson: true, topicId: true, topic: { select: { name: true } } },
     })
-    rows = bq.map(q => ({ id: q.id, correctIndex: q.correctIndex, topicId: q.topicId, topicName: q.topic?.name ?? null }))
+    rows = bq.map(q => ({ id: q.id, correctIndex: q.correctIndex, optionCount: optionCountOf(q.optionsJson), topicId: q.topicId, topicName: q.topic?.name ?? null }))
   }
   const byId = new Map(rows.map(q => [q.id, q]))
 
@@ -125,7 +139,9 @@ async function scoreAttempt(attemptId: string, answers: Record<string, number>, 
     const q = byId.get(qid)
     if (!q) continue
     const selected = answers[qid]
-    const isAnswered = selected !== undefined && selected >= 0 && selected <= 3
+    // Phase 2A: the ONLY valid range is the question's actual option count.
+    // An out-of-range index is a skipped question, never a wrong answer.
+    const isAnswered = isValidAnswerIndex(selected, q.optionCount)
     if (!isAnswered) skipped++
     const isCorrect = isAnswered && selected === q.correctIndex
     if (isAnswered) {
@@ -183,8 +199,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const allowedIds = new Set(safeParse<string[]>(attempt.questionIdsJson, []))
     const current = safeParse<Record<string, number>>(attempt.answersJson, {})
     const merged: Record<string, number> = { ...current }
+    // Phase 2A: never persist an index outside a question's real option range —
+    // invalid values would later count as answered/wrong in result rendering.
+    const stored = await db.question.findMany({ where: { id: { in: [...allowedIds] } }, select: { id: true, optionsJson: true } })
+    const riisheStored = attempt.source === 'RIISHE'
+      ? await db.riisheQuestion.findMany({ where: { id: { in: [...allowedIds] } }, select: { id: true, optionsJson: true } })
+      : []
+    const counts = new Map<string, number>()
+    for (const q of [...stored, ...riisheStored]) counts.set(q.id, optionCountOf(q.optionsJson))
     for (const [qid, idx] of Object.entries(parsed.data.answers)) {
-      if (allowedIds.has(qid)) merged[qid] = idx
+      if (!allowedIds.has(qid)) continue
+      if (!isValidAnswerIndex(idx, counts.get(qid) ?? 0)) continue
+      merged[qid] = idx
     }
     await db.attempt.update({
       where: { id },

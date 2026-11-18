@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { queueOnce, checkHourlyQuota } from '@/lib/riishe/jobs'
+import { enqueueJob, reserveQuota } from '@/lib/riishe/jobs'
 import { explainAttemptJob, EXPLAIN_HOURLY_LIMIT } from '@/lib/riishe/explain'
 
 export const dynamic = 'force-dynamic'
@@ -32,10 +32,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: 'Submit the test before requesting explanations.' }, { status: 409 })
     }
 
-    try {
-      checkHourlyQuota(guestId, 'explain', EXPLAIN_HOURLY_LIMIT)
-    } catch (e) {
-      return NextResponse.json({ error: e instanceof Error ? e.message : 'Rate limit' }, { status: 429 })
+    // Durable hourly quota (Phase 2A): reserved now; released automatically if
+    // the job fails terminally or is cancelled.
+    const reserved = await reserveQuota(guestId, 'explain', EXPLAIN_HOURLY_LIMIT)
+    if (!reserved) {
+      return NextResponse.json({ error: `Hourly limit reached for explanations (${EXPLAIN_HOURLY_LIMIT}/hour) — please try again later.` }, { status: 429 })
     }
 
     const existing = await db.riisheExplanation.findMany({
@@ -44,11 +45,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     })
     if (existing.length > 0) {
       // Resume/retry only what is missing
-      void queueOnce(guestId, `explain:${id}`, () => explainAttemptJob(id, guestId))
+      void enqueueJob({ kind: 'EXPLANATION', refId: id, ownerId: guestId })
       return NextResponse.json({ started: true, alreadyReady: existing.length })
     }
 
-    void queueOnce(guestId, `explain:${id}`, () => explainAttemptJob(id, guestId))
+    void enqueueJob({ kind: 'EXPLANATION', refId: id, ownerId: guestId })
     return NextResponse.json({ started: true, alreadyReady: 0 })
   } catch (err) {
     console.error('[api/riishe/attempts/[id]/explain]', err)

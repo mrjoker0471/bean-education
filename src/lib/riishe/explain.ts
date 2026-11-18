@@ -7,6 +7,7 @@
 
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
+import { isValidAnswerIndex } from '@/lib/answer-index'
 import { chatJson, fenceDocumentText, AI_UNAVAILABLE_MESSAGE } from './ai'
 import type { RiisheExplanationPayload } from './types'
 
@@ -57,11 +58,14 @@ export async function explainAttemptJob(attemptId: string, guestId: string): Pro
   const questions = await db.riisheQuestion.findMany({ where: { id: { in: questionIds } } })
   if (questions.length === 0) return
 
-  // Only the questions the student got wrong (skipped ones keep their stored explanation)
+  // Only the questions the student got wrong with a VALID selection (Phase 2A:
+  // out-of-range indices are skipped answers — they keep their stored
+  // explanation, exactly like an intentional skip)
   const wrong = questions
     .filter(q => {
       const sel = answers[q.id]
-      return sel !== undefined && sel >= 0 && sel !== q.correctIndex
+      const opts = safeParse<string[]>(q.optionsJson, [])
+      return isValidAnswerIndex(sel, opts.length) && sel !== q.correctIndex
     })
     .slice(0, 50)
 
