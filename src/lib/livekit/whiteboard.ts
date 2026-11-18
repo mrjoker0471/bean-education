@@ -72,8 +72,11 @@ export const handMessageSchema = z.object({
 
 export type HandMessage = z.infer<typeof handMessageSchema>
 
-/** Serialised byte size guard for a full snapshot (pre-persist check). */
-export function snapshotByteSize(snapshot: WBSnapshot): number {
+/**
+ * Serialised byte size guard for a full snapshot (pre-persist check).
+ * Structural input so callers can pass either the zod type or the client DTO.
+ */
+export function snapshotByteSize(snapshot: { strokes: unknown[] }): number {
   return new TextEncoder().encode(JSON.stringify(snapshot)).length
 }
 

@@ -27,6 +27,7 @@ import { ClassDetailView } from '@/components/bean/views/class-detail-view'
 import { TeacherApplyView } from '@/components/bean/views/teacher-apply-view'
 import { TeacherDashboardView } from '@/components/bean/views/teacher-dashboard-view'
 import { TeacherReviewView } from '@/components/bean/views/teacher-review-view'
+import { ClassroomView } from '@/components/bean/views/classroom-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
@@ -74,6 +75,7 @@ export default function Page() {
             {route.view === 'teach-apply' && <TeacherApplyView />}
             {route.view === 'teach-dashboard' && <TeacherDashboardView />}
             {route.view === 'teach-review' && <TeacherReviewView />}
+            {route.view === 'classroom' && route.classId && <ClassroomView classId={route.classId} />}
             {route.view === 'auth' && (
               <AuthView
                 onAuthed={(student, mode) => {

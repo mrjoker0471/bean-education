@@ -33,6 +33,8 @@ export type Route =
   | { view: 'teach-apply' }
   | { view: 'teach-dashboard' }
   | { view: 'teach-review' }
+  // Phase 5 — BEAN Live Classroom (additive)
+  | { view: 'classroom'; classId: string }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -97,6 +99,9 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'dashboard') return { view: 'teach-dashboard' }
       if (parts[1] === 'review') return { view: 'teach-review' }
       return { view: 'not-found' }
+    // Phase 5 — BEAN Live Classroom
+    case 'classroom':
+      return parts[1] ? { view: 'classroom', classId: decodeURIComponent(parts[1]) } : { view: 'not-found' }
     default:
       return { view: 'not-found' }
   }
@@ -150,6 +155,8 @@ export function routeToHash(route: Route): string {
     case 'teach-apply': return '#/teach/apply'
     case 'teach-dashboard': return '#/teach/dashboard'
     case 'teach-review': return '#/teach/review'
+    // Phase 5 — BEAN Live Classroom
+    case 'classroom': return `#/classroom/${encodeURIComponent(route.classId)}`
     default: return '#/'
   }
 }

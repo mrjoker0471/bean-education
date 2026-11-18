@@ -79,6 +79,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
             : null,
           ownerBookings: ownerBookings.map((b) => ({
             id: b.id,
+            studentId: b.studentId, // internal identity — lets the owner match verified live attendance evidence
             status: b.status,
             bookedAt: b.bookedAt.toISOString(),
             cancelledAt: b.cancelledAt ? b.cancelledAt.toISOString() : null,

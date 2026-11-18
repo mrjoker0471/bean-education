@@ -6,16 +6,17 @@
 // the viewer's local time, seats, minimum enrolment and booking state.
 // Reservation rules mirror the server: guests get a sign-in prompt, students
 // book free seats while capacity lasts, a teacher cannot book their own class,
-// and the owner sees their enrolled students. No video controls — this phase
-// honestly shows scheduled details only (Live Classroom is a later milestone).
+// and the owner sees their enrolled students. Phase 5 adds the live classroom
+// entry card (real, server-authorised) for seat-holders and the owner.
 
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Loader2, GraduationCap, CalendarDays, Clock, Globe, Users, Signal, BadgeCheck, ShieldAlert, Video } from 'lucide-react'
+import { ArrowLeft, Loader2, GraduationCap, CalendarDays, Clock, Globe, Users, Signal, BadgeCheck, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { ClassroomEntryCard } from '@/components/bean/classroom/classroom-entry'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { TeachClassDetailDTO } from '@/lib/types'
@@ -211,11 +212,10 @@ export function ClassDetailView({ classId }: { classId: string }) {
             )}
 
             <div className="mt-4">
-              {/* Honest classroom boundary: no fake video controls in this phase. */}
-              <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                <Video className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                This phase schedules and reserves classes. The in-platform live classroom arrives in a later milestone.
-              </p>
+              {/* Live classroom entry — real, server-authorised (Phase 5). */}
+              {(holdsSeat || cls.isOwner) && (
+                <ClassroomEntryCard classId={cls.id} isOwner={cls.isOwner} />
+              )}
 
               {isCancelled ? (
                 <p className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">This class was cancelled{holdsSeat ? ' — your reservation was released automatically' : ''}.</p>

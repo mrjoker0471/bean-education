@@ -952,6 +952,8 @@ export interface TeachClassDetailDTO extends PublicClassDTO {
 
 export interface TeachOwnerBookingDTO {
   id: string
+  /** Internal student id — owner-only, used to match verified live evidence. */
+  studentId: string
   status: TeachBookingStatus
   bookedAt: string
   cancelledAt: string | null
