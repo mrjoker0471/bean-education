@@ -34,6 +34,20 @@ import type {
   RiisheWeakTopicDTO,
   StudentProfileDTO,
   TopicDetailDTO,
+  AdminTeachApplicationsResponse,
+  AdminTeachApplicationDTO,
+  MyBookingDTO,
+  MyBookingsResponse,
+  MyClassesResponse,
+  PublicClassDTO,
+  PublicTeacherDTO,
+  TeachApplicationDTO,
+  TeachApplicationResponse,
+  TeacherDetailResponse,
+  TeachClassesResponse,
+  TeachClassDetailDTO,
+  TeachClassStatus,
+  TeachTeachersResponse,
 } from './types'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -364,6 +378,133 @@ export const api = {
   },
   pyqReview: (body: { questionId: string; action: 'APPROVE' | 'REJECT'; note?: string }) =>
     jsonFetch<{ id: string; sourceType: string; verificationStatus: string }>('/api/pyq/review', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  // ─── BEAN Teach (Phase 4A): teacher marketplace — free pilot foundation ───
+  teachApplication: () => jsonFetch<TeachApplicationResponse>('/api/teach/application'),
+  teachSubmitApplication: (body: {
+    teachingName: string
+    headline: string
+    bio: string
+    subjects: string[]
+    levels: string[]
+    languages: string[]
+    qualificationsText: string
+    experienceYears: number
+    portfolioUrl?: string | null
+  }) => jsonFetch<{ application: TeachApplicationDTO }>('/api/teach/application', { method: 'POST', body: JSON.stringify(body) }),
+  teachUpdateApplication: (patch: Partial<{
+    teachingName: string
+    headline: string
+    bio: string
+    subjects: string[]
+    levels: string[]
+    languages: string[]
+    qualificationsText: string
+    experienceYears: number
+    portfolioUrl: string | null
+    isPublished: boolean
+  }>) => jsonFetch<{ application: TeachApplicationDTO }>('/api/teach/application', { method: 'PATCH', body: JSON.stringify(patch) }),
+  teachTeachers: (opts: { q?: string; subject?: string; level?: string; language?: string; page?: number } = {}) => {
+    const p = new URLSearchParams()
+    if (opts.q) p.set('q', opts.q)
+    if (opts.subject) p.set('subject', opts.subject)
+    if (opts.level) p.set('level', opts.level)
+    if (opts.language) p.set('language', opts.language)
+    if (opts.page) p.set('page', String(opts.page))
+    const qs = p.toString()
+    return jsonFetch<TeachTeachersResponse>(`/api/teach/teachers${qs ? `?${qs}` : ''}`)
+  },
+  teachTeacher: (id: string) => jsonFetch<TeacherDetailResponse>(`/api/teach/teachers/${encodeURIComponent(id)}`),
+  teachClasses: (
+    opts: {
+      q?: string
+      subject?: string
+      level?: string
+      language?: string
+      teacher?: string
+      teacherId?: string
+      from?: string
+      to?: string
+      duration?: 'SHORT' | 'MEDIUM' | 'LONG'
+      page?: number
+      pageSize?: number
+    } = {},
+  ) => {
+    const p = new URLSearchParams()
+    if (opts.q) p.set('q', opts.q)
+    if (opts.subject) p.set('subject', opts.subject)
+    if (opts.level) p.set('level', opts.level)
+    if (opts.language) p.set('language', opts.language)
+    if (opts.teacher) p.set('teacher', opts.teacher)
+    if (opts.teacherId) p.set('teacherId', opts.teacherId)
+    if (opts.from) p.set('from', opts.from)
+    if (opts.to) p.set('to', opts.to)
+    if (opts.duration) p.set('duration', opts.duration)
+    if (opts.page) p.set('page', String(opts.page))
+    if (opts.pageSize) p.set('pageSize', String(opts.pageSize))
+    const qs = p.toString()
+    return jsonFetch<TeachClassesResponse>(`/api/teach/classes${qs ? `?${qs}` : ''}`)
+  },
+  teachClass: (id: string) => jsonFetch<{ class: TeachClassDetailDTO }>(`/api/teach/classes/${encodeURIComponent(id)}`),
+  teachCreateClass: (body: {
+    title: string
+    description: string
+    subject: string
+    targetLevel: string
+    language: string
+    durationMinutes: number
+    startsAt: string
+    timeZone: string
+    capacity: number
+    minimumStudents: number
+    plannedPricePaise?: number
+  }) => jsonFetch<{ class: PublicClassDTO }>('/api/teach/classes', { method: 'POST', body: JSON.stringify(body) }),
+  teachUpdateClass: (id: string, patch: Partial<{
+    title: string
+    description: string
+    subject: string
+    targetLevel: string
+    language: string
+    durationMinutes: number
+    startsAt: string
+    timeZone: string
+    capacity: number
+    minimumStudents: number
+    plannedPricePaise: number
+  }>) => jsonFetch<{ class: PublicClassDTO }>(`/api/teach/classes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  teachPublishClass: (id: string) =>
+    jsonFetch<{ class: PublicClassDTO }>(`/api/teach/classes/${encodeURIComponent(id)}/publish`, { method: 'POST', body: '{}' }),
+  teachUnpublishClass: (id: string) =>
+    jsonFetch<{ class: PublicClassDTO }>(`/api/teach/classes/${encodeURIComponent(id)}/unpublish`, { method: 'POST', body: '{}' }),
+  teachCancelClass: (id: string) =>
+    jsonFetch<{ class: { id: string; status: TeachClassStatus; cancelledAt: string | null; releasedBookings: number } }>(
+      `/api/teach/classes/${encodeURIComponent(id)}/cancel`,
+      { method: 'POST', body: '{}' },
+    ),
+  teachBook: (classId: string) =>
+    jsonFetch<{ booking: MyBookingDTO }>(`/api/teach/classes/${encodeURIComponent(classId)}/book`, { method: 'POST', body: '{}' }),
+  teachCancelBooking: (classId: string) =>
+    jsonFetch<{ booking: { id: string; status: string } }>(`/api/teach/classes/${encodeURIComponent(classId)}/book`, { method: 'DELETE' }),
+  teachMyBookings: () => jsonFetch<MyBookingsResponse>('/api/teach/my-bookings'),
+  teachMyClasses: () => jsonFetch<MyClassesResponse>('/api/teach/my-classes'),
+  teachMarkAttendance: (classId: string, bookingId: string, status: 'ATTENDED' | 'NO_SHOW') =>
+    jsonFetch<{ booking: { id: string; status: string; attendanceMarkedAt: string | null } }>(
+      `/api/teach/classes/${encodeURIComponent(classId)}/attendance`,
+      { method: 'POST', body: JSON.stringify({ bookingId, status }) },
+    ),
+  adminTeachApplications: (opts: { status?: string; q?: string; page?: number } = {}) => {
+    const p = new URLSearchParams()
+    if (opts.status) p.set('status', opts.status)
+    if (opts.q) p.set('q', opts.q)
+    if (opts.page) p.set('page', String(opts.page))
+    const qs = p.toString()
+    return jsonFetch<AdminTeachApplicationsResponse>(`/api/admin/teach/applications${qs ? `?${qs}` : ''}`)
+  },
+  adminTeachReview: (id: string, body: { action: 'APPROVE' | 'REJECT'; note?: string }) =>
+    jsonFetch<{ application: AdminTeachApplicationDTO }>(`/api/admin/teach/applications/${encodeURIComponent(id)}/review`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

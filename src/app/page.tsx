@@ -22,6 +22,11 @@ import { DashboardView } from '@/components/bean/views/dashboard-view'
 import { WorkspaceView } from '@/components/bean/views/workspace-view'
 import { GoalsView } from '@/components/bean/views/goals-view'
 import { PyqStudioView } from '@/components/bean/views/pyq-studio-view'
+import { ClassesView } from '@/components/bean/views/classes-view'
+import { ClassDetailView } from '@/components/bean/views/class-detail-view'
+import { TeacherApplyView } from '@/components/bean/views/teacher-apply-view'
+import { TeacherDashboardView } from '@/components/bean/views/teacher-dashboard-view'
+import { TeacherReviewView } from '@/components/bean/views/teacher-review-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
@@ -64,6 +69,11 @@ export default function Page() {
             {route.view === 'workspace' && <WorkspaceView />}
             {route.view === 'goals' && <GoalsView />}
             {route.view === 'pyq-studio' && <PyqStudioView />}
+            {route.view === 'classes' && <ClassesView initialTab={route.tab} />}
+            {route.view === 'class' && route.classId && <ClassDetailView classId={route.classId} />}
+            {route.view === 'teach-apply' && <TeacherApplyView />}
+            {route.view === 'teach-dashboard' && <TeacherDashboardView />}
+            {route.view === 'teach-review' && <TeacherReviewView />}
             {route.view === 'auth' && (
               <AuthView
                 onAuthed={(student, mode) => {

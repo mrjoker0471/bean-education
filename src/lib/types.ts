@@ -858,3 +858,184 @@ export interface PyqImportResult {
   failedCount: number
   errors: { row: number; error: string }[]
 }
+
+// ─── BEAN Teach (Phase 4A): teacher marketplace — free pilot foundation ──────
+
+export type TeachVerificationStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type TeachClassStatus = 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'COMPLETED'
+export type TeachBookingStatus = 'CONFIRMED' | 'CANCELLED' | 'ATTENDED' | 'NO_SHOW'
+
+/** Append-only review/audit trail entry (teacher review, class cancel, attendance). */
+export interface TeachAuditEventDTO {
+  id: string
+  action: string // SUBMIT | RESUBMIT | EDIT_REVIEW | APPROVE | REJECT | PUBLISH_TOGGLE | CLASS_CANCELLED | ATTENDANCE_MARKED
+  detail: string | null
+  actorRole: string
+  createdAt: string
+}
+
+/** The applicant's own view of their teacher application (NOT_APPLIED = null). */
+export interface TeachApplicationDTO {
+  id: string
+  status: TeachVerificationStatus
+  isPublished: boolean
+  teachingName: string
+  headline: string
+  bio: string
+  subjects: string[]
+  levels: string[]
+  languages: string[]
+  qualificationsText: string
+  experienceYears: number
+  portfolioUrl: string | null
+  reviewNote: string | null
+  reviewedAt: string | null
+  history: TeachAuditEventDTO[]
+  canCreateClasses: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TeachApplicationResponse {
+  application: TeachApplicationDTO | null
+}
+
+/** Public teacher profile — approved fields only, never email/contact details. */
+export interface PublicTeacherDTO {
+  id: string
+  teachingName: string
+  headline: string
+  bio: string
+  subjects: string[]
+  levels: string[]
+  languages: string[]
+  experienceYears: number
+  portfolioUrl: string | null
+  classCount: number
+  memberSince: string
+}
+
+export interface PublicTeacherDetailDTO extends PublicTeacherDTO {
+  qualificationsText: string
+}
+
+export interface PublicClassDTO {
+  id: string
+  title: string
+  description: string
+  subject: string
+  targetLevel: string
+  language: string
+  durationMinutes: number
+  startsAt: string
+  timeZone: string
+  capacity: number
+  bookedCount: number
+  availableSeats: number
+  minimumStudents: number
+  /** Planned future price in paise — metadata only, never charged in the pilot. */
+  plannedPricePaise: number
+  status: TeachClassStatus
+  teacher: { id: string; teachingName: string; headline: string }
+  createdAt: string
+}
+
+export interface TeachClassDetailDTO extends PublicClassDTO {
+  teacherQualifications: string
+  teacherExperienceYears: number
+  teacherVerified: boolean
+  isOwner: boolean
+  myBooking: MyBookingDTO | null
+  /** Owner-only: enrolled students (display names — never emails). */
+  ownerBookings: TeachOwnerBookingDTO[]
+}
+
+export interface TeachOwnerBookingDTO {
+  id: string
+  status: TeachBookingStatus
+  bookedAt: string
+  cancelledAt: string | null
+  attendanceMarkedAt: string | null
+  studentName: string | null
+}
+
+export interface MyBookingDTO {
+  id: string
+  status: TeachBookingStatus
+  bookedAt: string
+  cancelledAt: string | null
+  attendanceMarkedAt: string | null
+  classSession: {
+    id: string
+    title: string
+    subject: string
+    startsAt: string
+    durationMinutes: number
+    timeZone: string
+    language: string
+    targetLevel: string
+    status: TeachClassStatus
+    teacherName: string
+  }
+}
+
+export interface TeachClassesResponse {
+  classes: PublicClassDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface TeachTeachersResponse {
+  teachers: PublicTeacherDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface TeacherDetailResponse {
+  teacher: PublicTeacherDetailDTO
+  classes: PublicClassDTO[]
+}
+
+export interface MyBookingsResponse {
+  bookings: MyBookingDTO[]
+}
+
+export interface MyClassDTO extends PublicClassDTO {
+  /** Owner-only: enrolled students (display names — never emails). */
+  bookings: TeachOwnerBookingDTO[]
+}
+
+export interface MyClassesResponse {
+  classes: MyClassDTO[]
+}
+
+/** Admin view of an application — full details + applicant account basics. */
+export interface AdminTeachApplicationDTO {
+  id: string
+  verificationStatus: TeachVerificationStatus
+  isPublished: boolean
+  teachingName: string
+  headline: string
+  bio: string
+  subjects: string[]
+  levels: string[]
+  languages: string[]
+  qualificationsText: string
+  experienceYears: number
+  portfolioUrl: string | null
+  reviewNote: string | null
+  reviewedAt: string | null
+  createdAt: string
+  updatedAt: string
+  applicant: { displayName: string | null; email: string; learningLevel: string | null }
+  history: TeachAuditEventDTO[]
+}
+
+export interface AdminTeachApplicationsResponse {
+  applications: AdminTeachApplicationDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
