@@ -114,9 +114,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           await tx.$executeRawUnsafe(USAGE_RELEASE_SQL, existing.reservedParticipantMinutes, now.getTime(), existing.usageMonthKey)
         }
         // Ensure the month row exists, then atomically reserve. The conditional
-        // UPDATE re-checks the budget at commit time — no oversubscription.
+        // UPDATE re-checks the budget AT COMMIT TIME against the row itself —
+        // no oversubscription. (The budget is on the row, not a bind param.)
         await tx.$executeRawUnsafe(USAGE_MONTH_UPSERT_SQL, monthKey, budget, now.getTime(), now.getTime())
-        const reserved = await tx.$executeRawUnsafe(USAGE_RESERVE_SQL, estimate, now.getTime(), monthKey, estimate, budget)
+        const reserved = await tx.$executeRawUnsafe(USAGE_RESERVE_SQL, estimate, now.getTime(), monthKey, estimate)
         if (reserved !== 1) {
           return { kind: 'budget', needed: estimate, monthKey }
         }
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       // First start: ensure month row + atomic reservation.
       await tx.$executeRawUnsafe(USAGE_MONTH_UPSERT_SQL, monthKey, budget, now.getTime(), now.getTime())
-      const reserved = await tx.$executeRawUnsafe(USAGE_RESERVE_SQL, estimate, now.getTime(), monthKey, estimate, budget)
+      const reserved = await tx.$executeRawUnsafe(USAGE_RESERVE_SQL, estimate, now.getTime(), monthKey, estimate)
       if (reserved !== 1) {
         return { kind: 'budget', needed: estimate, monthKey }
       }

@@ -114,7 +114,7 @@ export type WebhookParticipantOutcome = {
  *   • first join          → open interval (activeSince), reconnectCount 0
  *   • repeat join while   → NO-OP (duplicate delivery must not create a second
  *     an interval is open   interval or inflate reconnectCount)
- *   • rejoin after leave  → close nothing; open a NEW interval; reconnectCount+1
+ *   • rejoin after leave  → open a NEW interval; reconnectCount+1
  *   • out-of-order event  → clamp activeSince to at least lastLeftAt so no
  *                           negative duration can ever be accumulated
  */
@@ -123,6 +123,7 @@ export function applyParticipantJoined(state: ParticipantEvidenceState, eventAt:
     return { state, kind: 'noop' } // duplicate join while already connected
   }
   const since = state.lastLeftAt && eventAt.getTime() < state.lastLeftAt.getTime() ? state.lastLeftAt : eventAt
+  const isRejoin = state.lastLeftAt !== null // a completed prior interval exists
   return {
     kind: 'joined',
     state: {
@@ -130,7 +131,7 @@ export function applyParticipantJoined(state: ParticipantEvidenceState, eventAt:
       activeSince: since,
       lastLeftAt: state.lastLeftAt,
       totalConnectedSeconds: state.totalConnectedSeconds,
-      reconnectCount: state.reconnectCount,
+      reconnectCount: state.reconnectCount + (isRejoin ? 1 : 0),
     },
   }
 }

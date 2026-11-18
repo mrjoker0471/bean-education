@@ -8,7 +8,7 @@
 //   • Missing configuration fails honestly: classroom endpoints return a clear
 //     "live classroom is not configured" state instead of faking a connection.
 
-import { AccessToken, RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk'
+import { AccessToken, RoomServiceClient, TokenVerifier } from 'livekit-server-sdk'
 import type { VideoGrant } from 'livekit-server-sdk'
 import { TrackSource } from '@livekit/protocol'
 
@@ -122,7 +122,6 @@ function toTrackSources(names: PublishSourceName[]): TrackSource[] {
 // ─── SDK singletons (created lazily; credentials stay server-side) ────────────
 
 let roomService: RoomServiceClient | null = null
-let webhookReceiver: WebhookReceiver | null = null
 
 /** RoomServiceClient for room create/delete/moderation. Server-only. */
 export function livekitRoomService(): RoomServiceClient | null {
@@ -130,14 +129,6 @@ export function livekitRoomService(): RoomServiceClient | null {
   if (!creds) return null
   if (!roomService) roomService = new RoomServiceClient(creds.hostUrl, creds.apiKey, creds.apiSecret)
   return roomService
-}
-
-/** WebhookReceiver — verifies LiveKit webhook signatures (server-only). */
-export function livekitWebhookReceiver(): WebhookReceiver | null {
-  const creds = livekitCredentials()
-  if (!creds) return null
-  if (!webhookReceiver) webhookReceiver = new WebhookReceiver(creds.apiKey, creds.apiSecret)
-  return webhookReceiver
 }
 
 /**

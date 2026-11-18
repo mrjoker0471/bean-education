@@ -24,7 +24,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { livekitWebhookReceiver } from '@/lib/livekit/config'
+import { verifyLivekitWebhook } from '@/lib/livekit/webhook-verify'
 import {
   applyParticipantJoined,
   applyParticipantLeft,
@@ -44,56 +44,29 @@ const HANDLED_EVENTS = new Set([
   'participant_connection_aborted',
 ])
 
-/** Event creation timestamp → Date (handles protobufjs seconds as number|Long). */
-function eventDate(seconds: unknown, fallback: Date): Date {
-  if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
-    return new Date(seconds * 1000)
-  }
-  if (typeof seconds === 'bigint') {
-    const n = Number(seconds)
-    if (Number.isFinite(n) && n > 0) return new Date(n * 1000)
-  }
-  return fallback
-}
-
 type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 
 export async function POST(req: NextRequest) {
   // No session-cookie auth here: this endpoint authenticates by webhook
   // signature only (it is the provider's callback, not a browser route).
   try {
-    const receiver = livekitWebhookReceiver()
-    if (!receiver) {
-      return NextResponse.json({ error: 'Webhook receiver is not configured.' }, { status: 503 })
-    }
-
+    // RAW body first, signature verification second, JSON parse last (never
+    // before verification) — see src/lib/livekit/webhook-verify.ts.
     const rawBody = await req.text()
     const authHeader = req.headers.get('authorization') ?? undefined
 
-    let event: {
-      event?: string
-      id?: string
-      createdAt?: { seconds?: unknown }
-      room?: { name?: string }
-      participant?: { identity?: string }
-    }
-    try {
-      // Verifies the signed JWT (sha256 over the raw body) using the server
-      // secret. Throws on invalid/missing signatures.
-      event = receiver.receive(rawBody, authHeader) as typeof event
-    } catch {
+    const verification = await verifyLivekitWebhook(rawBody, authHeader)
+    if (!verification.ok) {
+      if (verification.reason === 'not_configured') {
+        return NextResponse.json({ error: 'Webhook receiver is not configured.' }, { status: 503 })
+      }
       return NextResponse.json({ error: 'Invalid webhook signature.' }, { status: 401 })
     }
-
-    const eventName = event.event ?? ''
-    const providerEventId = (event.id ?? '').trim()
-    const roomName = event.room?.name ?? ''
-    const occurredAt = eventDate(event.createdAt?.seconds, new Date())
+    const { event: eventName, id: providerEventId, roomName, occurredAt, participantIdentity } = verification.payload
 
     if (!providerEventId || !roomName) {
       return NextResponse.json({ error: 'Malformed webhook event.' }, { status: 400 })
     }
-
     // ── Idempotency gate ──
     const existing = await db.liveKitWebhookEvent.findUnique({ where: { providerEventId } })
     if (existing && existing.processingStatus !== 'FAILED') {
@@ -122,7 +95,7 @@ export async function POST(req: NextRequest) {
 
     // ── Processing ──
     try {
-      await db.$transaction(async (tx: Tx) => {
+      const txResult = await db.$transaction(async (tx: Tx): Promise<'processed' | 'unknown_room' | 'unknown_identity'> => {
         const live = await tx.liveClassSession.findUnique({ where: { roomName } })
         if (!live) {
           // Unknown room: recorded (SKIPPED), never mutates another session.
@@ -192,7 +165,7 @@ export async function POST(req: NextRequest) {
         }
 
         // participant_joined / participant_left / participant_connection_aborted
-        const identity = event.participant?.identity ?? ''
+        const identity = participantIdentity ?? ''
         const studentId = studentIdFromIdentity(identity)
         if (!studentId) {
           return 'unknown_identity' as const
@@ -248,6 +221,15 @@ export async function POST(req: NextRequest) {
         })
         return 'processed' as const
       })
+
+      // Record non-applicable outcomes honestly (SKIPPED) — the event happened,
+      // but there was nothing safe to apply it to.
+      if (txResult !== 'processed') {
+        await db.liveKitWebhookEvent.update({
+          where: { providerEventId },
+          data: { processedAt: new Date(), processingStatus: 'SKIPPED', errorCode: txResult },
+        })
+      }
 
       return NextResponse.json({ ok: true })
     } catch (processErr) {
