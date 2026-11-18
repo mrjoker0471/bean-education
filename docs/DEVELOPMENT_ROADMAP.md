@@ -11,6 +11,10 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 
 ## Phase 2 — Universal student platform
 
+**Phase 2A (COMPLETE 2026-11-18):** reliability fixes, durable jobs/quotas, migration baseline, student identity (auth, guest claiming, export/deletion), PYQ ingestion foundation, OCR, dashboard data model, local-AI foundations. See docs/PHASE2A_*.md.
+
+**Phase 2B (COMPLETE 2026-11-18):** student experience layer — PYQ curator role system (STUDENT/PYQ_CURATOR/ADMIN, operator CLI, review audit trail), onboarding wizard, personal dashboard, My Learning workspace, goals & planning, PYQ curation studio (import/review/history with provenance). See docs/PHASE2B_*.md.
+
 - Student profiles, learning levels, subjects; personal library; learning dashboard; study planner; progress.
 - No predefined exam catalogue as the primary experience; students upload and organise their own materials.
 - Entry tasks from Phase 1 audit backlog: fix the 12 recorded defects, prune dead code/deps, tighten TS/ESLint config, introduce Prisma migrations, add test runner, design the account model replacing guest-only identity.

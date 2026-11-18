@@ -1,15 +1,16 @@
-// ─── PYQ import batches (audit trail listing) — Phase 2A ──────────────────────
-// GET /api/pyq/batches?guestId=… — lists the latest 50 PyqImportBatch rows with
-// their counts. Access requires a signed-in student session or an explicit
-// guestId; batches themselves are a shared provenance record for the whole
-// question bank (every batch records who imported it via importedBy).
+// ─── PYQ import batches (audit trail listing) — Phase 2A, role-gated 2B ───────
+// GET /api/pyq/batches — lists the latest 50 PyqImportBatch rows with their
+// counts. Restricted to PYQ_CURATOR / ADMIN sessions: batches are the curation
+// audit trail (every batch records who imported it via importedBy), so they
+// surface only inside the curator workspace. Guests and plain students are
+// refused (401 / 403).
 //
 // Honesty: when no import has ever happened the response is { batches: [], count: 0 }
 // — callers should surface that verbatim ("no PYQ records yet"), never pad it.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { getSessionStudent } from '@/lib/auth'
+import { requirePyqCurator } from '@/lib/roles'
 import { safeParse } from '@/lib/serialize'
 
 export const dynamic = 'force-dynamic'
@@ -23,15 +24,12 @@ interface BatchError {
   error: string
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const student = await getSessionStudent()
-    const guestId = req.nextUrl.searchParams.get('guestId') ?? ''
-    if (!student && !(guestId.length >= 8 && guestId.length <= 64)) {
-      return NextResponse.json(
-        { error: 'Sign in, or pass a guestId (8..64 chars) to view PYQ import batches.' },
-        { status: 401 },
-      )
+    // Role gate: curator/admin only.
+    const guard = await requirePyqCurator()
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status })
     }
 
     const batches = await db.pyqImportBatch.findMany({

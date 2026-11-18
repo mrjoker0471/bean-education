@@ -379,11 +379,18 @@ model Student {
   displayName     String?
   learningLevel   String? // SCHOOL_6_8 | SCHOOL_9_10 | SCHOOL_11_12 | UNDERGRAD | POSTGRAD | PROFESSIONAL | COMPETITIVE | SKILL
   interestsJson   String? // JSON string[] — subject interests
-  preferencesJson String? // JSON {dailyMinutes, language, revisionStyle, goalExam}
+  preferencesJson String? // JSON {dailyMinutes, language, revisionStyle, goalExam, educationCategory, learningStyle}
+  // Authorization role (Phase 2B). Normal registration ALWAYS creates STUDENT;
+  // PYQ_CURATOR / ADMIN exist only via the operator CLI (scripts/grant-role.ts).
+  // There is no API route that can raise a role.
+  role            String    @default("STUDENT") // STUDENT | PYQ_CURATOR | ADMIN
+  onboardedAt     DateTime? // set when the student finishes onboarding (Phase 2B)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   sessions        Session[]
   goals           StudyGoal[]
+
+  @@index([role])
 }
 
 model Session {
@@ -429,13 +436,29 @@ model PyqImportBatch {
   session        String?
   sourceCitation String?
   fileName       String
-  importedBy     String? // studentId (authenticated) or guestId
+  importedBy     String? // studentId of the curator/admin who ran the import
   totalRows      Int      @default(0)
   createdCount   Int      @default(0)
   duplicateCount Int      @default(0)
   failedCount    Int      @default(0)
   errorsJson     String? // JSON [{row, error}] — per-row audit
   createdAt      DateTime @default(now())
+}
+
+// Append-only review audit trail (Phase 2B). Every approve/reject decision on a
+// PYQ row writes one event here (reviewer, role, action, justification, time),
+// so a later re-review never erases the earlier decision's record.
+model PyqReviewEvent {
+  id           String   @id @default(cuid())
+  questionId   String
+  reviewerId   String // Student.id of the curator/admin who acted
+  reviewerRole String // role held at decision time
+  action       String // APPROVE | REJECT
+  note         String? // written justification (mandatory for APPROVE)
+  createdAt    DateTime @default(now())
+
+  @@index([questionId, createdAt])
+  @@index([reviewerId, createdAt])
 }
 
 // ─── Durable background jobs (Phase 2A) ────────────────────────────────

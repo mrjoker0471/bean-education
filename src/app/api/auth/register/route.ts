@@ -14,7 +14,15 @@ const bodySchema = z.object({
   email: z.string().regex(EMAIL_RE, 'Enter a valid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters').max(200, 'Password must be 200 characters or fewer'),
   displayName: z.string().max(80, 'Display name must be 80 characters or fewer').optional(),
+  // SECURITY (Phase 2B): role is NEVER client-settable. The field is parsed
+  // only to detect and refuse attempts; every created account is STUDENT.
+  // Promotion to PYQ_CURATOR/ADMIN happens exclusively via the operator CLI
+  // (scripts/grant-role.ts) with direct server-side DB access.
+  role: z.unknown().optional(),
 })
+
+/** The role every new account gets — there is no code path that can change this. */
+export const REGISTRATION_ROLE = 'STUDENT' as const
 
 // POST — create an account. Passwords are scrypt-hashed (see lib/auth); the
 // plaintext and the hash are never logged or returned. On success the student
@@ -71,16 +79,30 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Refuse any request that tries to set a role (defense in depth — the zod
+    // schema already strips it, this keeps the refusal explicit and auditable).
+    if (candidate.role !== undefined) {
+      return NextResponse.json(
+        { error: 'Roles cannot be set through registration. Every new account starts as a STUDENT.' },
+        { status: 400 },
+      )
+    }
+
     const passwordHash = await hashPassword(password)
     const student = await db.student.create({
-      data: { email, passwordHash, displayName: parsed.data.displayName ?? null },
-      select: { id: true, email: true, displayName: true, learningLevel: true },
+      data: { email, passwordHash, displayName: parsed.data.displayName ?? null, role: REGISTRATION_ROLE },
+      select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true },
     })
 
     const { token, expiresAt } = await createSession(student.id)
     await setSessionCookie(token, expiresAt)
 
-    return NextResponse.json({ student })
+    return NextResponse.json({
+      student: {
+        ...student,
+        onboardedAt: student.onboardedAt ? student.onboardedAt.toISOString() : null,
+      },
+    })
   } catch (err) {
     // Unique-index race (or rare DB failure) — same honest message either way.
     if (typeof err === 'object' && err !== null && 'code' in err && (err as { code?: string }).code === 'P2002') {

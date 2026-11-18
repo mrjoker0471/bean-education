@@ -47,7 +47,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-local-*
+# Root-level local scratch dirs only (e.g. local-ai-runtime/). Scoped in 2B
+# after `local-*` was found silently ignoring src/components/bean/local-ai-card.tsx,
+# which broke the Phase 2A build (the file existed but git never tracked it).
+/local-*
 .claude
 .z-ai-config
 *.log

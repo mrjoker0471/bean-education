@@ -9,15 +9,20 @@ import type {
   BeanSettings,
   CatalogResponse,
   DashboardResponse,
+  EducationCategory,
   ExamDetailDTO,
   ExamListItem,
   GoalDTO,
   GoalStatus,
   GuestClaims,
   LearningLevel,
+  LearningStyle,
   MaterialDetailDTO,
   MaterialsResponseDTO,
   ProgressDTO,
+  PyqBatchesResponse,
+  PyqImportResult,
+  PyqQuestionsResponse,
   QuestionCategoryDTO,
   ResourceMetaDTO,
   RevisionCheckDTO,
@@ -306,13 +311,21 @@ export const api = {
   deleteStudentAccount: () =>
     jsonFetch<{ ok: boolean }>('/api/auth/account/delete', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) }),
 
-  // ─── Student profile / goals / dashboard (Phase 2A) ───
+  // ─── Student profile / goals / dashboard (Phase 2A, extended 2B) ───
   studentProfile: () => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile'),
   updateStudentProfile: (patch: {
     displayName?: string | null
     learningLevel?: LearningLevel | null
     interests?: string[]
-    preferences?: { dailyMinutes?: number | null; language?: string | null; revisionStyle?: string | null; goalExam?: string | null }
+    preferences?: {
+      dailyMinutes?: number | null
+      language?: string | null
+      revisionStyle?: string | null
+      goalExam?: string | null
+      educationCategory?: EducationCategory | null
+      learningStyle?: LearningStyle | null
+    }
+    onboardingComplete?: boolean
   }) => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile', { method: 'PATCH', body: JSON.stringify(patch) }),
   studentGoals: () => jsonFetch<{ goals: GoalDTO[] }>('/api/student/goals'),
   createStudentGoal: (body: { title: string; examId?: string; topicId?: string; targetDate?: string }) =>
@@ -322,4 +335,36 @@ export const api = {
   deleteStudentGoal: (id: string) =>
     jsonFetch<{ ok: boolean }>(`/api/student/goals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   studentDashboard: () => jsonFetch<DashboardResponse>('/api/student/dashboard'),
+
+  // ─── PYQ curation (Phase 2B — curator/admin only; server enforces roles) ───
+  pyqImport: (body: {
+    paperTitle: string
+    fileName: string
+    examSlug: string
+    examLabel?: string
+    stageLabel?: string
+    subjectLabel?: string
+    year?: number
+    session?: string
+    sourceCitation?: string
+    items: Record<string, unknown>[]
+  }) => jsonFetch<PyqImportResult>('/api/pyq/import', { method: 'POST', body: JSON.stringify(body) }),
+  pyqBatches: () => jsonFetch<PyqBatchesResponse>('/api/pyq/batches'),
+  pyqQuestions: (params: { status?: string; exam?: string; year?: number; batch?: string; q?: string; limit?: number; offset?: number } = {}) => {
+    const p = new URLSearchParams()
+    if (params.status) p.set('status', params.status)
+    if (params.exam) p.set('exam', params.exam)
+    if (params.year) p.set('year', String(params.year))
+    if (params.batch) p.set('batch', params.batch)
+    if (params.q) p.set('q', params.q)
+    if (params.limit) p.set('limit', String(params.limit))
+    if (params.offset) p.set('offset', String(params.offset))
+    const qs = p.toString()
+    return jsonFetch<PyqQuestionsResponse>(`/api/pyq/questions${qs ? `?${qs}` : ''}`)
+  },
+  pyqReview: (body: { questionId: string; action: 'APPROVE' | 'REJECT'; note?: string }) =>
+    jsonFetch<{ id: string; sourceType: string; verificationStatus: string }>('/api/pyq/review', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }

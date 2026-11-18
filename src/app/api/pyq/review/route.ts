@@ -1,7 +1,12 @@
-// ─── PYQ review (verification workflow) — Phase 2A ────────────────────────────
-// POST /api/pyq/review — a SIGNED-IN STUDENT approves or rejects an imported
-// PYQ row. Guests get 401: verification is a reviewed workflow with an
-// accountable reviewer, not an anonymous action.
+// ─── PYQ review (verification workflow) — Phase 2A, role-gated Phase 2B ────────
+// POST /api/pyq/review — an authorised PYQ_CURATOR or ADMIN approves or rejects
+// an imported PYQ row. Every other identity is refused:
+//   • guests           → 401 (verification needs an accountable reviewer)
+//   • plain STUDENTs   → 403 (role is checked server-side; the UI hides the
+//                        workspace but never relies on that alone)
+// Every decision is ALSO appended to the PyqReviewEvent audit trail (reviewer,
+// role held, action, justification, timestamp) so re-reviews never erase the
+// earlier decision's record.
 //
 // Honesty rules enforced here:
 //   • APPROVE requires a written justification (10..400 chars) — a verification
@@ -16,7 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireStudent } from '@/lib/auth'
+import { requirePyqCurator } from '@/lib/roles'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -39,11 +44,12 @@ export async function POST(req: NextRequest) {
     }
     const { questionId, action, note: rawNote } = parsed.data
 
-    // Verification is a reviewed workflow — guests cannot participate.
-    const student = await requireStudent()
-    if (!student) {
-      return NextResponse.json({ error: 'Sign in to review PYQ questions.' }, { status: 401 })
+    // ── Role gate: PYQ curation is restricted to PYQ_CURATOR / ADMIN ──
+    const guard = await requirePyqCurator()
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status })
     }
+    const { student } = guard
 
     const question = await db.question.findUnique({ where: { id: questionId } })
     if (!question) {
@@ -81,6 +87,16 @@ export async function POST(req: NextRequest) {
           reviewNote: note,
         },
       })
+      // Append-only audit: who verified, with which role, why, when.
+      await db.pyqReviewEvent.create({
+        data: {
+          questionId: updated.id,
+          reviewerId: student.id,
+          reviewerRole: student.role,
+          action: 'APPROVE',
+          note,
+        },
+      })
       return NextResponse.json({
         id: updated.id,
         sourceType: updated.sourceType,
@@ -102,6 +118,16 @@ export async function POST(req: NextRequest) {
         reviewedBy: student.id,
         reviewedAt: new Date(),
         reviewNote: note || null,
+      },
+    })
+    // Append-only audit for the rejection as well (note optional here).
+    await db.pyqReviewEvent.create({
+      data: {
+        questionId: updated.id,
+        reviewerId: student.id,
+        reviewerRole: student.role,
+        action: 'REJECT',
+        note: note || null,
       },
     })
     return NextResponse.json({

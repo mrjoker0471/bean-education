@@ -156,6 +156,10 @@ export function SettingsView() {
                 </div>
               </dl>
               <div className="mt-4 flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'onboarding', edit: true })}>
+                  <UserRound className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  Edit my profile
+                </Button>
                 <Button variant="outline" size="sm" className="border-border text-muted-foreground hover:bg-elevated" onClick={doClaim} disabled={busyAuth !== 'none'}>
                   {busyAuth === 'claim' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
                   Save this session&apos;s data to my account

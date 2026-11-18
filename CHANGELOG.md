@@ -2,6 +2,31 @@
 
 All notable changes to BEAN Education. Format based on Keep a Changelog.
 
+## Phase 2B — Student experience & PYQ curation (2026-11-18)
+
+Branch `feat/bean-learn-phase-2b` (from merged main 1b57633).
+
+### Added
+- Role system: `Student.role` (STUDENT default, additive migration) + server-only `src/lib/roles.ts`; PYQ import/review/batches/questions restricted to PYQ_CURATOR/ADMIN (guest 401, student 403); operator CLI `scripts/grant-role.ts` (dry-run default, last-ADMIN protection); append-only `PyqReviewEvent` audit trail.
+- Onboarding wizard (`#/onboarding`, skippable, re-openable as profile editor): education category (7 student groups), level, interests, language, style, daily time, optional exam focus, first real goals; one-way `onboardedAt` stamp.
+- Student dashboard (`#/dashboard` + extended `GET /api/student/dashboard`): today summary, continue-learning cards, in-progress analyses, recent attempts/topics, goals triple, deterministic data-backed recommendations.
+- My Learning workspace (`#/workspace`): library, subject grouping, search, processing status, organise-by-subject, continue/practise links — over the existing materials + Riishe APIs.
+- Goals manager (`#/goals`): create/edit/complete/archive/reopen/delete + deterministic plan hints (days-left × daily minutes).
+- PYQ curation studio (`#/pyq-studio`): structured JSON import with client pre-flight + honest row errors; review queue with provenance-complete cards, mandatory approval justification, explicit rejection confirmation, status/exam/year/batch/text filters with exact live counts; import history. New curator-only `GET /api/pyq/questions`.
+- Role-aware header navigation; "Edit my profile" in settings; reconstructed `local-ai-card.tsx` (fixes broken 2A build — see below).
+- Tests: 10 suites / 82 tests (route-level authorization, isolation, honesty rules); API E2E suite `scripts/verify-phase2b.sh` (37 checks); browser E2E; QA demo-catalogue seed.
+
+### Changed
+- Registration now refuses client-supplied roles (400) — every account is STUDENT.
+- PYQ import guest path REMOVED (curator-only provenance accountability).
+- Auth responses carry `role` + `onboardedAt`; sign-up routes to onboarding, sign-in routes by onboarding state.
+
+### Fixed
+- `.gitignore` `local-*` rule silently ignored `src/components/bean/local-ai-card.tsx` (referenced by settings since 2A) — the merged main build was broken. Scoped the rule to `/local-*` and committed the reconstructed card.
+
+### Security
+- A student can no longer approve/reject PYQ records (was: any signed-in student). Reviewer identity, role held, justification and timestamp are recorded per decision; verified rows cannot be casually downgraded (409).
+
 ## [Unreleased] — 2026-11-18
 
 ### Added

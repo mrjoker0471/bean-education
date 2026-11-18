@@ -12,9 +12,10 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 | Exam catalogue + bank practice/revision tests, progress | Working (guest mode) |
 | Riishe document intelligence (upload → analysis → AI tests → explanations → chat) | Working (+ real OCR for scanned pages, English/Tamil) |
 | Student accounts (email/password, guest migration, export, deletion) | Working (Phase 2A) |
-| Study goals, learning profile, dashboard data model | Working (Phase 2A foundation) |
+| Onboarding, learning profile, student dashboard, My Learning workspace, goals & planning | Working (Phase 2B) |
+| Roles (STUDENT / PYQ_CURATOR / ADMIN) + PYQ curation studio (import → review → verified, provenance, audit trail) | Working (Phase 2B; bank honestly zero-PYQ until a reviewed import) |
 | Durable AI job queue + hourly quotas | Working (Phase 2A) |
-| PYQ ingestion (import → review → verified) | Foundation ready; bank honestly zero-PYQ until a reviewed import |
+| PYQ ingestion rules (validation, dedupe, review gating) | Working (Phase 2A foundation, curator-gated in 2B) |
 | On-device AI (browser inference) | Capability detection + consent-gated adapter (foundation) |
 | BEAN Teach (teachers, classes, pilots) | Phase 4 (planned) |
 | Live classroom | Phase 5 (planned) |
@@ -26,6 +27,10 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 - docs/DEVELOPMENT.md — setup, verification, conventions
 - docs/DEVELOPMENT_ROADMAP.md — BEAN LEARN phase plan
 - docs/PHASE1_AUDIT.md — current working/incomplete/broken inventory
+- docs/PHASE2B_IMPLEMENTATION.md — what Phase 2B built, file by file
+- docs/PHASE2B_RESULTS.md — executed test/verification numbers (82 unit tests, 37/37 API E2E, browser E2E)
+- docs/PHASE2B_SECURITY.md — role model, provisioning & recovery procedures
+- docs/PHASE2B_PYQ_CURATOR.md — curator handbook (import format, review workflow, limitations)
 - docs/DECISIONS.md — decision log (auth, data, git history, etc.)
 - CHANGELOG.md — notable changes
 
