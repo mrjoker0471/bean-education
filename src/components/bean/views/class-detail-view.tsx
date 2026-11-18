@@ -17,6 +17,9 @@ import { Separator } from '@/components/ui/separator'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
 import { ClassroomEntryCard } from '@/components/bean/classroom/classroom-entry'
+import { ReviewSection } from '@/components/bean/trust/review-section'
+import { QualityLine } from '@/components/bean/trust/quality-metrics'
+import { ReportClassDialog } from '@/components/bean/trust/report-class-dialog'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { TeachClassDetailDTO } from '@/lib/types'
@@ -38,6 +41,7 @@ export function ClassDetailView({ classId }: { classId: string }) {
   const [failed, setFailed] = useState<string | null>(null)
   const [bookingBusy, setBookingBusy] = useState(false)
   const [confirmCancelBooking, setConfirmCancelBooking] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
 
   const load = useCallback(() => {
     setCls(null)
@@ -149,6 +153,8 @@ export function ClassDetailView({ classId }: { classId: string }) {
                   {cls.teacherVerified && <BadgeCheck className="h-4 w-4 text-success" aria-label="Approved teacher" />}
                 </p>
                 <p className="text-xs text-muted-foreground">{cls.teacher.headline}</p>
+                {/* Phase 6: verified quality indicators (server-computed). */}
+                <QualityLine quality={cls.teacherQuality} />
               </div>
             </div>
             <Separator className="my-4 bg-border" />
@@ -254,6 +260,33 @@ export function ClassDetailView({ classId }: { classId: string }) {
           </div>
         </aside>
       </div>
+
+      {/* Phase 6: verified reviews + report action (additive section). */}
+      <div className="mt-6 grid gap-6">
+        <ReviewSection classId={cls.id} isOwnerTeacher={cls.isOwner} />
+        {!cls.isOwner && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-5 py-4">
+            <p className="text-xs text-muted-foreground">
+              Something wrong with this class or its teacher? Reports are confidential — only authorised BEAN administrators read them, and the teacher never sees who reported.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-border text-muted-foreground hover:bg-elevated"
+              onClick={() => (authedStudent ? setReportOpen(true) : navigate({ view: 'auth' }))}
+            >
+              <ShieldAlert className="mr-1.5 h-3.5 w-3.5" aria-hidden />Report a concern
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <ReportClassDialog
+        classId={cls.id}
+        classTitle={cls.title}
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+      />
 
       <AlertDialog open={confirmCancelBooking} onOpenChange={setConfirmCancelBooking}>
         <AlertDialogContent className="border-border bg-card">

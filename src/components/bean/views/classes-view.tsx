@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { ReportClassDialog } from '@/components/bean/trust/report-class-dialog'
+import { ShieldQuestion } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
@@ -327,6 +329,7 @@ function MyBookingsPanel({ navigate }: { navigate: (route: ReturnType<typeof use
   const [bookings, setBookings] = useState<MyBookingDTO[] | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState<MyBookingDTO | null>(null)
+  const [reporting, setReporting] = useState<MyBookingDTO | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = () => {
@@ -395,9 +398,28 @@ function MyBookingsPanel({ navigate }: { navigate: (route: ReturnType<typeof use
 
   return (
     <div className="flex flex-col gap-6">
-      <BookingGroup title="Upcoming reservations" empty="No upcoming reservations." bookings={upcoming} onCancel={setCancelling} navigate={navigate} />
-      <BookingGroup title="Completed sessions" empty="Completed sessions with attendance will appear here." bookings={past} onCancel={setCancelling} navigate={navigate} />
-      <BookingGroup title="Cancelled" empty="Nothing cancelled." bookings={cancelled} onCancel={setCancelling} navigate={navigate} />
+      {/* Phase 6: confidential reporting entry + own reports tracker. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+        <p className="text-xs text-muted-foreground">
+          Had a problem with a class? File a confidential report — only authorised BEAN administrators read reports, and the other party never sees your identity.
+        </p>
+        <Button size="sm" variant="outline" className="shrink-0 border-border text-muted-foreground hover:bg-elevated" onClick={() => navigate({ view: 'my-reports' })}>
+          <ShieldQuestion className="mr-1.5 h-3.5 w-3.5" aria-hidden />My reports &amp; appeals
+        </Button>
+      </div>
+
+      <BookingGroup title="Upcoming reservations" empty="No upcoming reservations." bookings={upcoming} onCancel={setCancelling} onReport={setReporting} navigate={navigate} />
+      <BookingGroup title="Completed sessions" empty="Completed sessions with attendance will appear here." bookings={past} onCancel={setCancelling} onReport={setReporting} navigate={navigate} />
+      <BookingGroup title="Cancelled" empty="Nothing cancelled." bookings={cancelled} onCancel={setCancelling} onReport={setReporting} navigate={navigate} />
+
+      {reporting && (
+        <ReportClassDialog
+          classId={reporting.classSession.id}
+          classTitle={reporting.classSession.title}
+          open={!!reporting}
+          onOpenChange={v => !v && setReporting(null)}
+        />
+      )}
 
       <AlertDialog open={!!cancelling} onOpenChange={open => !open && setCancelling(null)}>
         <AlertDialogContent className="border-border bg-card">
@@ -424,12 +446,14 @@ function BookingGroup({
   empty,
   bookings,
   onCancel,
+  onReport,
   navigate,
 }: {
   title: string
   empty: string
   bookings: MyBookingDTO[]
   onCancel: (b: MyBookingDTO) => void
+  onReport: (b: MyBookingDTO) => void
   navigate: (route: ReturnType<typeof useAppStore.getState>['route']) => void
 }) {
   return (
@@ -462,6 +486,16 @@ function BookingGroup({
                     Cancel
                   </Button>
                 )}
+                {/* Phase 6: confidential report entry for any booking history. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:bg-elevated"
+                  aria-label={`Report a concern about ${b.classSession.title}`}
+                  onClick={() => onReport(b)}
+                >
+                  <ShieldQuestion className="mr-1 h-3.5 w-3.5" aria-hidden />Report
+                </Button>
               </div>
             </div>
           ))}

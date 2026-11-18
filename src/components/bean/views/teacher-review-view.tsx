@@ -50,6 +50,7 @@ export function TeacherReviewView() {
 }
 
 function ReviewPanel() {
+  const navigate = useAppStore(s => s.navigate)
   const [status, setStatus] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>('PENDING')
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
@@ -78,6 +79,15 @@ function ReviewPanel() {
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
         Approve or reject teacher applications. Rejections need a written reason so the applicant can correct and resubmit. Every decision is recorded in an append-only history.
       </p>
+      {/* Phase 6: Trust Center — complaints, review moderation, trust actions, appeals. */}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-4 border-gold/40 text-gold hover:bg-gold/10"
+        onClick={() => navigate({ view: 'admin-trust' })}
+      >
+        <ShieldCheck className="mr-1.5 h-4 w-4" aria-hidden />Open Trust Center
+      </Button>
 
       <div className="mt-6 rounded-xl border border-border bg-card p-4">
         <div className="relative">
