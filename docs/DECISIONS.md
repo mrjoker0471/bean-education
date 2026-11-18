@@ -53,3 +53,15 @@ Status: accepted. Docling was evaluated and rejected for this runtime (Python/mo
 ## ADR-013 — On-device AI is consent-gated and foundation-scoped (2026-11-18)
 
 Status: accepted. Browser-local inference (WebLLM path) ships as capability detection + an adapter interface only; the optional runtime is intentionally not installed and NO model downloads without an explicit user action. Server-side Riishe/BEAN chat remains the default. Students' devices are never used for other users' inference; prompts/files stay on device. Transformers.js (embeddings) and a llama.cpp desktop engine are later integrations.
+
+## ADR-014 — Server-side role system with operator-CLI-only promotion (2026-11-18)
+
+Status: accepted. Student.role (STUDENT default) is enforced by pure, unit-tested decision functions in src/lib/roles.ts; all four PYQ endpoints gate via requirePyqCurator(). Registration parses a client `role` field ONLY to refuse it; profile PATCH cannot touch role; there is no promote endpoint. Promotion happens exclusively through scripts/grant-role.ts (dry-run default, last-ADMIN protection, printed audit transcript). Guests get 401, signed-in students 403 — the distinction is deliberate. Consequences: role changes are instant (roles read on every session lookup) and recoverable only with server-side DB access (documented).
+
+## ADR-015 — PYQ review is curator-governed with an append-only audit trail (2026-11-18)
+
+Status: accepted. The guest import path from 2A was REMOVED; import + review are curator/admin actions with provenance accountability. Every decision writes PyqReviewEvent (reviewer, role held, action, justification, timestamp) in addition to the Question snapshot; re-reviews append and never erase. Verified rows cannot be rejected from the review endpoint (409) — unverification stays a deliberate curation action. The catalogue examSlug constraint (college/university papers not representable) is surfaced honestly in the studio UI and docs rather than faked.
+
+## ADR-016 — Onboarding collects minimal, safety-conscious profile data (2026-11-18)
+
+Status: accepted. The wizard collects display name, education category (7 student groups incl. school/college/university/CA-CMA-CS/skill/career — never exam-only), learning level, interests, language, learning style, daily minutes, optional exam focus and optional REAL StudyGoal rows. It does NOT collect birth date, phone, school names or location (future parental-consent groundwork for minors). Every field is skippable; onboardedAt is a one-way stamp (first completion kept forever); edit mode reuses the same wizard via #/onboarding?edit=1. Dashboard recommendations are deterministic rules over real rows — the product never invents streaks, mastery or topics.

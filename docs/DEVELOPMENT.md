@@ -56,3 +56,13 @@ There is no unit-test runner yet (see roadmap). Feature verification today uses 
 - Env: `DATABASE_URL` plus optional `DB_QUERY_LOG=1` (SQL diagnostics), `TESSERACT_BIN`/`POPPLER_BIN`/`TESSDATA_PREFIX` (OCR binary/tessdata overrides).
 - Identity: student sessions use the `bean_session` httpOnly cookie; auth mutations enforce same-origin; see docs/PHASE2A_IDENTITY.md.
 - PYQ import: see docs/PHASE2A_PYQ_INGESTION.md (format spec + review workflow + CLI).
+
+## Phase 2B additions
+
+- Roles: normal registration is always STUDENT. Grant/revoke via the operator CLI only: `bun scripts/grant-role.ts --email=<email> --role=<STUDENT|PYQ_CURATOR|ADMIN> [--yes]` (dry-run default, last-ADMIN protection; see docs/PHASE2B_SECURITY.md for provisioning + recovery).
+- PYQ curation: `/api/pyq/import`, `/api/pyq/batches`, `/api/pyq/questions`, `/api/pyq/review` are curator/admin-only (guest import path removed in 2B). Curator handbook: docs/PHASE2B_PYQ_CURATOR.md.
+- E2E verification scripts (run in one session; the sandbox dev server is session-scoped):
+  - `scripts/verify-phase2b.sh` — API end-to-end (student/curator/guest journeys, 37 checks)
+  - `scripts/verify-browser.sh` + `verify-browser2/3.sh` — real-browser flows (onboarding → dashboard → goals → studio provenance)
+  - `scripts/seed-demo-catalogue.ts` — clearly-labelled QA exam for fresh environments (DELETE after QA; not real content)
+- Import CLI now authenticates as a curator: `PYQ_COOKIE='bean_session=<token>' bun scripts/pyq-import.ts <file.json>` (see the script header for how to copy the httpOnly cookie).
