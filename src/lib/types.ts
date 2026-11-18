@@ -663,11 +663,24 @@ export type LearningLevel =
   | 'SCHOOL_6_8' | 'SCHOOL_9_10' | 'SCHOOL_11_12' | 'UNDERGRAD'
   | 'POSTGRAD' | 'PROFESSIONAL' | 'COMPETITIVE' | 'SKILL'
 
+// Student groups (Phase 2B) — broad onboarding categories, deliberately wider
+// than the government-exam catalogue. Values mirror the validated enum in
+// /api/student/profile.
+export type EducationCategory =
+  | 'SCHOOL' | 'COLLEGE' | 'UNIVERSITY' | 'CA_CMA_CS' | 'COMPETITIVE' | 'SKILL' | 'CAREER'
+
+// Preferred learning style (presentation nudges only).
+export type LearningStyle = 'CONCEPT_FIRST' | 'PRACTICE_FIRST' | 'VISUAL' | 'REVISE_OFTEN'
+
 export interface AuthedStudent {
   id: string
   email: string
   displayName: string | null
   learningLevel: string | null
+  /** 'STUDENT' for normal accounts; PYQ_CURATOR/ADMIN only via operator CLI. */
+  role: string
+  /** ISO timestamp once onboarding finished; null until then. */
+  onboardedAt: string | null
 }
 
 export interface GuestClaims {
@@ -684,6 +697,7 @@ export interface StudentProfileDTO {
   learningLevel: string | null
   interests: string[]
   preferences: Record<string, unknown>
+  onboardedAt: string | null
 }
 
 export type GoalStatus = 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
@@ -701,8 +715,42 @@ export interface GoalDTO {
   topic: { id: string; name: string } | null
 }
 
+export interface DashboardDocCard {
+  id: string
+  title: string
+  status: string
+  statusDetail: string | null
+  updatedAt: string
+  pageCount: number | null
+  topics: string[]
+}
+
+export interface DashboardAttemptCard {
+  id: string
+  title: string
+  examLabel: string
+  source: string
+  status: string
+  score: number | null
+  maxScore: number | null
+  startedAt: string
+  submittedAt: string | null
+}
+
+export interface DashboardRecommendation {
+  key: string
+  title: string
+  reason: string
+  href: string
+}
+
 export interface DashboardResponse {
   profile: StudentProfileDTO
+  today: {
+    attemptsToday: number
+    minutesToday: number | null
+    dailyMinutesTarget: number | null
+  }
   progress: {
     attempts: {
       count: number
@@ -718,6 +766,17 @@ export interface DashboardResponse {
       accuracy: number | null
     }
   }
-  goals: GoalDTO[]
+  continueLearning: {
+    recentDocuments: DashboardDocCard[]
+    inProgressDocuments: DashboardDocCard[]
+    recentAttempts: DashboardAttemptCard[]
+    recentTopics: string[]
+  }
+  goals: {
+    active: GoalDTO[]
+    completedRecent: GoalDTO[]
+    completedCount: number
+  }
+  recommendations: DashboardRecommendation[]
   generatedAt: string
 }

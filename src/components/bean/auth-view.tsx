@@ -19,6 +19,9 @@ export interface AuthedStudent {
   id: string
   email: string
   displayName: string | null
+  learningLevel: string | null
+  role: string
+  onboardedAt: string | null
 }
 
 /** Exact student DTO returned by the auth endpoints on success. */
@@ -27,11 +30,14 @@ interface StudentDTO {
   email: string
   displayName: string | null
   learningLevel: string | null
+  role: string
+  onboardedAt: string | null
 }
 
 interface AuthViewProps {
-  /** Called once the server confirms sign-in/up (session cookie already set). */
-  onAuthed?: (student: AuthedStudent) => void
+  /** Called once the server confirms sign-in/up (session cookie already set).
+   *  `mode` lets the shell decide where to route next (onboarding vs dashboard). */
+  onAuthed?: (student: AuthedStudent, mode: 'signin' | 'signup') => void
 }
 
 const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/
@@ -55,6 +61,8 @@ function studentFrom(data: unknown): StudentDTO | null {
     email: candidate.email,
     displayName: typeof candidate.displayName === 'string' ? candidate.displayName : null,
     learningLevel: typeof candidate.learningLevel === 'string' ? candidate.learningLevel : null,
+    role: typeof candidate.role === 'string' ? candidate.role : 'STUDENT',
+    onboardedAt: typeof candidate.onboardedAt === 'string' ? candidate.onboardedAt : null,
   }
 }
 
@@ -104,7 +112,17 @@ export function AuthView({ onAuthed }: AuthViewProps) {
           ? { email: normalizedEmail, password }
           : { email: normalizedEmail, password, displayName: displayName.trim() || undefined }
       const student = await postAuth(tab === 'signin' ? 'login' : 'register', body)
-      onAuthed?.({ id: student.id, email: student.email, displayName: student.displayName })
+      onAuthed?.(
+        {
+          id: student.id,
+          email: student.email,
+          displayName: student.displayName,
+          learningLevel: student.learningLevel,
+          role: student.role,
+          onboardedAt: student.onboardedAt,
+        },
+        tab,
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong — please try again.')
     } finally {

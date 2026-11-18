@@ -1,6 +1,6 @@
 // GET  /api/student/profile — signed-in student profile (guests: 401)
 // PATCH /api/student/profile — same-origin + signed-in; partial update of
-// displayName / learningLevel / interests / preferences.
+// displayName / learningLevel / interests / preferences / onboarding completion.
 //
 // Response DTOs (documented for the UI client):
 //   GET   → { student: StudentProfileDTO }
@@ -15,6 +15,11 @@
 //                           and >20-item arrays are rejected with 400)
 //   • preferences         → MERGED into the stored object; a null value inside
 //                           preferences clears that single key
+//   • onboardingComplete: true → stamps onboardedAt (once; later PATCHes keep
+//                           the original timestamp)
+//
+// SECURITY (Phase 2B): role is NOT part of this schema — there is no way to
+// change a role through profile updates. Roles change only via the operator CLI.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -32,6 +37,8 @@ export interface StudentProfileDTO {
   learningLevel: string | null
   interests: string[]
   preferences: Record<string, unknown>
+  /** ISO timestamp when onboarding finished; null while never completed. */
+  onboardedAt: string | null
 }
 
 const LEARNING_LEVELS = [
@@ -45,6 +52,29 @@ const LEARNING_LEVELS = [
   'SKILL',
 ] as const
 
+// Student groups (Phase 2B onboarding). Deliberately broader than the exam
+// catalogue: BEAN serves school, college and university students, professional
+// course candidates (CA/CMA/CS), competitive-exam aspirants, skill learners and
+// career developers. No group is forced into an entrance/government-exam box.
+export const EDUCATION_CATEGORIES = [
+  'SCHOOL',
+  'COLLEGE',
+  'UNIVERSITY',
+  'CA_CMA_CS',
+  'COMPETITIVE',
+  'SKILL',
+  'CAREER',
+] as const
+
+// How the student prefers to study (drives presentation nudges only — never
+// gates content).
+export const LEARNING_STYLES = [
+  'CONCEPT_FIRST',
+  'PRACTICE_FIRST',
+  'VISUAL',
+  'REVISE_OFTEN',
+] as const
+
 const STUDENT_SELECT = {
   id: true,
   email: true,
@@ -52,6 +82,7 @@ const STUDENT_SELECT = {
   learningLevel: true,
   interestsJson: true,
   preferencesJson: true,
+  onboardedAt: true,
 } as const
 
 type StudentRow = {
@@ -61,6 +92,7 @@ type StudentRow = {
   learningLevel: string | null
   interestsJson: string | null
   preferencesJson: string | null
+  onboardedAt: Date | null
 }
 
 // ─── Defensive JSON parsing (stored JSON must never be trusted) ───────────────
@@ -95,6 +127,7 @@ function toStudentDTO(row: StudentRow): StudentProfileDTO {
     learningLevel: row.learningLevel,
     interests: parseInterests(row.interestsJson),
     preferences: parsePreferences(row.preferencesJson),
+    onboardedAt: row.onboardedAt ? row.onboardedAt.toISOString() : null,
   }
 }
 
@@ -131,8 +164,11 @@ const patchSchema = z.object({
       language: z.string().trim().min(1).max(40).nullable().optional(),
       revisionStyle: z.string().trim().min(1).max(40).nullable().optional(),
       goalExam: z.string().trim().min(1).max(120).nullable().optional(),
+      educationCategory: z.enum(EDUCATION_CATEGORIES).nullable().optional(),
+      learningStyle: z.enum(LEARNING_STYLES).nullable().optional(),
     })
     .optional(),
+  onboardingComplete: z.boolean().optional(),
 })
 
 export async function PATCH(req: NextRequest) {
@@ -151,7 +187,7 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid profile update' }, { status: 400 })
     }
-    const { displayName, learningLevel, interests, preferences } = parsed.data
+    const { displayName, learningLevel, interests, preferences, onboardingComplete } = parsed.data
 
     const row = await db.student.findUnique({ where: { id: auth.id }, select: STUDENT_SELECT })
     if (!row) return unauthorized()
@@ -161,6 +197,7 @@ export async function PATCH(req: NextRequest) {
       learningLevel?: string | null
       interestsJson?: string
       preferencesJson?: string
+      onboardedAt?: Date
     } = {}
 
     if (displayName !== undefined) data.displayName = displayName
@@ -177,6 +214,11 @@ export async function PATCH(req: NextRequest) {
         else merged[key] = value
       }
       data.preferencesJson = JSON.stringify(merged)
+    }
+    // Onboarding completion is a one-way stamp: the FIRST completion time is
+    // kept forever (a later profile edit never resets the flag).
+    if (onboardingComplete === true && row.onboardedAt === null) {
+      data.onboardedAt = new Date()
     }
 
     // Nothing to change → return the current profile without a write.

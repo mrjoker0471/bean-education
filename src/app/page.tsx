@@ -17,6 +17,8 @@ import { RiisheView } from '@/components/bean/views/riishe-view'
 import { PracticeView } from '@/components/bean/views/practice-view'
 import { TopicsView } from '@/components/bean/views/topics-view'
 import { SettingsView } from '@/components/bean/views/settings-view'
+import { OnboardingView } from '@/components/bean/views/onboarding-view'
+import { DashboardView } from '@/components/bean/views/dashboard-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
@@ -54,13 +56,23 @@ export default function Page() {
             {route.view === 'practice' && <PracticeView doc={route.doc} topics={route.topics} />}
             {route.view === 'topics' && <TopicsView />}
             {route.view === 'settings' && <SettingsView />}
+            {route.view === 'onboarding' && <OnboardingView edit={route.edit} />}
+            {route.view === 'dashboard' && <DashboardView />}
             {route.view === 'auth' && (
               <AuthView
-                onAuthed={() => {
-                  // AuthView performs its own fetch (deliberately store-free);
-                  // the shell syncs the session into the store, then continues.
-                  void useAppStore.getState().refreshAuth()
-                  navigate({ view: 'settings' })
+                onAuthed={(student, mode) => {
+                  // The auth panel already holds the confirmed server response —
+                  // set it synchronously (a /me round-trip here would race the
+                  // next view), claim this device's guest data as the store
+                  // actions do, then route by onboarding state.
+                  useAppStore.setState({ authedStudent: student, authChecked: true })
+                  const gid = useAppStore.getState().guestId
+                  if (gid) void useAppStore.getState().claimGuestData().catch(() => undefined)
+                  navigate(
+                    mode === 'signup' || !student.onboardedAt
+                      ? { view: 'onboarding' }
+                      : { view: 'dashboard' },
+                  )
                 }}
               />
             )}

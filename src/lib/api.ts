@@ -9,12 +9,14 @@ import type {
   BeanSettings,
   CatalogResponse,
   DashboardResponse,
+  EducationCategory,
   ExamDetailDTO,
   ExamListItem,
   GoalDTO,
   GoalStatus,
   GuestClaims,
   LearningLevel,
+  LearningStyle,
   MaterialDetailDTO,
   MaterialsResponseDTO,
   ProgressDTO,
@@ -306,13 +308,21 @@ export const api = {
   deleteStudentAccount: () =>
     jsonFetch<{ ok: boolean }>('/api/auth/account/delete', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) }),
 
-  // ─── Student profile / goals / dashboard (Phase 2A) ───
+  // ─── Student profile / goals / dashboard (Phase 2A, extended 2B) ───
   studentProfile: () => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile'),
   updateStudentProfile: (patch: {
     displayName?: string | null
     learningLevel?: LearningLevel | null
     interests?: string[]
-    preferences?: { dailyMinutes?: number | null; language?: string | null; revisionStyle?: string | null; goalExam?: string | null }
+    preferences?: {
+      dailyMinutes?: number | null
+      language?: string | null
+      revisionStyle?: string | null
+      goalExam?: string | null
+      educationCategory?: EducationCategory | null
+      learningStyle?: LearningStyle | null
+    }
+    onboardingComplete?: boolean
   }) => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile', { method: 'PATCH', body: JSON.stringify(patch) }),
   studentGoals: () => jsonFetch<{ goals: GoalDTO[] }>('/api/student/goals'),
   createStudentGoal: (body: { title: string; examId?: string; topicId?: string; targetDate?: string }) =>

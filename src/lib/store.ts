@@ -21,6 +21,12 @@ export type Route =
   | { view: 'topics' }
   | { view: 'settings' }
   | { view: 'auth' }
+  // Phase 2B — student experience & curation
+  | { view: 'onboarding'; edit?: boolean }
+  | { view: 'dashboard' }
+  | { view: 'workspace' }
+  | { view: 'goals' }
+  | { view: 'pyq-studio' }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -64,6 +70,17 @@ export function parseHash(hash: string): Route {
       return { view: 'settings' }
     case 'auth':
       return { view: 'auth' }
+    // Phase 2B — student experience & curation
+    case 'onboarding':
+      return { view: 'onboarding', edit: params.get('edit') === '1' }
+    case 'dashboard':
+      return { view: 'dashboard' }
+    case 'workspace':
+      return { view: 'workspace' }
+    case 'goals':
+      return { view: 'goals' }
+    case 'pyq-studio':
+      return { view: 'pyq-studio' }
     default:
       return { view: 'not-found' }
   }
@@ -105,6 +122,12 @@ export function routeToHash(route: Route): string {
     case 'topics': return '#/topics'
     case 'settings': return '#/settings'
     case 'auth': return '#/auth'
+    // Phase 2B — student experience & curation
+    case 'onboarding': return `#/onboarding${route.edit ? '?edit=1' : ''}`
+    case 'dashboard': return '#/dashboard'
+    case 'workspace': return '#/workspace'
+    case 'goals': return '#/goals'
+    case 'pyq-studio': return '#/pyq-studio'
     default: return '#/'
   }
 }
