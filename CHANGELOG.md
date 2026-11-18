@@ -2,6 +2,32 @@
 
 All notable changes to BEAN Education. Format based on Keep a Changelog.
 
+## Phase 4A — BEAN Teach marketplace foundation (2026-11-18)
+
+Branch `feat/bean-teach-marketplace` (from merged main f573b54).
+
+### Added
+- Teacher application lifecycle: any signed-in student applies via `#/teach/apply` ("Become a BEAN Teacher") — one profile per account (unique `studentId`), no second login, no paid registration, deliberately no DOB/bank/ID collection. States NOT_APPLIED → PENDING → APPROVED | REJECTED; rejection shows the reason and allows resubmission that reuses the same row while preserving the append-only history.
+- Admin review (`#/teach/review`, ADMIN-only): pending/approved/rejected/all queues, bounded search, full application dialog with append-only history, approve (optional note) / reject (mandatory 10–400 char reason); self-review forbidden; reviewer id/role/date/note recorded on the profile and in the audit trail.
+- Teacher capability = an APPROVED `TeacherProfile` attached to the existing authenticated Student — NO new role; the single `Student.role` field is untouched; curator/admin accounts can also be teachers.
+- Class management (`#/teach/dashboard`, approved teachers only): public profile view/edit (verification-relevant edits trigger re-review — see Security), class lifecycle DRAFT → PUBLISHED → CANCELLED | COMPLETED, create dialog (duration 60–360 min in 30-min steps, capacity 1–50, minimum enrolment ≤ capacity, future schedule validated server-side, IANA time zone stored separately from UTC timestamps, optional planned price stored as paise metadata), explicit publish/unpublish (unpublish blocked while seats are held), audited class cancellation which releases all reservations.
+- Student marketplace (`#/classes` for guests AND students; class detail `#/classes/:id`): subject/level/language/duration-bucket/date/teacher filters + search + bounded pagination; free reservations with atomic seat claiming; cancellation window until class start; "My bookings" tab (upcoming/completed/cancelled groups, attendance badges); guests browse freely and are asked to sign in only at reservation time.
+- Attendance: teacher marks ATTENDED / NO_SHOW only after the class has ended (server-side time check), per-change audit events; teachers see enrolled students (display names only — never emails).
+- Navigation: Classes entry added to the guest + signed-in header (desktop + mobile sheet), Teacher Review entry for ADMIN; every existing route/link unchanged.
+- Typed API client methods in `src/lib/api.ts` + DTOs in `src/lib/types.ts`; 14 new route files under `/api/teach/*` and `/api/admin/teach/*` (19 handler functions).
+- Tests: 5 new suites (application lifecycle, class rules/permissions, booking incl. concurrent last-seat + cancellation + attendance, admin review, seat-claim SQL against a real in-memory SQLite engine) — 158 tests / 15 files passing; route-level bun tests with mocked db/auth (established pattern).
+- Docs: 4 new BEAN_TEACH_* docs (implementation, database, security, results) + roadmap/decisions/architecture/development updates.
+
+### Changed
+- Migration workflow baselined: the runtime DB had been built with `prisma db push`, so the 4 pre-existing migrations were recorded via `prisma migrate resolve --applied` (zero-drift verified with `prisma migrate diff` first; no data touched, no reset). The 4A schema change ships as an additive committed migration (`20261118030000_bean_teach_marketplace`, generated via `prisma migrate diff` from live DB → new schema).
+- Prisma schema extended additively: `TeacherProfile`, `TeachAuditEvent`, `ClassSession`, `ClassBooking` + `Student` back-relations (`teacherProfile`, `classBookings`). No existing column or row changed.
+
+### Security
+- Seat integrity: `bookedCount` is maintained ONLY inside the booking transaction via one conditional SQL `UPDATE … WHERE bookedCount < capacity` (`src/lib/teach-booking.ts`) — two students racing for the last seat cannot both win; verified on the live server (exactly one 201, one 409).
+- Identity always from the httpOnly session cookie; client-supplied ids never trusted for ownership (server-side lookups; foreign resources return 404). Every mutation enforces same-origin; every body is Zod-validated (`src/lib/teach-schema.ts`).
+- Privacy: no public emails or phones — teachers appear by teaching name, enrolled students by display name only, review notes stay private (applicant + admins); the admin application list is the only surface exposing the applicant email. Applications deliberately exclude DOB/bank/Aadhaar/PAN.
+- Authorization: self-review forbidden; no API can grant ADMIN (roles change only via the operator CLI, unchanged from 2B); bounded page sizes (≤48 public / ≤50 admin), query length caps, ≤50 active classes per teacher, duration/capacity/future-schedule validation on create, edit and publish.
+
 ## Phase 2B — Student experience & PYQ curation (2026-11-18)
 
 Branch `feat/bean-learn-phase-2b` (from merged main 1b57633).
