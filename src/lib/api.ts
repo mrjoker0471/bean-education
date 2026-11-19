@@ -1,6 +1,25 @@
 'use client'
 
 import type {
+  AssignmentDetailResponse,
+  AssignmentDTO,
+  AnnouncementDTO,
+  GroupDTO,
+  InvitationAcceptResponse,
+  InvitationDTO,
+  MemberDTO,
+  MyOrganizationsResponse,
+  OrganizationDetailResponse,
+  OrgAnnouncementsResponse,
+  OrgAssignmentsResponse,
+  OrgClassesResponse,
+  OrgDashboardResponse,
+  OrgGroupsResponse,
+  OrgInvitationsResponse,
+  OrgMembersResponse,
+  OrgResourcesResponse,
+  OrgResourceDTO,
+  OwnOrganizationDTO,
   AttemptResultDTO,
   AttemptStateDTO,
   AuthedStudent,
@@ -649,4 +668,128 @@ export const api = {
       `/api/admin/trust/appeals/${encodeURIComponent(appealId)}/action`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  // ─── Phase 7 — Institution workspace ───
+  myOrganizations: () => jsonFetch<MyOrganizationsResponse>('/api/organizations'),
+  createOrganization: (body: {
+    name: string
+    displayName?: string
+    orgType: string
+    description?: string
+    website?: string
+    publicContact?: string
+    country?: string
+    state?: string
+    city?: string
+    logoText?: string
+  }) =>
+    jsonFetch<{ organization: OwnOrganizationDTO }>('/api/organizations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  organizationDetail: (id: string) =>
+    jsonFetch<OrganizationDetailResponse>(`/api/organizations/${encodeURIComponent(id)}`),
+  updateOrganization: (id: string, body: Partial<{ displayName: string; description: string; website: string; publicContact: string; country: string; state: string; city: string; logoText: string }>) =>
+    jsonFetch<{ organization: OwnOrganizationDTO }>(`/api/organizations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  submitOrganization: (id: string) =>
+    jsonFetch<{ organization: OwnOrganizationDTO }>(`/api/organizations/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: '{}',
+    }),
+  organizationDashboard: (id: string) =>
+    jsonFetch<OrgDashboardResponse>(`/api/organizations/${encodeURIComponent(id)}/dashboard`),
+  organizationMembers: (id: string) =>
+    jsonFetch<OrgMembersResponse>(`/api/organizations/${encodeURIComponent(id)}/members`),
+  organizationMemberAction: (
+    orgId: string,
+    memberId: string,
+    body: { action: 'APPROVE_OWNER' | 'APPOINT_ADMIN' | 'SET_ROLE' | 'SUSPEND' | 'REINSTATE' | 'REMOVE'; role?: string; note?: string },
+  ) =>
+    jsonFetch<{ member: MemberDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  organizationInvitations: (id: string) =>
+    jsonFetch<OrgInvitationsResponse>(`/api/organizations/${encodeURIComponent(id)}/invitations`),
+  createInvitation: (
+    id: string,
+    body: { email?: string; intendedRole: string; ttlDays?: number; maxUses?: number },
+  ) =>
+    jsonFetch<{ invitation: InvitationDTO }>(`/api/organizations/${encodeURIComponent(id)}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  acceptInvitation: (token: string) =>
+    jsonFetch<InvitationAcceptResponse>('/api/organizations/invitations/accept', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  organizationGroups: (id: string) =>
+    jsonFetch<OrgGroupsResponse>(`/api/organizations/${encodeURIComponent(id)}/groups`),
+  createOrganizationGroup: (
+    id: string,
+    body: { name: string; academicYear?: string; programmeLabel?: string; batchLabel?: string; sectionLabel?: string; trackLabel?: string; startsAt?: string; endsAt?: string; capacity?: number },
+  ) =>
+    jsonFetch<{ group: GroupDTO }>(`/api/organizations/${encodeURIComponent(id)}/groups`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  enrollMember: (orgId: string, groupId: string, membershipId: string) =>
+    jsonFetch<{ ok: boolean; enrollmentId: string }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
+      { method: 'POST', body: JSON.stringify({ membershipId }) },
+    ),
+  leaveGroup: (orgId: string, groupId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
+      { method: 'DELETE' },
+    ),
+  organizationClasses: (id: string) =>
+    jsonFetch<OrgClassesResponse>(`/api/organizations/${encodeURIComponent(id)}/classes`),
+  organizationAssignments: (id: string) =>
+    jsonFetch<OrgAssignmentsResponse>(`/api/organizations/${encodeURIComponent(id)}/assignments`),
+  createAssignment: (
+    id: string,
+    body: { groupId: string; title: string; instructions?: string; subjectLabel?: string; submissionType?: string; dueAt?: string; maxScore?: number; publish?: boolean },
+  ) =>
+    jsonFetch<{ assignment: AssignmentDTO }>(`/api/organizations/${encodeURIComponent(id)}/assignments`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  assignmentDetail: (assignmentId: string) =>
+    jsonFetch<AssignmentDetailResponse>(`/api/organizations/assignments/${encodeURIComponent(assignmentId)}`),
+  submitAssignment: (
+    assignmentId: string,
+    body: { responseText?: string; externalLink?: string; submit?: boolean },
+  ) =>
+    jsonFetch<{ submission: { id: string; status: string; submittedAt: string | null } }>(
+      `/api/organizations/assignments/${encodeURIComponent(assignmentId)}/submissions`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  gradeSubmission: (
+    assignmentId: string,
+    submissionId: string,
+    body: { gradeValue?: string; teacherFeedback?: string; markReturned?: boolean },
+  ) =>
+    jsonFetch<{ submission: { id: string; status: string; gradedAt: string | null } }>(
+      `/api/organizations/assignments/${encodeURIComponent(assignmentId)}/submissions/${encodeURIComponent(submissionId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  organizationAnnouncements: (id: string) =>
+    jsonFetch<OrgAnnouncementsResponse>(`/api/organizations/${encodeURIComponent(id)}/announcements`),
+  createAnnouncement: (id: string, body: { groupId?: string; title: string; body: string; expiresAt?: string }) =>
+    jsonFetch<{ announcement: AnnouncementDTO }>(`/api/organizations/${encodeURIComponent(id)}/announcements`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  organizationResources: (id: string) =>
+    jsonFetch<OrgResourcesResponse>(`/api/organizations/${encodeURIComponent(id)}/resources`),
+  createResource: (id: string, body: { groupId?: string; title: string; description?: string; url: string }) =>
+    jsonFetch<{ resource: OrgResourceDTO }>(`/api/organizations/${encodeURIComponent(id)}/resources`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }

@@ -31,6 +31,9 @@ import { ClassroomView } from '@/components/bean/views/classroom-view'
 import { AdminTrustView } from '@/components/bean/views/admin-trust-view'
 import { MyReportsView } from '@/components/bean/views/my-reports-view'
 import { TrustPolicyView } from '@/components/bean/views/trust-policy-view'
+// Phase 7 — Institution & Career
+import { InstitutionView } from '@/components/bean/views/institution-view'
+import { InstitutionOrgView } from '@/components/bean/views/institution-org-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
@@ -82,6 +85,9 @@ export default function Page() {
             {route.view === 'admin-trust' && <AdminTrustView />}
             {route.view === 'my-reports' && <MyReportsView />}
             {route.view === 'trust-policy' && <TrustPolicyView />}
+            {/* Phase 7 — Institution & Career */}
+            {route.view === 'institution' && <InstitutionView />}
+            {route.view === 'institution-org' && route.orgId && <InstitutionOrgView orgId={route.orgId} section={route.section} />}
             {route.view === 'auth' && (
               <AuthView
                 onAuthed={(student, mode) => {

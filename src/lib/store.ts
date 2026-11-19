@@ -39,6 +39,18 @@ export type Route =
   | { view: 'admin-trust' }
   | { view: 'my-reports' }
   | { view: 'trust-policy' }
+  // Phase 7 — Institution & Career (additive; every existing route unchanged)
+  | { view: 'institution' }
+  | { view: 'institution-org'; orgId: string; section?: 'overview' | 'members' | 'groups' | 'classes' | 'assignments' | 'resources' | 'reports' }
+  | { view: 'career' }
+  | { view: 'career-profile' }
+  | { view: 'career-portfolio' }
+  | { view: 'career-opportunities' }
+  | { view: 'career-opportunity'; opportunityId: string }
+  | { view: 'career-applications' }
+  | { view: 'career-employer' }
+  | { view: 'admin-organizations' }
+  | { view: 'admin-career' }
   | { view: 'not-found' }
 
 export function parseHash(hash: string): Route {
@@ -108,11 +120,38 @@ export function parseHash(hash: string): Route {
       return parts[1] ? { view: 'classroom', classId: decodeURIComponent(parts[1]) } : { view: 'not-found' }
     // Phase 6 — BEAN Trust & Quality
     case 'admin':
-      return parts[1] === 'trust' ? { view: 'admin-trust' } : { view: 'not-found' }
+      if (parts[1] === 'trust') return { view: 'admin-trust' }
+      if (parts[1] === 'organizations') return { view: 'admin-organizations' }
+      if (parts[1] === 'career') return { view: 'admin-career' }
+      return { view: 'not-found' }
     case 'my-reports':
       return { view: 'my-reports' }
     case 'trust-policy':
       return { view: 'trust-policy' }
+    // Phase 7 — Institution & Career
+    case 'institution':
+      if (!parts[1]) return { view: 'institution' }
+      return {
+        view: 'institution-org',
+        orgId: decodeURIComponent(parts[1]),
+        section: ['overview', 'members', 'groups', 'classes', 'assignments', 'resources', 'reports'].includes(parts[2] ?? '')
+          ? (parts[2] as 'overview' | 'members' | 'groups' | 'classes' | 'assignments' | 'resources' | 'reports')
+          : undefined,
+      }
+    case 'career': {
+      const section = parts[1]
+      if (!section) return { view: 'career' }
+      if (section === 'profile') return { view: 'career-profile' }
+      if (section === 'portfolio') return { view: 'career-portfolio' }
+      if (section === 'opportunities') {
+        return parts[2]
+          ? { view: 'career-opportunity', opportunityId: decodeURIComponent(parts[2]) }
+          : { view: 'career-opportunities' }
+      }
+      if (section === 'applications') return { view: 'career-applications' }
+      if (section === 'employer') return { view: 'career-employer' }
+      return { view: 'not-found' }
+    }
     default:
       return { view: 'not-found' }
   }
@@ -172,6 +211,21 @@ export function routeToHash(route: Route): string {
     case 'admin-trust': return '#/admin/trust'
     case 'my-reports': return '#/my-reports'
     case 'trust-policy': return '#/trust-policy'
+    // Phase 7 — Institution & Career
+    case 'institution': return '#/institution'
+    case 'institution-org': {
+      const base = `#/institution/${encodeURIComponent(route.orgId)}`
+      return route.section ? `${base}/${route.section}` : base
+    }
+    case 'career': return '#/career'
+    case 'career-profile': return '#/career/profile'
+    case 'career-portfolio': return '#/career/portfolio'
+    case 'career-opportunities': return '#/career/opportunities'
+    case 'career-opportunity': return `#/career/opportunities/${encodeURIComponent(route.opportunityId)}`
+    case 'career-applications': return '#/career/applications'
+    case 'career-employer': return '#/career/employer'
+    case 'admin-organizations': return '#/admin/organizations'
+    case 'admin-career': return '#/admin/career'
     default: return '#/'
   }
 }

@@ -938,6 +938,8 @@ export interface PublicClassDTO {
   /** Planned future price in paise — metadata only, never charged in the pilot. */
   plannedPricePaise: number
   status: TeachClassStatus
+  /** Phase 7: PUBLIC | ORGANIZATION | GROUP — private institution classes. */
+  audience: string
   teacher: { id: string; teachingName: string; headline: string }
   createdAt: string
 }
@@ -1320,4 +1322,224 @@ export interface AdminAppealDTO {
 
 export interface AdminTrustAppealsResponse {
   appeals: AdminAppealDTO[]
+}
+
+// ─── Phase 7 — Institution & Career Ecosystem: client DTOs ───────────────────
+// Mirrors the server DTOs (src/lib/institution-dto.ts, src/lib/career-dto.ts).
+// Privacy: member lists carry displayName only; verification admin notes are
+// never sent to clients; snapshots and employer notes never appear in student
+// DTOs.
+
+export type OrgRole =
+  | 'OWNER'
+  | 'ADMIN'
+  | 'INSTRUCTOR'
+  | 'STAFF'
+  | 'LEARNER'
+  | 'CAREER_COORDINATOR'
+  | 'RECRUITER'
+
+export type OrgMembershipStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'LEFT'
+
+export type OrgVerificationStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'SUSPENDED'
+
+export interface PublicOrganizationDTO {
+  id: string
+  name: string
+  displayName: string | null
+  orgType: string
+  description: string | null
+  website: string | null
+  publicContact: string | null
+  country: string | null
+  state: string | null
+  city: string | null
+  slug: string
+  logoText: string | null
+  verificationStatus: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OwnOrganizationDTO extends PublicOrganizationDTO {
+  rejectionReason: string | null
+}
+
+export interface MyMembershipDTO {
+  id: string
+  role: string
+  status: string
+}
+
+export interface MyOrganizationsResponse {
+  organizations: { organization: PublicOrganizationDTO; membership: MyMembershipDTO }[]
+}
+
+export interface OrganizationDetailResponse {
+  organization: OwnOrganizationDTO
+  membership: MyMembershipDTO | null
+}
+
+export interface MemberDTO {
+  id: string
+  role: string
+  status: string
+  student: { displayName: string | null }
+  joinedAt: string | null
+  activatedAt: string | null
+  suspendedAt: string | null
+  leftAt: string | null
+}
+
+export interface OrgMembersResponse {
+  members: MemberDTO[]
+  counts: { total: number; active: number; pending: number; suspended: number }
+}
+
+export interface InvitationDTO {
+  id: string
+  email: string | null
+  intendedRole: string
+  expiresAt: string
+  maxUses: number | null
+  useCount: number
+  acceptedAt: string | null
+  revokedAt: string | null
+  createdAt: string
+  /** Present only in the POST create response — copy-link shown exactly once. */
+  rawToken?: string
+}
+
+export interface OrgInvitationsResponse {
+  invitations: InvitationDTO[]
+}
+
+export interface GroupDTO {
+  id: string
+  name: string
+  academicYear: string | null
+  programmeLabel: string | null
+  batchLabel: string | null
+  sectionLabel: string | null
+  trackLabel: string | null
+  startsAt: string | null
+  endsAt: string | null
+  capacity: number | null
+  status: string
+  activeEnrollmentCount: number
+  createdAt: string
+}
+
+export interface OrgGroupsResponse {
+  groups: GroupDTO[]
+}
+
+export interface OrgDashboardResponse {
+  organization: PublicOrganizationDTO
+  membership: MyMembershipDTO
+  isAdmin: boolean
+  verification: { status: string; operational: boolean }
+  overview: {
+    activeMembers: number
+    pendingMembers: number
+    activeGroups: number
+    upcomingClasses: number
+    publishedAssignments: number
+    openSubmissions: number
+    activeAnnouncements: number
+  }
+}
+
+export interface AssignmentDTO {
+  id: string
+  groupId: string
+  title: string
+  instructions: string | null
+  subjectLabel: string | null
+  submissionType: string
+  status: string
+  dueAt: string | null
+  maxScore: number | null
+  publishedAt: string | null
+  createdAt: string
+}
+
+export interface OrgAssignmentsResponse {
+  assignments: AssignmentDTO[]
+  viewerRole: string
+}
+
+export interface OwnSubmissionDTO {
+  id: string
+  status: string
+  responseText: string | null
+  externalLink: string | null
+  submittedAt: string | null
+  gradeValue: string | null
+  teacherFeedback: string | null
+  gradedAt: string | null
+}
+
+export interface StaffSubmissionDTO extends OwnSubmissionDTO {
+  student: { displayName: string | null }
+}
+
+export interface AssignmentDetailResponse {
+  assignment: AssignmentDTO
+  viewerRole: string
+  mySubmission?: OwnSubmissionDTO | null
+  submissions?: StaffSubmissionDTO[]
+}
+
+export interface AnnouncementDTO {
+  id: string
+  groupId: string | null
+  title: string
+  body: string
+  status: string
+  publishedAt: string | null
+  expiresAt: string | null
+  createdAt: string
+}
+
+export interface OrgAnnouncementsResponse {
+  announcements: AnnouncementDTO[]
+}
+
+export interface OrgResourceDTO {
+  id: string
+  groupId: string | null
+  title: string
+  description: string | null
+  url: string
+  createdAt: string
+}
+
+export interface OrgResourcesResponse {
+  resources: OrgResourceDTO[]
+}
+
+export interface OrgClassRowDTO {
+  id: string
+  title: string
+  subject: string
+  startsAt: string
+  durationMinutes: number
+  audience: string
+  organizationGroupId: string | null
+  teacherName: string
+  status: string
+}
+
+export interface OrgClassesResponse {
+  classes: OrgClassRowDTO[]
+}
+
+export interface InvitationAcceptResponse {
+  ok: boolean
+  membershipId: string
+  organizationName: string
+  role: string
+  status: string
 }
