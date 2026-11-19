@@ -5,8 +5,13 @@
 // visibility control. The adult-eligibility state is shown truthfully — the
 // review is performed by BEAN administrators, and until it is APPROVED the
 // server blocks discovery and applications regardless of what the UI shows.
+//
+// Save flow guarantees: field values are held in state and are never reset on
+// a failed save (recoverable failures preserve the user's work); errors are
+// shown inline next to the save button; success feedback appears only after
+// the server confirms; a dirty-state badge flags unconfirmed edits.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,13 +23,27 @@ import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { CareerProfileResponse, CareerEligibilityClientDTO } from '@/lib/types'
 import { toast } from '@/hooks/use-toast'
-import { ArrowLeft, Eye, EyeOff, Loader2, PauseCircle, ShieldCheck } from 'lucide-react'
+import {
+  careerProfileIsDirty, eligibilityHumanLabel, eligibilityBadgeClass,
+  formatCareerDate, visibilityDescription,
+} from '@/lib/career-ui'
+import { ArrowLeft, Check, Copy, Eye, EyeOff, Loader2, PauseCircle, ShieldCheck } from 'lucide-react'
 
 const VISIBILITY_OPTIONS = [
   { value: 'PRIVATE', label: 'Private — only you can see this' },
   { value: 'DISCOVERABLE', label: 'Discoverable — verified employers may find me' },
   { value: 'PAUSED', label: 'Paused — hidden from discovery, choice kept' },
 ]
+
+interface SavedFormValues {
+  headline: string
+  summary: string
+  preferredRoleTypes: string
+  preferredSkills: string
+  preferredLocations: string
+  workModes: string
+  visibility: string
+}
 
 export function CareerProfileView() {
   const navigate = useAppStore(s => s.navigate)
@@ -42,6 +61,22 @@ export function CareerProfileView() {
   const [visibility, setVisibility] = useState('PRIVATE')
   const [eligibility, setEligibility] = useState<CareerEligibilityClientDTO | null>(null)
   const [busy, setBusy] = useState(false)
+  // Last server-confirmed form values — the baseline for the dirty indicator
+  // and the source of truth preserved across recoverable failures.
+  const [savedValues, setSavedValues] = useState<SavedFormValues | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [copiedSlug, setCopiedSlug] = useState(false)
+
+  const readFormValues = (res: CareerProfileResponse): SavedFormValues => ({
+    headline: res.profile.headline ?? '',
+    summary: res.profile.summary ?? '',
+    preferredRoleTypes: res.profile.preferredRoleTypes.join(', '),
+    preferredSkills: res.profile.preferredSkills.join(', '),
+    preferredLocations: res.profile.preferredLocations.join(', '),
+    workModes: res.profile.workModes.join(', '),
+    visibility: res.profile.visibility,
+  })
 
   const load = useCallback(() => {
     setData(null)
@@ -56,6 +91,8 @@ export function CareerProfileView() {
         setLocations(res.profile.preferredLocations.join(', '))
         setWorkModes(res.profile.workModes.join(', '))
         setVisibility(res.profile.visibility)
+        setSavedValues(readFormValues(res))
+        setSaveError(null)
         setEligibility(res.eligibility)
       })
       .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load your career profile.'))
@@ -67,8 +104,17 @@ export function CareerProfileView() {
     return () => clearTimeout(t)
   }, [authChecked, authedStudent, load])
 
+  const isDirty = useMemo(
+    () => careerProfileIsDirty(
+      { headline, summary, preferredRoleTypes, preferredSkills, preferredLocations, workModes, visibility },
+      savedValues,
+    ),
+    [headline, summary, preferredRoleTypes, preferredSkills, preferredLocations, workModes, visibility, savedValues],
+  )
+
   const save = async () => {
     setBusy(true)
+    setSaveError(null)
     try {
       const res = await api.saveCareerProfile({
         headline: headline.trim() || undefined,
@@ -79,10 +125,25 @@ export function CareerProfileView() {
         workModes: workModes.split(',').map(s => s.trim()).filter(Boolean),
         visibility,
       })
-      toast({ title: 'Career profile saved' })
+      // Server confirmed — update the authoritative snapshot and feedback.
       setData(d => (d ? { ...d, profile: res.profile } : d))
+      const confirmed: SavedFormValues = {
+        headline: res.profile.headline ?? '',
+        summary: res.profile.summary ?? '',
+        preferredRoleTypes: res.profile.preferredRoleTypes.join(', '),
+        preferredSkills: res.profile.preferredSkills.join(', '),
+        preferredLocations: res.profile.preferredLocations.join(', '),
+        workModes: res.profile.workModes.join(', '),
+        visibility: res.profile.visibility,
+      }
+      setSavedValues(confirmed)
+      setSavedAt(new Date().toISOString())
+      toast({ title: 'Career profile saved' })
     } catch (e) {
-      toast({ title: 'Could not save', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+      // Recoverable failure: keep every field value exactly as typed.
+      const message = e instanceof Error ? e.message : 'Please try again.'
+      setSaveError(message)
+      toast({ title: 'Could not save', description: message, variant: 'destructive' })
     } finally {
       setBusy(false)
     }
@@ -101,6 +162,18 @@ export function CareerProfileView() {
     }
   }
 
+  const copySlug = async () => {
+    const slug = data?.profile.publicSlug
+    if (!slug) return
+    try {
+      await navigator.clipboard.writeText(slug)
+      setCopiedSlug(true)
+      setTimeout(() => setCopiedSlug(false), 2000)
+    } catch {
+      toast({ title: 'Clipboard unavailable — select the slug and copy it manually.', variant: 'destructive' })
+    }
+  }
+
   if (!authChecked) {
     return <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-label="Loading"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
   }
@@ -112,11 +185,7 @@ export function CareerProfileView() {
     )
   }
 
-  const eligibilityBadge = (status: string) =>
-    status === 'APPROVED' ? 'border-success/40 bg-success/10 text-success'
-      : status === 'PENDING_REVIEW' ? 'border-gold/40 bg-gold/10 text-gold'
-        : status === 'DENIED' ? 'border-destructive/40 bg-destructive/10 text-destructive'
-          : 'border-border bg-elevated text-muted-foreground'
+  const firstTime = !!data && !data.profile.headline && !data.profile.summary && data.profile.preferredSkills.length === 0
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -133,6 +202,19 @@ export function CareerProfileView() {
         <div className="mt-8 flex min-h-[30vh] items-center justify-center" role="status" aria-label="Loading profile"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
       ) : (
         <div className="mt-8 space-y-6">
+          {/* First-time onboarding — honest hints, no placeholder metrics */}
+          {firstTime ? (
+            <div className="rounded-xl border border-gold/30 bg-gold/5 p-5">
+              <h2 className="font-display text-base font-semibold text-foreground">Welcome — this profile starts empty</h2>
+              <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                <li>1. Write a one-line headline that says what you are aiming for.</li>
+                <li>2. Add your preferred roles, skills and locations so future applications are quick to assemble.</li>
+                <li>3. Build your portfolio (skills, projects, credentials) on the portfolio page.</li>
+              </ul>
+              <p className="mt-2 text-xs text-muted-foreground">Nothing is shared until you explicitly choose to — the profile is Private right now.</p>
+            </div>
+          ) : null}
+
           {/* Visibility + eligibility */}
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -144,12 +226,13 @@ export function CareerProfileView() {
                     {VISIBILITY_OPTIONS.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">{visibilityDescription(visibility)}</p>
               </div>
               <div className="text-sm">
                 <p className="text-xs text-muted-foreground">Adult-eligibility (safeguarding)</p>
                 <div className="mt-1 flex items-center gap-2">
-                  <Badge variant="outline" className={eligibilityBadge(eligibility?.status ?? 'NOT_ELIGIBLE')}>
-                    {(eligibility?.status ?? 'NOT_ELIGIBLE').replace('_', ' ').toLowerCase()}
+                  <Badge variant="outline" className={eligibilityBadgeClass(eligibility?.status ?? 'NOT_ELIGIBLE')}>
+                    {eligibilityHumanLabel(eligibility?.status ?? 'NOT_ELIGIBLE')}
                   </Badge>
                   {eligibility?.status === 'NOT_ELIGIBLE' || eligibility?.status === 'DENIED' ? (
                     <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" disabled={busy} onClick={requestReview}>
@@ -157,16 +240,32 @@ export function CareerProfileView() {
                     </Button>
                   ) : null}
                 </div>
+                {eligibility?.status === 'PENDING_REVIEW' && eligibility.requestedAt ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Requested {formatCareerDate(eligibility.requestedAt) ?? ''} — a BEAN administrator decides.</p>
+                ) : null}
                 {eligibility?.status === 'DENIED' && eligibility.decisionReason ? (
                   <p className="mt-1 text-xs text-muted-foreground">Reason: {eligibility.decisionReason}</p>
                 ) : null}
               </div>
             </div>
-            {visibility === 'DISCOVERABLE' && eligibility?.status !== 'APPROVED' ? (
+            {visibility === 'DISCOVERABLE' && eligibility?.status === 'NOT_ELIGIBLE' ? (
               <p className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3 text-xs text-muted-foreground">
                 <Eye className="mr-1 inline h-3.5 w-3.5 text-gold" aria-hidden />
-                Discovery stays off until your adult-eligibility review is approved — a server-side safeguard, not a UI
-                preference. Private planning and portfolio building remain fully available.
+                You have not requested an adult-eligibility review yet. Discovery stays off until BEAN approves one — a
+                server-side safeguard, not a UI preference. Private planning and portfolio building remain fully available.
+              </p>
+            ) : null}
+            {visibility === 'DISCOVERABLE' && eligibility?.status === 'PENDING_REVIEW' ? (
+              <p className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3 text-xs text-muted-foreground">
+                <Eye className="mr-1 inline h-3.5 w-3.5 text-gold" aria-hidden />
+                Your review is pending with BEAN administrators. Discovery stays off until it is approved — the server
+                enforces this independently of this screen.
+              </p>
+            ) : null}
+            {visibility === 'DISCOVERABLE' && eligibility?.status === 'DENIED' ? (
+              <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-muted-foreground">
+                <EyeOff className="mr-1 inline h-3.5 w-3.5 text-destructive" aria-hidden />
+                Your adult-eligibility review was denied. Discovery stays off. You can request a new review at any time.
               </p>
             ) : null}
             {visibility === 'DISCOVERABLE' && eligibility?.status === 'APPROVED' ? (
@@ -174,6 +273,15 @@ export function CareerProfileView() {
                 <Eye className="mr-1 inline h-3.5 w-3.5 text-success" aria-hidden />
                 Verified employers can find the fields you marked discoverable. Pausing hides you instantly at any time.
               </p>
+            ) : null}
+            {visibility === 'DISCOVERABLE' && data.profile.publicSlug ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-elevated px-3 py-2">
+                <span className="text-xs text-muted-foreground">Public slug</span>
+                <code className="break-all text-xs text-foreground">{data.profile.publicSlug}</code>
+                <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:text-foreground" onClick={() => void copySlug()}>
+                  <Copy className="mr-1 h-3.5 w-3.5" aria-hidden /> {copiedSlug ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
             ) : null}
           </div>
 
@@ -183,10 +291,12 @@ export function CareerProfileView() {
               <div className="grid gap-2">
                 <Label htmlFor="cp-headline">Headline</Label>
                 <Input id="cp-headline" value={headline} onChange={e => setHeadline(e.target.value)} maxLength={120} placeholder="Aspiring CA with financial-analysis projects" />
+                {!headline ? <p className="text-xs text-muted-foreground">Start with one line that says what you are aiming for — it is the first thing a discovered employer reads.</p> : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="cp-summary">Summary</Label>
                 <Textarea id="cp-summary" rows={4} value={summary} onChange={e => setSummary(e.target.value)} maxLength={2000} />
+                {!summary ? <p className="text-xs text-muted-foreground">A short honest overview: what you are studying, what you have built, what you want next.</p> : null}
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
@@ -206,11 +316,20 @@ export function CareerProfileView() {
                   <Input id="cp-modes" value={workModes} onChange={e => setWorkModes(e.target.value)} placeholder="Onsite, Hybrid" />
                 </div>
               </div>
-              <div>
+              <div className="flex flex-wrap items-center gap-3">
                 <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={save}>
                   {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Save profile
                 </Button>
+                {isDirty && !busy ? <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold">Unsaved changes</Badge> : null}
+                {!isDirty && savedAt && !busy ? (
+                  <span className="flex items-center gap-1 text-xs text-success"><Check className="h-3.5 w-3.5" aria-hidden /> Saved {formatCareerDate(savedAt)}</span>
+                ) : null}
               </div>
+              {saveError ? (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+                  Could not save: {saveError} Your edits are still here — try again.
+                </p>
+              ) : null}
             </div>
           </div>
 
