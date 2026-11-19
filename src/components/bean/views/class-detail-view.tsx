@@ -117,6 +117,11 @@ export function ClassDetailView({ classId }: { classId: string }) {
             <Badge variant="outline" className="border-gold/40 text-gold">{cls.subject}</Badge>
             <Badge variant="outline" className="border-border text-muted-foreground">{TEACH_LEVEL_LABELS[cls.targetLevel] ?? cls.targetLevel}</Badge>
             <Badge variant="outline" className="border-border text-muted-foreground">{cls.language}</Badge>
+            {cls.audience !== 'PUBLIC' && (
+              <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold" title="Only eligible institution members can see or book this class">
+                Members only
+              </Badge>
+            )}
             {isCancelled && <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">Cancelled</Badge>}
             {cls.status === 'COMPLETED' && <Badge variant="outline" className="border-border text-muted-foreground">Completed</Badge>}
             {!isCancelled && cls.status === 'PUBLISHED' && !ended && (

@@ -298,11 +298,16 @@ function ClassCard({ cls, onOpen }: { cls: PublicClassDTO; onOpen: () => void })
     >
       <div className="flex items-start justify-between gap-2">
         <Badge variant="outline" className="border-gold/40 text-gold">{cls.subject}</Badge>
-        {full ? (
-          <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">Full</Badge>
-        ) : (
-          <Badge variant="outline" className="border-success/40 bg-success/10 text-success">Free pilot</Badge>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {cls.audience !== 'PUBLIC' && (
+            <Badge variant="outline" className="border-gold/40 bg-gold/10 text-gold" title="Only eligible institution members can see or book this class">Members only</Badge>
+          )}
+          {full ? (
+            <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">Full</Badge>
+          ) : (
+            <Badge variant="outline" className="border-success/40 bg-success/10 text-success">Free pilot</Badge>
+          )}
+        </div>
       </div>
       <h3 className="mt-3 font-display text-base font-semibold leading-snug text-foreground">{cls.title}</h3>
       <p className="mt-1 text-sm text-muted-foreground">by {cls.teacher.teachingName}</p>

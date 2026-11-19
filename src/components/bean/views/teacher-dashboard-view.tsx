@@ -31,7 +31,7 @@ import { TeacherLiveClassButton } from '@/components/bean/classroom/classroom-en
 import { RatingStars } from '@/components/bean/trust/quality-metrics'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
-import type { LiveEvidenceDTO, MyClassDTO, TeachApplicationDTO, TeachOwnerBookingDTO, TeacherTrustSummaryResponse } from '@/lib/types'
+import type { GroupDTO, LiveEvidenceDTO, MyClassDTO, TeachApplicationDTO, TeachOwnerBookingDTO, TeacherTrustSummaryResponse } from '@/lib/types'
 import {
   COMMON_TIMEZONES,
   FREE_PILOT_PRICE_LABEL,
@@ -62,6 +62,11 @@ interface ClassForm {
   capacity: string
   minimumStudents: string
   plannedPriceRupees: string
+  // Phase 7 — audience: PUBLIC | ORGANIZATION | GROUP (create only; an
+  // existing class's audience is fixed at creation and never edited here).
+  audience: string
+  organizationId: string
+  organizationGroupId: string
 }
 
 function emptyClassForm(): ClassForm {
@@ -81,6 +86,9 @@ function emptyClassForm(): ClassForm {
     capacity: '10',
     minimumStudents: '1',
     plannedPriceRupees: '',
+    audience: 'PUBLIC',
+    organizationId: '',
+    organizationGroupId: '',
   }
 }
 
@@ -102,6 +110,9 @@ function classFormFromClass(cls: MyClassDTO): ClassForm {
     capacity: String(cls.capacity),
     minimumStudents: String(cls.minimumStudents),
     plannedPriceRupees: cls.plannedPricePaise > 0 ? String(cls.plannedPricePaise / 100) : '',
+    // The owning org/group ids are not exposed on the teacher's own-class DTO;
+    // audience is display-only while editing (the server never changes it).
+    audience: cls.audience ?? 'PUBLIC',
   }
 }
 
@@ -756,14 +767,61 @@ function ClassFormPanel({
     capacity: number
     minimumStudents: number
     plannedPricePaise?: number
+    // Phase 7 — audience fields. Only set (and only sent) when the teacher
+    // picks a private audience during CREATE; the PUBLIC flow is unchanged.
+    audience?: 'PUBLIC' | 'ORGANIZATION' | 'GROUP'
+    organizationId?: string
+    organizationGroupId?: string
   }) => Promise<void>
 }) {
   const [form, setForm] = useState<ClassForm>(initial ?? emptyClassForm())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Approved orgs where the teacher holds an instructor-level membership
+  // (OWNER/ADMIN/INSTRUCTOR) — only these can own a private class.
+  const [orgOptions, setOrgOptions] = useState<{ id: string; label: string }[] | null>(null)
+  const [groupOptions, setGroupOptions] = useState<GroupDTO[]>([])
 
+  const isEdit = !!initial
   const set = <K extends keyof ClassForm>(key: K, value: ClassForm[K]) => setForm(f => ({ ...f, [key]: value }))
   const durationMinutes = (Number.parseInt(form.durationHours, 10) || 0) * 60 + (Number.parseInt(form.durationMinutesPart, 10) || 0)
+
+  // Load the teacher's eligible organizations once a private audience is picked
+  // in create mode. `null` while loading; `[]` = no approved org membership.
+  useEffect(() => {
+    if (isEdit || form.audience === 'PUBLIC') return
+    let cancelled = false
+    api.myOrganizations()
+      .then(res => {
+        if (cancelled) return
+        const eligible = res.organizations
+          .filter(o =>
+            ['OWNER', 'ADMIN', 'INSTRUCTOR'].includes(o.membership.role) &&
+            o.membership.status === 'ACTIVE' &&
+            o.organization.verificationStatus === 'APPROVED')
+          .map(o => ({ id: o.organization.id, label: o.organization.displayName || o.organization.name }))
+        setOrgOptions(eligible)
+      })
+      .catch(() => { if (!cancelled) setOrgOptions([]) })
+    return () => { cancelled = true }
+  }, [isEdit, form.audience])
+
+  // Group audience additionally needs the org's active groups.
+  useEffect(() => {
+    if (form.audience !== 'GROUP' || !form.organizationId) {
+      setGroupOptions([])
+      return
+    }
+    let cancelled = false
+    const t = setTimeout(() => {
+      api.organizationGroups(form.organizationId)
+        .then(res => { if (!cancelled) setGroupOptions(res.groups.filter(g => g.status === 'ACTIVE')) })
+        .catch(() => { if (!cancelled) setGroupOptions([]) })
+    }, 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [form.audience, form.organizationId])
+
+  const noEligibleOrgs = orgOptions !== null && orgOptions.length === 0
 
   const submit = async () => {
     setBusy(true)
@@ -771,9 +829,14 @@ function ClassFormPanel({
     try {
       const startsAtLocal = form.startsAtLocal
       if (!startsAtLocal) throw new Error('Pick a date and time for the class.')
+      const audience = form.audience as 'PUBLIC' | 'ORGANIZATION' | 'GROUP'
+      if (!isEdit && audience !== 'PUBLIC') {
+        if (!form.organizationId) throw new Error('Pick the organization that owns this class.')
+        if (audience === 'GROUP' && !form.organizationGroupId) throw new Error('Pick the group this class is visible to.')
+      }
       const startsAtIso = new Date(startsAtLocal).toISOString()
       const priceRupees = Number.parseFloat(form.plannedPriceRupees)
-      await onSubmit({
+      const payload: Parameters<typeof onSubmit>[0] = {
         title: form.title.trim(),
         description: form.description.trim(),
         subject: form.subject.trim(),
@@ -785,7 +848,15 @@ function ClassFormPanel({
         capacity: Number.parseInt(form.capacity, 10),
         minimumStudents: Number.parseInt(form.minimumStudents, 10),
         plannedPricePaise: form.plannedPriceRupees.trim() && !Number.isNaN(priceRupees) ? Math.round(priceRupees * 100) : 0,
-      })
+      }
+      // PUBLIC stays byte-identical to the pre-Phase-7 payload; private
+      // audiences add exactly the fields the teach schema validates.
+      if (!isEdit && audience !== 'PUBLIC') {
+        payload.audience = audience
+        payload.organizationId = form.organizationId
+        if (audience === 'GROUP') payload.organizationGroupId = form.organizationGroupId
+      }
+      await onSubmit(payload)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the class.')
     } finally {
@@ -794,6 +865,13 @@ function ClassFormPanel({
   }
 
   const invalidDuration = durationMinutes < 60 || durationMinutes > 360 || durationMinutes % 30 !== 0
+
+  const audienceExplanation =
+    form.audience === 'PUBLIC'
+      ? 'Visible in the public BEAN Teach marketplace — anyone browsing classes can find and reserve it.'
+      : form.audience === 'ORGANIZATION'
+        ? 'Visible to eligible members of your organization only — never listed in the public marketplace. Booking re-checks membership on the server.'
+        : 'Visible to eligible members of the selected group only — never listed publicly. Booking additionally requires an active enrollment in that group.'
 
   return (
     <div className="grid gap-4">
@@ -824,6 +902,75 @@ function ClassFormPanel({
           <Input id="c-language" value={form.language} onChange={e => set('language', e.target.value)} maxLength={30} />
         </div>
       </div>
+
+      {/* Phase 7 — audience. Fixed at creation; shown read-only while editing. */}
+      {isEdit ? (
+        <div className="grid gap-1.5">
+          <Label>Audience</Label>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className={form.audience === 'PUBLIC' ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold'}>
+              {form.audience === 'PUBLIC' ? 'Public marketplace' : form.audience === 'ORGANIZATION' ? 'Organization members only' : 'Group members only'}
+            </Badge>
+            <span className="text-xs text-muted-foreground">Audience is fixed at creation and cannot be changed.</span>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-1.5">
+          <Label>Audience</Label>
+          <Select
+            value={form.audience}
+            onValueChange={v => setForm(f => ({
+              ...f,
+              audience: v,
+              organizationId: v === 'PUBLIC' ? '' : f.organizationId,
+              organizationGroupId: v === 'GROUP' ? f.organizationGroupId : '',
+            }))}
+          >
+            <SelectTrigger aria-label="Class audience"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="PUBLIC">Public — BEAN Teach marketplace</SelectItem>
+              <SelectItem value="ORGANIZATION" disabled={noEligibleOrgs}>Organization — your institution&apos;s members</SelectItem>
+              <SelectItem value="GROUP" disabled={noEligibleOrgs}>Group — selected batch members only</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{audienceExplanation}</p>
+          {noEligibleOrgs ? (
+            <p className="text-xs text-muted-foreground" role="note">
+              You have no approved organization where you hold an instructor-level membership — public classes remain available.
+            </p>
+          ) : null}
+          {form.audience !== 'PUBLIC' && orgOptions === null ? (
+            <p className="flex items-center text-xs text-muted-foreground" role="status"><Loader2 className="mr-2 h-3 w-3 animate-spin text-gold" aria-hidden /> Loading your organizations…</p>
+          ) : null}
+          {form.audience !== 'PUBLIC' && orgOptions !== null && orgOptions.length > 0 ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="c-org">Owning organization</Label>
+              <Select value={form.organizationId} onValueChange={v => setForm(f => ({ ...f, organizationId: v, organizationGroupId: '' }))}>
+                <SelectTrigger id="c-org" aria-label="Owning organization"><SelectValue placeholder="Pick your organization" /></SelectTrigger>
+                <SelectContent>
+                  {orgOptions.map(o => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          {form.audience === 'GROUP' && form.organizationId ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="c-group">Group</Label>
+              {groupOptions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">This organization has no active groups yet — create one in the institution workspace first.</p>
+              ) : (
+                <Select value={form.organizationGroupId} onValueChange={v => set('organizationGroupId', v)}>
+                  <SelectTrigger id="c-group" aria-label="Owning group"><SelectValue placeholder="Pick the group" /></SelectTrigger>
+                  <SelectContent>
+                    {groupOptions.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="grid gap-1.5">
           <Label>Duration</Label>
