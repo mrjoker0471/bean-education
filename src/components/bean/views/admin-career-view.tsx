@@ -2,10 +2,12 @@
 
 // ─── Phase 7 — Admin career (#/admin/career) ─────────────────────────────────
 // Opportunity moderation queue (approve publication / reject with required
-// reason / pause unsafe listings), career safety reports (private
-// investigation notes; a report NEVER auto-suspends — pausing a listing is an
-// explicit recorded action), and adult-eligibility reviews (privacy-minimizing
-// safeguarding: no identity documents are collected anywhere).
+// reason / pause unsafe listings / resume paused listings), career safety
+// reports (private investigation notes; a report NEVER auto-suspends —
+// pausing a listing is an explicit recorded action), and adult-eligibility
+// reviews (privacy-minimizing safeguarding: no identity documents are
+// collected anywhere). Every consequential action is confirmed in a dialog
+// and only applied after the server confirms it.
 
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -20,7 +22,7 @@ import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { AdminCareerReportRow, AdminEligibilityRow, PublicOpportunityClientDTO } from '@/lib/types'
 import { toast } from '@/hooks/use-toast'
-import { Briefcase, ClipboardCheck, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { Briefcase, ClipboardCheck, Loader2, Search, ShieldAlert, ShieldCheck } from 'lucide-react'
 
 const STATUS_BADGE: Record<string, string> = {
   DRAFT: 'border-border bg-elevated text-muted-foreground',
@@ -59,7 +61,7 @@ export function AdminCareerView() {
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">BEAN Admin</p>
-      <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Career trust & moderation</h1>
+      <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Career trust &amp; moderation</h1>
 
       <Tabs value={tab} onValueChange={v => setTab(v as 'opportunities' | 'reports' | 'eligibility')} className="mt-6">
         <TabsList className="bg-elevated">
@@ -79,12 +81,16 @@ export function AdminCareerView() {
 }
 
 // ─── Opportunity moderation ──────────────────────────────────────────────────
+// Server transition map (see moderation route): PUBLISHED ← PENDING_REVIEW/PAUSED,
+// REJECTED ← PENDING_REVIEW, PAUSED ← PUBLISHED, CLOSED ← PUBLISHED/PENDING_REVIEW/
+// DRAFT/PAUSED. Only transitions the map allows get buttons; rejected and closed
+// rows are terminal here, so they render no actions.
 
 function ModerationPanel() {
   const [status, setStatus] = useState('PENDING_REVIEW')
   const [data, setData] = useState<PublicOpportunityClientDTO[] | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  const [decision, setDecision] = useState<{ op: PublicOpportunityClientDTO; action: 'APPROVE' | 'REJECT' | 'PAUSE' | 'CLOSE' } | null>(null)
+  const [decision, setDecision] = useState<{ op: PublicOpportunityClientDTO; action: 'APPROVE' | 'REJECT' | 'PAUSE' | 'CLOSE' | 'RESUME' } | null>(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -105,7 +111,10 @@ function ModerationPanel() {
     setBusy(true)
     try {
       await api.adminOpportunityModeration(decision.op.id, { action: decision.action, reason: reason.trim() || undefined })
-      toast({ title: 'Moderation decision recorded' })
+      toast({
+        title: decision.action === 'RESUME' ? 'Listing republished' : 'Moderation decision recorded',
+        description: decision.action === 'RESUME' ? `"${decision.op.title}" is publicly visible again.` : undefined,
+      })
       setDecision(null); setReason('')
       load(status)
     } catch (e) {
@@ -138,16 +147,17 @@ function ModerationPanel() {
           {data.map(o => (
             <li key={o.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <h2 className="font-display text-base font-semibold text-foreground">{o.title}</h2>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {o.organization.displayName || o.organization.name} · {o.opportunityType.toLowerCase()}{o.location ? ` · ${o.location}` : ''}
                   </p>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{o.description}</p>
+                  {o.publishedAt ? <p className="mt-1 text-xs text-muted-foreground">Published {new Date(o.publishedAt).toLocaleDateString()}</p> : null}
                 </div>
                 <Badge variant="outline" className={STATUS_BADGE[o.status] ?? 'border-border text-muted-foreground'}>{o.status.replace('_', ' ').toLowerCase()}</Badge>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {o.status === 'PENDING_REVIEW' ? (
                   <>
                     <Button size="sm" className="bg-success/90 text-white hover:bg-success" onClick={() => setDecision({ op: o, action: 'APPROVE' })}>Approve publication</Button>
@@ -160,6 +170,15 @@ function ModerationPanel() {
                     <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setDecision({ op: o, action: 'CLOSE' })}>Close</Button>
                   </>
                 ) : null}
+                {o.status === 'PAUSED' ? (
+                  <>
+                    <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => setDecision({ op: o, action: 'RESUME' })}>Resume</Button>
+                    <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setDecision({ op: o, action: 'CLOSE' })}>Close</Button>
+                  </>
+                ) : null}
+                {o.status === 'REJECTED' ? (
+                  <p className="text-xs text-muted-foreground">No admin actions — a rejected listing goes back to the organization for revision and resubmission.</p>
+                ) : null}
               </div>
             </li>
           ))}
@@ -169,13 +188,21 @@ function ModerationPanel() {
       <Dialog open={!!decision} onOpenChange={o => !o && !busy && setDecision(null)}>
         <DialogContent className="max-w-md border-border bg-card">
           <DialogHeader>
-            <DialogTitle className="font-display text-foreground">Moderation decision</DialogTitle>
-            <DialogDescription className="text-muted-foreground">Rejections and pauses require a written reason (10+ characters) — recorded in the career audit history.</DialogDescription>
+            <DialogTitle className="font-display text-foreground">
+              {decision?.action === 'RESUME' ? 'Republish this listing publicly?' : 'Moderation decision'}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {decision?.action === 'RESUME'
+                ? `"${decision.op.title}" will be publicly visible to approved students again. The resume is recorded in the career audit history.`
+                : 'Rejections and pauses require a written reason (10+ characters) — recorded in the career audit history.'}
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="mod-reason">Reason / note</Label>
-            <Textarea id="mod-reason" rows={3} value={reason} onChange={e => setReason(e.target.value)} maxLength={1000} />
-          </div>
+          {decision?.action !== 'RESUME' ? (
+            <div className="grid gap-2">
+              <Label htmlFor="mod-reason">Reason / note</Label>
+              <Textarea id="mod-reason" rows={3} value={reason} onChange={e => setReason(e.target.value)} maxLength={1000} />
+            </div>
+          ) : null}
           <DialogFooter>
             <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={() => setDecision(null)}>Cancel</Button>
             <Button
@@ -183,7 +210,8 @@ function ModerationPanel() {
               disabled={busy || ((decision?.action === 'REJECT' || decision?.action === 'PAUSE') && reason.trim().length < 10)}
               onClick={decide}
             >
-              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Record decision
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+              {decision?.action === 'RESUME' ? 'Republish listing' : 'Record decision'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -193,12 +221,16 @@ function ModerationPanel() {
 }
 
 // ─── Safety reports ──────────────────────────────────────────────────────────
+// Server rules (see action route): OPEN/UNDER_REVIEW accept every action;
+// RESOLVED/DISMISSED are terminal and frozen server-side (409) — closed
+// reports render no buttons. A report never auto-suspends anything.
 
 function ReportsPanel() {
+  const navigate = useAppStore(s => s.navigate)
   const [status, setStatus] = useState('OPEN')
   const [data, setData] = useState<AdminCareerReportRow[] | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  const [action, setAction] = useState<{ report: AdminCareerReportRow; kind: 'ACKNOWLEDGE' | 'RESOLVE' | 'DISMISS' | 'PAUSE_OPPORTUNITY' } | null>(null)
+  const [action, setAction] = useState<{ report: AdminCareerReportRow; kind: 'ACKNOWLEDGE' | 'INVESTIGATE' | 'RESOLVE' | 'DISMISS' | 'PAUSE_OPPORTUNITY' } | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -219,7 +251,14 @@ function ReportsPanel() {
     setBusy(true)
     try {
       const res = await api.adminCareerReportAction(action.report.id, { action: action.kind, note: note.trim() || undefined })
-      toast({ title: res.opportunityPaused ? 'Listing paused — recorded decision' : 'Report action recorded' })
+      if (action.kind === 'PAUSE_OPPORTUNITY') {
+        toast({
+          title: res.opportunityPaused ? 'Listing paused — decision recorded' : 'Decision recorded — the targeted listing was not live',
+          description: res.opportunityPaused ? 'The reported opportunity is hidden pending review.' : 'Nothing was paused; the report action itself is recorded.',
+        })
+      } else {
+        toast({ title: 'Report action recorded' })
+      }
       setAction(null); setNote('')
       load(status)
     } catch (e) {
@@ -252,32 +291,53 @@ function ReportsPanel() {
           {data.map(r => (
             <li key={r.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <h2 className="font-display text-base font-semibold text-foreground">{r.subject}</h2>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {r.category.replace(/_/g, ' ').toLowerCase()} · {r.targetType.toLowerCase()} · filed {new Date(r.createdAt).toLocaleDateString()}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{r.description}</p>
+                  <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">reporter ref {r.reporterId} · target ref {r.targetId}</p>
+                  {r.targetType === 'OPPORTUNITY' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="mt-1 h-7 px-2 text-xs text-gold hover:bg-gold/10 hover:text-gold"
+                      onClick={() => navigate({ view: 'career-opportunity', opportunityId: r.targetId })}
+                    >
+                      View reported listing
+                    </Button>
+                  ) : null}
+                  {r.assignedAdminId ? <p className="mt-1 text-xs text-muted-foreground">Assigned admin {r.assignedAdminId}</p> : null}
                   {r.resolutionNote ? <p className="mt-1 text-xs text-muted-foreground">Resolution note: {r.resolutionNote}</p> : null}
+                  {r.resolvedAt ? <p className="mt-1 text-xs text-muted-foreground">Closed {new Date(r.resolvedAt).toLocaleDateString()}</p> : null}
                 </div>
                 <Badge variant="outline" className={STATUS_BADGE[r.status] ?? 'border-border text-muted-foreground'}>{r.status.replace('_', ' ').toLowerCase()}</Badge>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {r.status === 'OPEN' ? (
-                  <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setAction({ report: r, kind: 'ACKNOWLEDGE' })}>
-                    <ClipboardCheck className="mr-1 h-3.5 w-3.5" aria-hidden /> Start review
-                  </Button>
+                  <>
+                    <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setAction({ report: r, kind: 'ACKNOWLEDGE' })}>
+                      <ClipboardCheck className="mr-1 h-3.5 w-3.5" aria-hidden /> Start review
+                    </Button>
+                    <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setAction({ report: r, kind: 'INVESTIGATE' })}>
+                      <Search className="mr-1 h-3.5 w-3.5" aria-hidden /> Investigate
+                    </Button>
+                  </>
                 ) : null}
                 {r.targetType === 'OPPORTUNITY' && ['OPEN', 'UNDER_REVIEW'].includes(r.status) ? (
                   <Button size="sm" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={() => setAction({ report: r, kind: 'PAUSE_OPPORTUNITY' })}>
                     Pause listing (with reason)
                   </Button>
                 ) : null}
-                {r.status === 'UNDER_REVIEW' ? (
+                {['OPEN', 'UNDER_REVIEW'].includes(r.status) ? (
                   <>
                     <Button size="sm" className="bg-success/90 text-white hover:bg-success" onClick={() => setAction({ report: r, kind: 'RESOLVE' })}>Resolve</Button>
                     <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setAction({ report: r, kind: 'DISMISS' })}>Dismiss</Button>
                   </>
+                ) : null}
+                {['RESOLVED', 'DISMISSED'].includes(r.status) ? (
+                  <p className="text-xs text-muted-foreground">This report is closed — its decision is final and server-frozen.</p>
                 ) : null}
               </div>
             </li>
@@ -286,7 +346,7 @@ function ReportsPanel() {
       )}
 
       <Dialog open={!!action} onOpenChange={o => !o && !busy && setAction(null)}>
-        <DialogContent className="max-w-md border-border bg-card">
+        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto border-border bg-card">
           <DialogHeader>
             <DialogTitle className="font-display text-foreground">Record a human decision</DialogTitle>
             <DialogDescription className="text-muted-foreground">
@@ -315,6 +375,8 @@ function ReportsPanel() {
 }
 
 // ─── Adult eligibility ───────────────────────────────────────────────────────
+// Server rule (see decision route): APPROVED/DENIED reviews are frozen (409),
+// so only PENDING_REVIEW rows render decision buttons.
 
 function EligibilityPanel() {
   const [status, setStatus] = useState('PENDING_REVIEW')
@@ -378,10 +440,11 @@ function EligibilityPanel() {
         <ul className="mt-6 space-y-3">
           {data.map(r => (
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">{r.student.displayName || 'Student'}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   requested {r.requestedAt ? new Date(r.requestedAt).toLocaleDateString() : '—'}
+                  {r.reviewedAt ? ` · reviewed ${new Date(r.reviewedAt).toLocaleDateString()}` : ''}
                   {r.decisionReason ? ` · reason: ${r.decisionReason}` : ''}
                 </p>
               </div>

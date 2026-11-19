@@ -62,10 +62,13 @@ export function AdminOrganizationsView() {
     if (!decision) return
     setBusy(true)
     try {
-      await api.adminOrganizationDecision(decision.org.id, { action: decision.action, reason: reason.trim() || undefined })
+      const res = await api.adminOrganizationDecision(decision.org.id, { action: decision.action, reason: reason.trim() || undefined })
+      // The row updates in place from the server response. owner/memberCount/
+      // groupCount/classCount are admin-list-only fields the decision DTO
+      // omits, so they are preserved from the existing row.
+      setData(prev => prev ? prev.map(row => (row.id === res.organization.id ? { ...row, ...res.organization } : row)) : prev)
       toast({ title: 'Decision recorded in the organization audit history' })
       setDecision(null); setReason('')
-      load(status)
     } catch (e) {
       toast({ title: 'Could not record decision', description: e instanceof Error ? e.message : '', variant: 'destructive' })
     } finally {
@@ -120,6 +123,7 @@ export function AdminOrganizationsView() {
                   </p>
                   {o.description ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{o.description}</p> : null}
                   {o.website ? <p className="text-xs text-muted-foreground">{o.website}</p> : null}
+                  {!o.isActive && o.verificationStatus === 'SUSPENDED' ? <p className="mt-1 text-xs text-destructive">Workspace deactivated while suspended.</p> : null}
                 </div>
                 <Badge variant="outline" className={STATUS_BADGE[o.verificationStatus] ?? 'border-border text-muted-foreground'}>{o.verificationStatus.replace('_', ' ').toLowerCase()}</Badge>
               </div>
