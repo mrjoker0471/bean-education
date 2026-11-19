@@ -28,6 +28,7 @@ import { requireStudent, sameOrigin } from '@/lib/auth'
 import { SEAT_CLAIM_SQL, SEAT_RELEASE_SQL } from '@/lib/teach-booking'
 import { toMyBookingDTO } from '@/lib/teach'
 import { trustStateFor, restrictionMessage } from '@/lib/trust'
+import { evaluatePrivateClassAccess } from '@/lib/institution'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -67,6 +68,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // gets revoked by a complaint or investigation).
       const trust = await trustStateFor(session.teacherProfile.id, now)
       if (trust.pausedListings) return { kind: 'paused' as const }
+      // Phase 7: private institution classes require an ACTIVE membership
+      // (ORGANIZATION audience) or an ACTIVE group enrollment (GROUP audience).
+      // The check runs INSIDE the transaction so a mid-flight membership
+      // suspension cannot race a seat claim. Existing historical bookings are
+      // unaffected — only NEW access is gated.
+      if (session.audience && session.audience !== 'PUBLIC') {
+        const membership = await tx.organizationMembership.findUnique({
+          where: { organizationId_studentId: { organizationId: session.organizationId ?? '', studentId: student.id } },
+        })
+        const enrollment =
+          session.audience === 'GROUP' && session.organizationGroupId
+            ? await tx.organizationGroupMembership.findUnique({
+                where: { groupId_membershipId: { groupId: session.organizationGroupId, membershipId: membership?.id ?? 'none' } },
+              })
+            : null
+        const access = evaluatePrivateClassAccess({
+          classSession: { audience: session.audience, organizationId: session.organizationId, organizationGroupId: session.organizationGroupId },
+          membership: membership ? { role: membership.role, status: membership.status } : null,
+          groupEnrollment: enrollment ? { enrollmentState: enrollment.enrollmentState } : null,
+        })
+        if (!access.ok) return { kind: 'restricted' as const }
+      }
       // Self-booking is forbidden — a teacher cannot seat their own class.
       if (session.teacherProfile.studentId === student.id) return { kind: 'self' as const }
 
@@ -103,6 +126,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         duplicate: 409,
         full: 409,
         paused: 403,
+        restricted: 403,
       }
       const message: Record<Exclude<typeof outcome.kind, 'ok'>, string> = {
         notFound: 'Class not found',
@@ -112,6 +136,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         duplicate: 'You already hold a seat in this class.',
         full: 'All seats are taken — check back if someone cancels.',
         paused: restrictionMessage({ pausedListings: true, suspendedPublishing: false, emergencyStop: false, restricted: true }),
+        restricted: 'This class is restricted to eligible members of its institution.',
       }
       return NextResponse.json({ error: message[outcome.kind] }, { status: status[outcome.kind] })
     }

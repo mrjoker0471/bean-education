@@ -23,6 +23,7 @@ import {
 import { teachClassPatchSchema } from '@/lib/teach-schema'
 import { trustStateFor, restrictionMessage } from '@/lib/trust'
 import { teacherQualityFor } from '@/lib/trust-quality'
+import { evaluatePrivateClassAccess } from '@/lib/institution'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -58,6 +59,33 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           })
         : null
       const holdsSeat = !!myBookingPre && myBookingPre.status !== 'CANCELLED'
+      // Phase 7: private institution classes are visible only to eligible
+      // members (active org membership / active group enrollment) or existing
+      // seat-holders — unrelated callers (including guests) get 404, matching
+      // the hidden-from-public convention used for drafts and paused listings.
+      if (!holdsSeat && session.audience && session.audience !== 'PUBLIC') {
+        const membership = student
+          ? await db.organizationMembership.findUnique({
+              where: { organizationId_studentId: { organizationId: session.organizationId ?? '', studentId: student.id } },
+              select: { id: true, status: true },
+            })
+          : null
+        const enrollment =
+          student && membership && session.audience === 'GROUP' && session.organizationGroupId
+            ? await db.organizationGroupMembership.findUnique({
+                where: { groupId_membershipId: { groupId: session.organizationGroupId, membershipId: membership.id } },
+                select: { enrollmentState: true },
+              })
+            : null
+        const access = evaluatePrivateClassAccess({
+          classSession: { audience: session.audience, organizationId: session.organizationId, organizationGroupId: session.organizationGroupId },
+          membership: membership ? { role: 'LEARNER', status: membership.status } : null,
+          groupEnrollment: enrollment ? { enrollmentState: enrollment.enrollmentState } : null,
+        })
+        if (!access.ok) {
+          return NextResponse.json({ error: 'Class not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+        }
+      }
       if (!holdsSeat) {
         const trust = await trustStateFor(session.teacherProfile.id, new Date())
         if (trust.pausedListings) {
