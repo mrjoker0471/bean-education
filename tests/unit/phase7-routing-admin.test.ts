@@ -7,7 +7,7 @@
 //     — server-side; the UI hiding is convenience only).
 
 import { describe, it, expect } from 'bun:test'
-import { parseHash, routeToHash, INSTITUTION_GROUP_TABS } from '@/lib/store'
+import { parseHash, routeToHash, INSTITUTION_GROUP_TABS, EMPLOYER_WORKSPACE_TABS } from '@/lib/store'
 import { buildRoleIndex, enrollCandidates, filterByGroupId } from '@/lib/institution-group'
 import type { MemberDTO } from '@/lib/types'
 import type { GroupRosterEntryDTO } from '@/lib/institution-dto'
@@ -35,6 +35,11 @@ describe('Phase 7 hash routes — parseHash', () => {
     expect(parseHash('#/career/opportunities/op9')).toEqual({ view: 'career-opportunity', opportunityId: 'op9' })
     expect(parseHash('#/career/applications')).toEqual({ view: 'career-applications' })
     expect(parseHash('#/career/employer')).toEqual({ view: 'career-employer' })
+    expect(parseHash('#/career/employer/org7')).toEqual({ view: 'career-employer-org', orgId: 'org7', tab: undefined })
+    expect(parseHash('#/career/employer/org7/listings')).toEqual({ view: 'career-employer-org', orgId: 'org7', tab: 'listings' })
+    expect(parseHash('#/career/employer/org7/candidates')).toEqual({ view: 'career-employer-org', orgId: 'org7', tab: 'candidates' })
+    expect(parseHash('#/career/employer/org7/bogus')).toEqual({ view: 'career-employer-org', orgId: 'org7', tab: undefined })
+    expect(parseHash('#/career/employer/org7/listings/extra')).toEqual({ view: 'career-employer-org', orgId: 'org7', tab: 'listings' })
     expect(parseHash('#/career/unknown')).toEqual({ view: 'not-found' })
   })
   it('parses the new admin routes without breaking #/admin/trust', () => {
@@ -69,8 +74,24 @@ describe('Phase 7 hash routes — routeToHash round trips', () => {
     expect(routeToHash({ view: 'career-opportunity', opportunityId: 'op1' })).toBe('#/career/opportunities/op1')
     expect(routeToHash({ view: 'career-applications' })).toBe('#/career/applications')
     expect(routeToHash({ view: 'career-employer' })).toBe('#/career/employer')
+    expect(routeToHash({ view: 'career-employer-org', orgId: 'org1' })).toBe('#/career/employer/org1')
+    expect(routeToHash({ view: 'career-employer-org', orgId: 'org 1', tab: 'candidates' })).toBe('#/career/employer/org%201/candidates')
     expect(routeToHash({ view: 'admin-organizations' })).toBe('#/admin/organizations')
     expect(routeToHash({ view: 'admin-career' })).toBe('#/admin/career')
+  })
+  it('employer-org route round-trips survive parseHash for every known tab', () => {
+    expect(EMPLOYER_WORKSPACE_TABS).toHaveLength(2)
+    for (const tab of EMPLOYER_WORKSPACE_TABS) {
+      const route = { view: 'career-employer-org' as const, orgId: 'org9', tab }
+      expect(parseHash(routeToHash(route))).toEqual(route)
+    }
+    const noTab = { view: 'career-employer-org' as const, orgId: 'org9' }
+    expect(parseHash(routeToHash(noTab))).toEqual(noTab)
+  })
+  it('unknown employer tabs parse to tab undefined (view falls back to listings)', () => {
+    const parsed = parseHash('#/career/employer/org9/bogus')
+    expect(parsed).toEqual({ view: 'career-employer-org', orgId: 'org9', tab: undefined })
+    expect(routeToHash(parsed)).toBe('#/career/employer/org9')
   })
   it('existing routes are unchanged (regression spot checks)', () => {
     expect(routeToHash({ view: 'home' })).toBe('#/')

@@ -107,6 +107,7 @@ export default function Page() {
             {route.view === 'career-opportunity' && route.opportunityId && <OpportunityDetailView opportunityId={route.opportunityId} />}
             {route.view === 'career-applications' && <CareerApplicationsView />}
             {route.view === 'career-employer' && <CareerEmployerView />}
+            {route.view === 'career-employer-org' && route.orgId && <CareerEmployerView />}
             {route.view === 'admin-organizations' && <AdminOrganizationsView />}
             {route.view === 'admin-career' && <AdminCareerView />}
             {route.view === 'auth' && (
