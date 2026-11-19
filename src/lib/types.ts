@@ -1631,6 +1631,8 @@ export interface CareerCredentialClientDTO {
   credentialReference: string | null
   status: string
   portfolioShared: boolean
+  /** Flattened issuer name for portfolio display (displayName, else official name). */
+  issuerName: string
   issuer: { id: string; name: string; displayName: string | null; verificationStatus: string }
 }
 
@@ -1672,6 +1674,29 @@ export interface MyApplicationsResponse {
   applications: OwnApplicationClientDTO[]
 }
 
+export interface ApplicationDetailClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  contactSharingConsent: boolean
+  snapshot: Record<string, unknown>
+  opportunity: {
+    id: string
+    title: string
+    opportunityType: string
+    location: string | null
+    workMode: string | null
+    applicationDeadline: string | null
+  }
+  organization: { id: string; name: string; verificationStatus: string }
+}
+
+export interface ApplicationDetailResponse {
+  application: ApplicationDetailClientDTO
+}
+
 export interface EmployerApplicationClientDTO {
   id: string
   status: string
@@ -1691,12 +1716,18 @@ export interface EmployerApplicationClientDTO {
 export interface EmployerOpportunitiesResponse {
   opportunities: PublicOpportunityClientDTO[]
   counts: { draft: number; pending: number; published: number; closed: number }
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface EmployerApplicantsResponse {
   opportunity: { id: string; title: string }
   applications: EmployerApplicationClientDTO[]
   counts: Record<string, number>
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface DiscoverableCandidateClientDTO {

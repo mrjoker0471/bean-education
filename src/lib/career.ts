@@ -110,6 +110,10 @@ export const CANDIDATE_PAGE_SIZE_MAX = 20
 export const MAX_QUERY_LENGTH = 100
 export const OPPORTUNITIES_PAGE_SIZE_DEFAULT = 12
 export const OPPORTUNITIES_PAGE_SIZE_MAX = 48
+export const EMPLOYER_PAGE_SIZE_DEFAULT = 20
+export const EMPLOYER_PAGE_SIZE_MAX = 48
+export const BROWSE_FILTER_MAX = 60
+export const MAX_PAGE_NUMBER = 500
 
 /** Anti-spam caps per rolling 24 h window. */
 export const RATE_LIMITS = {

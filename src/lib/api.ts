@@ -34,6 +34,7 @@ import type {
   EmployerApplicantsResponse,
   EmployerOpportunitiesResponse,
   MyApplicationsResponse,
+  ApplicationDetailResponse,
   OpportunitiesBrowseResponse,
   OwnSafetyReportDTO,
   PublicOpportunityClientDTO,
@@ -876,11 +877,18 @@ export const api = {
   careerEligibility: () => jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility'),
   requestEligibilityReview: () =>
     jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility', { method: 'POST', body: JSON.stringify({ acknowledge: true }) }),
-  browseOpportunities: (params: { q?: string; type?: string; page?: number }) => {
+  browseOpportunities: (params: { q?: string; type?: string; workMode?: string; location?: string; skill?: string; employer?: string; deadlineBefore?: string; deadlineAfter?: string; page?: number; pageSize?: number } = {}) => {
     const qs = new URLSearchParams()
     if (params.q) qs.set('q', params.q)
     if (params.type) qs.set('type', params.type)
+    if (params.workMode) qs.set('workMode', params.workMode)
+    if (params.location) qs.set('location', params.location)
+    if (params.skill) qs.set('skill', params.skill)
+    if (params.employer) qs.set('employer', params.employer)
+    if (params.deadlineBefore) qs.set('deadlineBefore', params.deadlineBefore)
+    if (params.deadlineAfter) qs.set('deadlineAfter', params.deadlineAfter)
     if (params.page) qs.set('page', String(params.page))
+    if (params.pageSize) qs.set('pageSize', String(params.pageSize))
     const query = qs.toString()
     return jsonFetch<OpportunitiesBrowseResponse>(`/api/career/opportunities${query ? `?${query}` : ''}`)
   },
@@ -888,20 +896,34 @@ export const api = {
     jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/career/opportunities/${encodeURIComponent(id)}`),
   applyToOpportunity: (id: string, body: { snapshot: Record<string, unknown>; contactSharingConsent: boolean }) =>
     jsonFetch<{ application: { id: string; status: string; submittedAt: string } }>(`/api/career/opportunities/${encodeURIComponent(id)}/apply`, { method: 'POST', body: JSON.stringify(body) }),
-  myApplications: () => jsonFetch<MyApplicationsResponse>('/api/career/my-applications'),
+  myApplications: (status?: string) =>
+    jsonFetch<MyApplicationsResponse>(status && status !== 'ALL' ? `/api/career/my-applications?status=${encodeURIComponent(status)}` : '/api/career/my-applications'),
+  applicationDetail: (applicationId: string) =>
+    jsonFetch<ApplicationDetailResponse>(`/api/career/applications/${encodeURIComponent(applicationId)}`),
   withdrawApplication: (id: string) =>
     jsonFetch<{ application: { id: string; status: string } }>(`/api/career/applications/${encodeURIComponent(id)}/withdraw`, { method: 'PATCH', body: '{}' }),
   fileCareerReport: (body: { targetType: string; targetId: string; category: string; subject: string; description: string }) =>
     jsonFetch<{ report: { id: string; status: string } }>('/api/career/reports', { method: 'POST', body: JSON.stringify(body) }),
   myCareerReports: () => jsonFetch<{ reports: OwnSafetyReportDTO[] }>('/api/career/reports'),
-  employerOpportunities: (organizationId: string) =>
-    jsonFetch<EmployerOpportunitiesResponse>(`/api/career/employer/opportunities?organizationId=${encodeURIComponent(organizationId)}`),
+  employerOpportunities: (organizationId: string, opts: { status?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams({ organizationId })
+    if (opts.status && opts.status !== 'ALL') qs.set('status', opts.status)
+    if (opts.page) qs.set('page', String(opts.page))
+    if (opts.pageSize) qs.set('pageSize', String(opts.pageSize))
+    return jsonFetch<EmployerOpportunitiesResponse>(`/api/career/employer/opportunities?${qs.toString()}`)
+  },
   createEmployerOpportunity: (body: Record<string, unknown> & { organizationId: string }) =>
     jsonFetch<{ opportunity: PublicOpportunityClientDTO }>('/api/career/employer/opportunities', { method: 'POST', body: JSON.stringify(body) }),
   updateEmployerOpportunity: (id: string, body: Record<string, unknown>) =>
     jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/career/employer/opportunities/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  employerApplicants: (opportunityId: string) =>
-    jsonFetch<EmployerApplicantsResponse>(`/api/career/employer/opportunities/${encodeURIComponent(opportunityId)}/applications`),
+  employerApplicants: (opportunityId: string, opts: { status?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams()
+    if (opts.status && opts.status !== 'ALL') qs.set('status', opts.status)
+    if (opts.page) qs.set('page', String(opts.page))
+    if (opts.pageSize) qs.set('pageSize', String(opts.pageSize))
+    const query = qs.toString()
+    return jsonFetch<EmployerApplicantsResponse>(`/api/career/employer/opportunities/${encodeURIComponent(opportunityId)}/applications${query ? `?${query}` : ''}`)
+  },
   employerApplicationStatus: (applicationId: string, body: { status: string; candidateVisibleStatusNote?: string; employerNotes?: string }) =>
     jsonFetch<{ application: { id: string; status: string; candidateVisibleStatusNote: string | null } }>(`/api/career/employer/applications/${encodeURIComponent(applicationId)}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
   searchCandidates: (organizationId: string, params: { q?: string; skill?: string; roleType?: string; location?: string; page?: number }) => {

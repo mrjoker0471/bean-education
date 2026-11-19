@@ -120,6 +120,8 @@ export interface CredentialDTO {
   credentialReference: string | null
   status: string
   portfolioShared: boolean
+  /** Flattened issuer name for portfolio display (displayName, else official name). */
+  issuerName: string
   issuer: { id: string; name: string; displayName: string | null; verificationStatus: string }
 }
 
@@ -135,6 +137,7 @@ export function toCredentialDTO(
     credentialReference: c.credentialReference,
     status: c.status,
     portfolioShared: c.portfolioShared,
+    issuerName: c.issuerOrganization.displayName ?? c.issuerOrganization.name,
     issuer: {
       id: c.issuerOrganization.id,
       name: c.issuerOrganization.name,
@@ -229,6 +232,67 @@ export function toOwnApplicationDTO(
       opportunityType: a.opportunity.opportunityType,
       organizationName: a.opportunity.organization.displayName ?? a.opportunity.organization.name,
       applicationDeadline: a.opportunity.applicationDeadline?.toISOString() ?? null,
+    },
+  }
+}
+
+export interface ApplicationDetailDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  /** Explicit consent flag — contact details surface only when true. */
+  contactSharingConsent: boolean
+  /** The applicant's own submission-time snapshot, verbatim (bounded JSON). */
+  snapshot: Record<string, unknown>
+  opportunity: {
+    id: string
+    title: string
+    opportunityType: string
+    location: string | null
+    workMode: string | null
+    applicationDeadline: string | null
+  }
+  organization: { id: string; name: string; verificationStatus: string }
+}
+
+/**
+ * Owner-facing application detail. employerNotes is deliberately absent —
+ * this mapper is only used on routes guarded by studentId ownership.
+ */
+export function toApplicationDetailDTO(
+  a: CareerApplication & {
+    opportunity: CareerOpportunity & { organization: Pick<Organization, 'id' | 'name' | 'verificationStatus'> }
+  },
+): ApplicationDetailDTO {
+  let snapshot: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(a.snapshotJson) as unknown
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) snapshot = parsed as Record<string, unknown>
+  } catch {
+    snapshot = {}
+  }
+  return {
+    id: a.id,
+    status: a.status,
+    submittedAt: a.submittedAt.toISOString(),
+    updatedAt: a.updatedAt.toISOString(),
+    candidateVisibleStatusNote: a.candidateVisibleStatusNote,
+    contactSharingConsent: a.contactSharingConsent,
+    snapshot,
+    opportunity: {
+      id: a.opportunity.id,
+      title: a.opportunity.title,
+      opportunityType: a.opportunity.opportunityType,
+      location: a.opportunity.location,
+      workMode: a.opportunity.workMode,
+      applicationDeadline: a.opportunity.applicationDeadline?.toISOString() ?? null,
+    },
+    organization: {
+      id: a.opportunity.organization.id,
+      name: a.opportunity.organization.name,
+      verificationStatus: a.opportunity.organization.verificationStatus,
     },
   }
 }
