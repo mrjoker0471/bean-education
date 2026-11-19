@@ -31,7 +31,7 @@ import { toast } from '@/hooks/use-toast'
 import { ArrowLeft, Briefcase, Building2, Loader2, MapPin, Search, ShieldAlert } from 'lucide-react'
 
 const TYPE_OPTIONS = [
-  { value: '', label: 'All types' },
+  { value: 'ALL', label: 'All types' },
   { value: 'JOB', label: 'Jobs' },
   { value: 'INTERNSHIP', label: 'Internships' },
   { value: 'APPRENTICESHIP', label: 'Apprenticeships' },
@@ -42,13 +42,13 @@ export function OpportunityBrowseView() {
   const navigate = useAppStore(s => s.navigate)
   const authChecked = useAppStore(s => s.authChecked)
   const [q, setQ] = useState('')
-  const [type, setType] = useState('')
+  const [type, setType] = useState('ALL')
   const [data, setData] = useState<OpportunitiesBrowseResponse | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
 
   const load = useCallback((search: string, t: string) => {
     setData(null)
-    api.browseOpportunities({ q: search || undefined, type: t || undefined })
+    api.browseOpportunities({ q: search || undefined, type: t && t !== 'ALL' ? t : undefined })
       .then(res => { setData(res); setFailed(null) })
       .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load opportunities.'))
   }, [])
