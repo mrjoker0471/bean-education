@@ -525,6 +525,11 @@ export const api = {
     capacity: number
     minimumStudents: number
     plannedPricePaise?: number
+    // Phase 7 — private institution classes (server already accepts these via
+    // teachClassCreateSchema; absent ⇒ PUBLIC, exactly as before).
+    audience?: 'PUBLIC' | 'ORGANIZATION' | 'GROUP'
+    organizationId?: string
+    organizationGroupId?: string
   }) => jsonFetch<{ class: PublicClassDTO }>('/api/teach/classes', { method: 'POST', body: JSON.stringify(body) }),
   teachUpdateClass: (id: string, patch: Partial<{
     title: string

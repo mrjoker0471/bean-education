@@ -49,35 +49,67 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { TeacherLiveClassButton } from '@/components/bean/classroom/classroom-entry'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { evaluateOrgCapabilities, type OrgCapabilities, type OrgMembershipStatus, type OrgRole, type OrgVerificationStatus } from '@/lib/capabilities'
-import { formatClassLocal } from '@/components/bean/teach-format'
+import {
+  activeBookings,
+  attendanceMarkedCount,
+  buildInviteLink,
+  classDisplayStatus,
+  classStatusBadgeClass,
+  deriveInvitationStatus,
+  humanizeAuditAction,
+  institutionClassAudienceError,
+  invitationStatusBadgeClass,
+  isFutureLocalSchedule,
+  upcomingOrgClasses,
+} from '@/lib/institution-ui'
+import {
+  bookingStatusBadgeClass,
+  classEndTime,
+  COMMON_TIMEZONES,
+  formatClassLocal,
+  formatDay,
+  formatDuration,
+  guessTimeZone,
+  TEACH_LEVEL_OPTIONS,
+} from '@/components/bean/teach-format'
 import type {
   AnnouncementDTO,
   AssignmentDTO,
   AssignmentDetailResponse,
   GroupDTO,
+  InvitationDTO,
   MemberDTO,
+  MyClassDTO,
+  OrgClassRowDTO,
   OrgClassesResponse,
   OrgDashboardResponse,
   OrgInvitationsResponse,
   OrgMembersResponse,
   OrgResourcesResponse,
-  InvitationDTO,
+  PublicClassDTO,
 } from '@/lib/types'
 import { toast } from '@/hooks/use-toast'
 import {
   ArrowLeft,
   BadgeCheck,
+  Ban,
   BookMarked,
   CalendarDays,
+  ChevronDown,
   ClipboardList,
+  Copy,
   GraduationCap,
   Loader2,
   Megaphone,
+  Plus,
+  Rocket,
   Send,
   ShieldAlert,
+  Undo2,
   UserPlus,
   Users,
 } from 'lucide-react'
@@ -110,6 +142,29 @@ export function InstitutionOrgView({ orgId, section }: { orgId: string; section?
   const [dash, setDash] = useState<OrgDashboardResponse | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [tab, setTab] = useState<Section>(section ?? 'overview')
+  // Signed-in user's BEAN Teach status (real source: GET /api/teach/application,
+  // the same API the teacher dashboard gates on). ClassesPanel needs it because
+  // the server requires an APPROVED TeacherProfile for scheduling classes.
+  const [teacherStatus, setTeacherStatus] = useState<'loading' | 'approved' | 'notApproved'>('loading')
+  // Overview "Invite member" quick action opens the invitations panel in the
+  // Members section (cross-section handshake, consumed on mount there).
+  const [inviteAutoOpen, setInviteAutoOpen] = useState(false)
+
+  useEffect(() => {
+    if (!authChecked || !authedStudent) return
+    let cancelled = false
+    api.teachApplication()
+      .then(res => { if (!cancelled) setTeacherStatus(res.application?.status === 'APPROVED' ? 'approved' : 'notApproved') })
+      .catch(() => { if (!cancelled) setTeacherStatus('notApproved') })
+    return () => { cancelled = true }
+  }, [authChecked, authedStudent])
+
+  // Overview "Invite member" quick action: navigates to the Members section and
+  // asks the invitations panel there to open its create dialog (consumed on mount).
+  const openInvitations = useCallback(() => {
+    setInviteAutoOpen(true)
+    navigate({ view: 'institution-org', orgId, section: 'members' })
+  }, [navigate, orgId])
 
   useEffect(() => {
     if (!section) return
@@ -223,10 +278,27 @@ export function InstitutionOrgView({ orgId, section }: { orgId: string; section?
       </Tabs>
 
       <div className="mt-6">
-        {tab === 'overview' && <OverviewPanel dash={dash} />}
-        {tab === 'members' && <MembersPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} onChanged={load} />}
+        {tab === 'overview' && (
+          <OverviewPanel
+            dash={dash}
+            caps={caps}
+            approvedTeacher={teacherStatus === 'approved'}
+            onInviteMember={openInvitations}
+          />
+        )}
+        {tab === 'members' && (
+          <MembersPanel
+            orgId={org.id}
+            isAdmin={isAdmin}
+            active={dash.verification.operational}
+            canInviteMembers={caps.canInviteMembers}
+            autoOpenInvitations={inviteAutoOpen}
+            onInvitationsAutoOpenConsumed={() => setInviteAutoOpen(false)}
+            onChanged={load}
+          />
+        )}
         {tab === 'groups' && <GroupsPanel orgId={org.id} caps={caps} />}
-        {tab === 'classes' && <ClassesPanel orgId={org.id} />}
+        {tab === 'classes' && <ClassesPanel orgId={org.id} caps={caps} teacherStatus={teacherStatus} />}
         {tab === 'assignments' && <AssignmentsPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} groupsReady={dash.verification.operational} />}
         {tab === 'resources' && <ResourcesPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} />}
         {tab === 'reports' && <ReportsPanel dash={dash} />}
@@ -277,36 +349,162 @@ function SubmitForReviewButton({ orgId, onDone }: { orgId: string; onDone: () =>
   )
 }
 
-// ─── Overview ────────────────────────────────────────────────────────────────
+// ─── Overview: operational dashboard ─────────────────────────────────────────
+// Every number comes from the dashboard response (server-computed). The
+// "upcoming classes" list filters real rows from the org classes endpoint —
+// no statistics are invented client-side.
 
-function OverviewPanel({ dash }: { dash: OrgDashboardResponse }) {
+function OverviewPanel({ dash, caps, approvedTeacher, onInviteMember }: {
+  dash: OrgDashboardResponse
+  caps: OrgCapabilities
+  approvedTeacher: boolean
+  onInviteMember: () => void
+}) {
+  const navigate = useAppStore(s => s.navigate)
+  const orgId = dash.organization.id
+  const o = dash.overview
+  const [classes, setClasses] = useState<OrgClassRowDTO[] | null>(null)
+  const [classesFailed, setClassesFailed] = useState<string | null>(null)
+
+  const loadClasses = useCallback(() => {
+    setClasses(null)
+    api.organizationClasses(orgId)
+      .then(res => { setClasses(res.classes); setClassesFailed(null) })
+      .catch(e => setClassesFailed(e instanceof Error ? e.message : 'Could not load upcoming classes.'))
+  }, [orgId])
+
+  useEffect(() => {
+    const t = setTimeout(loadClasses, 0)
+    return () => clearTimeout(t)
+  }, [loadClasses])
+
+  const nextClasses = upcomingOrgClasses(classes ?? [])
   const stats = [
-    { label: 'Active members', value: dash.overview.activeMembers },
-    { label: 'Pending approvals', value: dash.overview.pendingMembers },
-    { label: 'Active groups', value: dash.overview.activeGroups },
-    { label: 'Upcoming classes', value: dash.overview.upcomingClasses },
-    { label: 'Published assignments', value: dash.overview.publishedAssignments },
-    { label: 'Open submissions', value: dash.overview.openSubmissions },
-    { label: 'Active announcements', value: dash.overview.activeAnnouncements },
+    { label: 'Members', value: o.activeMembers, note: `${o.pendingMembers} pending approval` },
+    { label: 'Active groups', value: o.activeGroups, note: o.archivedGroups > 0 ? `${o.archivedGroups} archived` : undefined },
+    { label: 'Upcoming classes', value: o.upcomingClasses },
+    { label: 'Published assignments', value: o.publishedAssignments, note: `${o.draftAssignments} draft · ${o.closedAssignments} closed` },
+    { label: 'Active resources', value: o.resourcesTotal },
+    { label: 'Active announcements', value: o.announcementsActive },
   ]
+
+  const focusAnnouncementComposer = () => {
+    document.getElementById('announcement-composer')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.setTimeout(() => document.getElementById('announcement-title-input')?.focus(), 400)
+  }
+
+  // Quick actions, filtered by the capability evaluator (and the approved
+  // teacher status for scheduling — the server enforces the same rules).
+  const quickActions: { label: string; icon: typeof Plus; onClick: () => void }[] = []
+  if (caps.canCreateGroups) quickActions.push({ label: 'New group', icon: Users, onClick: () => navigate({ view: 'institution-org', orgId, section: 'groups' }) })
+  if (caps.canInviteMembers) quickActions.push({ label: 'Invite member', icon: UserPlus, onClick: onInviteMember })
+  if (caps.canManageClasses && approvedTeacher) quickActions.push({ label: 'Schedule class', icon: GraduationCap, onClick: () => navigate({ view: 'institution-org', orgId, section: 'classes' }) })
+  if (caps.canCreateAssignments) quickActions.push({ label: 'New assignment', icon: ClipboardList, onClick: () => navigate({ view: 'institution-org', orgId, section: 'assignments' }) })
+  if (caps.canShareResources) quickActions.push({ label: 'Share resource', icon: BookMarked, onClick: () => navigate({ view: 'institution-org', orgId, section: 'resources' }) })
+  if (caps.canPublishAnnouncements) quickActions.push({ label: 'Post announcement', icon: Megaphone, onClick: focusAnnouncementComposer })
+
   return (
     <div className="space-y-6">
+      {o.submissionsAwaitingGrading > 0 ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-gold/40 bg-gold/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-display text-base font-semibold text-gold">
+              {o.submissionsAwaitingGrading} submission{o.submissionsAwaitingGrading === 1 ? '' : 's'} awaiting grading
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Students are waiting for grades and feedback on published assignments.</p>
+          </div>
+          <Button size="sm" className="shrink-0 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'institution-org', orgId, section: 'assignments' })}>
+            Open assignments
+          </Button>
+        </div>
+      ) : null}
+
+      {quickActions.length > 0 ? (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Quick actions">
+          {quickActions.map(a => (
+            <Button key={a.label} size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={a.onClick}>
+              <a.icon className="mr-1.5 h-3.5 w-3.5" aria-hidden /> {a.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {stats.map(s => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4">
             <p className="text-xs text-muted-foreground">{s.label}</p>
             <p className="mt-1 font-display text-2xl font-semibold text-gold">{s.value}</p>
+            {s.note ? <p className="mt-1 text-[11px] text-muted-foreground">{s.note}</p> : null}
           </div>
         ))}
       </div>
-      <AnnouncementsCard orgId={dash.organization.id} isAdmin={dash.isAdmin} active={dash.verification.operational} />
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="font-display text-base font-semibold text-foreground">Upcoming classes</h3>
+        {classesFailed ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-destructive">{classesFailed}</p>
+            <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={loadClasses}>Try again</Button>
+          </div>
+        ) : !classes ? (
+          <div className="flex min-h-[8vh] items-center justify-center" role="status" aria-label="Loading upcoming classes"><Loader2 className="h-5 w-5 animate-spin text-gold" /></div>
+        ) : nextClasses.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">No upcoming classes scheduled.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {nextClasses.map(c => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-elevated px-3 py-2">
+                <span className="text-sm text-foreground">{c.title}</span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CalendarDays className="h-3.5 w-3.5 text-gold" aria-hidden />
+                  {formatClassLocal(c.startsAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="font-display text-base font-semibold text-foreground">Recent administrative activity</h3>
+        <p className="mt-1 text-xs text-muted-foreground">Recorded organization events — audit history, display names only.</p>
+        {o.recentActivity.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">No recorded activity yet.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-border">
+            {o.recentActivity.map(item => (
+              <li key={item.id} className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-foreground">{humanizeAuditAction(item.action)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.actorDisplayName || (item.actorRole ? item.actorRole.toLowerCase().replace('_', ' ') : 'System')} · {formatDay(item.createdAt)}
+                  </p>
+                </div>
+                {item.summary ? <p className="max-w-full truncate text-xs text-muted-foreground sm:max-w-[45%]">{item.summary}</p> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div id="announcement-composer">
+        <AnnouncementsCard orgId={orgId} isAdmin={dash.isAdmin} active={dash.verification.operational} />
+      </div>
     </div>
   )
 }
 
 // ─── Members ─────────────────────────────────────────────────────────────────
 
-function MembersPanel({ orgId, isAdmin, active, onChanged }: { orgId: string; isAdmin: boolean; active: boolean; onChanged: () => void }) {
+function MembersPanel({ orgId, isAdmin, active, canInviteMembers, autoOpenInvitations, onInvitationsAutoOpenConsumed, onChanged }: {
+  orgId: string
+  isAdmin: boolean
+  active: boolean
+  canInviteMembers: boolean
+  autoOpenInvitations?: boolean
+  onInvitationsAutoOpenConsumed?: () => void
+  onChanged: () => void
+}) {
   const [data, setData] = useState<OrgMembersResponse | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -417,6 +615,9 @@ function MembersPanel({ orgId, isAdmin, active, onChanged }: { orgId: string; is
             Roster privacy: only display names are shown — never emails or private account details. Historical records
             survive removal; nothing is deleted.
           </p>
+          {canInviteMembers ? (
+            <InvitationsPanel orgId={orgId} autoOpen={autoOpenInvitations} onAutoOpenConsumed={onInvitationsAutoOpenConsumed} />
+          ) : null}
         </div>
       )}
 
@@ -503,6 +704,252 @@ function actionLabel(action: string): string {
     case 'SET_ROLE': return 'Role updated'
     default: return 'Done'
   }
+}
+
+// ─── Invitations (visible to canInviteMembers — server guard: org admin) ─────
+// Lists and creates invitations. Raw tokens are returned exactly once by the
+// server and shown exactly once here; they are never persisted in app state.
+// There is no revoke endpoint yet, so no revoke control is rendered.
+
+function InvitationsPanel({ orgId, autoOpen, onAutoOpenConsumed }: {
+  orgId: string
+  autoOpen?: boolean
+  onAutoOpenConsumed?: () => void
+}) {
+  const [data, setData] = useState<OrgInvitationsResponse | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+
+  const load = useCallback(() => {
+    setData(null)
+    api.organizationInvitations(orgId)
+      .then(res => { setData(res); setFailed(null) })
+      .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load invitations.'))
+  }, [orgId])
+
+  useEffect(() => {
+    const t = setTimeout(load, 0)
+    return () => clearTimeout(t)
+  }, [load])
+
+  // Overview "Invite member" quick action: open the create dialog once when
+  // this panel mounts with the handshake flag set, then consume it.
+  useEffect(() => {
+    if (!autoOpen) return
+    const t = setTimeout(() => {
+      setCreateOpen(true)
+      onAutoOpenConsumed?.()
+    }, 0)
+    return () => clearTimeout(t)
+  }, [autoOpen, onAutoOpenConsumed])
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-display text-base font-semibold text-foreground">Invitations</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Personal, expiring join codes — there is no public joining. Recipients redeem them from the Institutions page.
+          </p>
+        </div>
+        <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => setCreateOpen(true)}>
+          <UserPlus className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Invite member
+        </Button>
+      </div>
+      {failed ? (
+        <EmptyState icon={UserPlus} title="Could not load invitations" description={failed} actionLabel="Try again" onAction={load} />
+      ) : !data ? (
+        <div className="flex min-h-[15vh] items-center justify-center" role="status" aria-label="Loading invitations"><Loader2 className="h-5 w-5 animate-spin text-gold" /></div>
+      ) : data.invitations.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">No invitations yet — create one to bring a colleague in.</p>
+      ) : (
+        <ul className="mt-4 divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {data.invitations.map(inv => {
+            const status = deriveInvitationStatus(inv)
+            return (
+              <li key={inv.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className="border-gold/40 text-gold">{roleLabel(inv.intendedRole)}</Badge>
+                    <Badge variant="outline" className={invitationStatusBadgeClass(status)}>{status.toLowerCase()}</Badge>
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {inv.email ? `For ${inv.email}` : 'Open to any signed-in member'}
+                    {' · '}created {formatDay(inv.createdAt)}
+                    {' · '}expires {formatDay(inv.expiresAt)}
+                    {inv.maxUses !== null ? ` · ${inv.useCount}/${inv.maxUses} used` : ''}
+                  </p>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      <CreateInvitationDialog open={createOpen} onOpenChange={setCreateOpen} orgId={orgId} onCreated={load} />
+    </div>
+  )
+}
+
+function roleLabel(role: string): string {
+  return ROLE_OPTIONS.find(r => r.value === role)?.label ?? role
+}
+
+function CreateInvitationDialog({ open, onOpenChange, orgId, onCreated }: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  orgId: string
+  onCreated: () => void
+}) {
+  const [intendedRole, setIntendedRole] = useState<string>('LEARNER')
+  const [email, setEmail] = useState('')
+  const [ttlDays, setTtlDays] = useState('14')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // The created invitation — rawToken present exactly once (POST response).
+  const [created, setCreated] = useState<InvitationDTO | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const close = () => {
+    setCreated(null)
+    setCopied(false)
+    setError(null)
+    onOpenChange(false)
+  }
+
+  const submit = async () => {
+    setError(null)
+    const trimmedEmail = email.trim()
+    if (trimmedEmail && !/^\S+@\S+\.\S+$/.test(trimmedEmail)) {
+      setError('Enter a valid email address, or leave the field empty.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await api.createInvitation(orgId, {
+        intendedRole,
+        email: trimmedEmail || undefined,
+        ttlDays: Number(ttlDays),
+      })
+      setCreated(res.invitation)
+      onCreated()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyLink = async () => {
+    if (!created?.rawToken) return
+    try {
+      await navigator.clipboard.writeText(buildInviteLink(created.rawToken))
+      setCopied(true)
+    } catch {
+      setError('Clipboard unavailable — select the link and copy it manually.')
+    }
+  }
+
+  const inviteLink = created?.rawToken ? buildInviteLink(created.rawToken) : ''
+
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!busy && !created) onOpenChange(o) }}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-border bg-card">
+        {created && created.rawToken ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-display text-foreground">Invitation created</DialogTitle>
+              <DialogDescription className="text-muted-foreground">
+                Share this link with {created.email ? created.email : 'the person you are inviting'} — it is shown
+                only once and cannot be retrieved again.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3">
+              <div className="flex gap-2">
+                <Input
+                  readOnly
+                  value={inviteLink}
+                  aria-label="Invitation link"
+                  className="font-mono text-xs"
+                  onFocus={e => e.currentTarget.select()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-border text-muted-foreground hover:bg-elevated"
+                  onClick={copyLink}
+                  aria-label="Copy invitation link"
+                >
+                  <Copy className="h-4 w-4" aria-hidden /> {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Recipients paste it into &ldquo;Join with an invitation&rdquo; on the Institutions page (or share just the
+                raw code after <span className="font-mono">?token=</span>).
+                {created.expiresAt ? ` It expires ${formatDay(created.expiresAt)}.` : ''}
+              </p>
+              {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+            </div>
+            <DialogFooter>
+              <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={close}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-display text-foreground">Invite a member</DialogTitle>
+              <DialogDescription className="text-muted-foreground">
+                Invitations never grant owner or administrator roles. Elevated roles stay pending until an administrator
+                approves them.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="invite-role">Role for the new member</Label>
+                <Select value={intendedRole} onValueChange={setIntendedRole}>
+                  <SelectTrigger id="invite-role" aria-label="Intended role"><SelectValue /></SelectTrigger>
+                  <SelectContent className="border-border bg-popover">
+                    {ROLE_OPTIONS.map(r => (
+                      <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="invite-email">Email restriction (optional)</Label>
+                <Input
+                  id="invite-email"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="Only this address can redeem the invitation"
+                  maxLength={200}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="invite-ttl">Expires after</Label>
+                <Select value={ttlDays} onValueChange={setTtlDays}>
+                  <SelectTrigger id="invite-ttl" aria-label="Expiry"><SelectValue /></SelectTrigger>
+                  <SelectContent className="border-border bg-popover">
+                    {[1, 3, 7, 14].map(d => (
+                      <SelectItem key={d} value={String(d)}>{d} {d === 1 ? 'day' : 'days'}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={submit}>
+                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Create invitation
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 // ─── Groups & batches ────────────────────────────────────────────────────────
@@ -732,67 +1179,552 @@ function EnrollMemberDialog({ group, orgId, onOpenChange }: { group: GroupDTO | 
 }
 
 // ─── Classes (institution-owned, incl. private) ─────────────────────────────
+// Institution classes reuse the BEAN Teach class system — no duplication: the
+// schedule dialog posts to /api/teach/classes with an ORGANIZATION/GROUP
+// audience (PUBLIC is never offered here), lifecycle actions call the same
+// publish/unpublish/cancel routes the teacher dashboard uses, and bookings/
+// attendance come from /api/teach/my-classes (owner-only, display names only).
+// The server re-checks every rule (approved teacher, instructor membership,
+// group ownership) on every request.
 
-function ClassesPanel({ orgId }: { orgId: string }) {
+function ClassesPanel({ orgId, caps, teacherStatus }: {
+  orgId: string
+  caps: OrgCapabilities
+  teacherStatus: 'loading' | 'approved' | 'notApproved'
+}) {
+  const navigate = useAppStore(s => s.navigate)
   const [data, setData] = useState<OrgClassesResponse | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  const navigate = useAppStore(s => s.navigate)
+  const [myClasses, setMyClasses] = useState<MyClassDTO[] | null>(null)
+  const [myFailed, setMyFailed] = useState<string | null>(null)
+  const [groups, setGroups] = useState<GroupDTO[]>([])
+  // Drafts created in this panel — real server responses (PublicClassDTO).
+  // organizationClasses lists PUBLISHED classes only, so drafts live here until
+  // published (and permanently in the teacher's BEAN Teach dashboard).
+  const [drafts, setDrafts] = useState<PublicClassDTO[]>([])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [cancelling, setCancelling] = useState<MyClassDTO | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null)
+
+  const approved = teacherStatus === 'approved'
 
   const load = useCallback(() => {
     setData(null)
     api.organizationClasses(orgId)
       .then(res => { setData(res); setFailed(null) })
       .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load classes.'))
+    api.organizationGroups(orgId).then(res => setGroups(res.groups)).catch(() => setGroups([]))
   }, [orgId])
+
+  // Owner-only enrichment (bookings, attendance evidence, capacity). The
+  // server only serves this endpoint to APPROVED teachers and only returns
+  // their own classes, so it is fetched exactly when that applies.
+  const loadMine = useCallback(() => {
+    if (!approved) return
+    setMyClasses(null)
+    api.teachMyClasses()
+      .then(res => { setMyClasses(res.classes); setMyFailed(null) })
+      .catch(e => setMyFailed(e instanceof Error ? e.message : 'Could not load your class details.'))
+  }, [approved])
 
   useEffect(() => {
     const t = setTimeout(load, 0)
     return () => clearTimeout(t)
   }, [load])
 
+  useEffect(() => {
+    const t = setTimeout(loadMine, 0)
+    return () => clearTimeout(t)
+  }, [loadMine])
+
+  const runLifecycle = async (id: string, fn: () => Promise<unknown>, success: string) => {
+    setBusyId(id)
+    setActionError(null)
+    try {
+      await fn()
+      toast({ title: success })
+      load()
+      loadMine()
+    } catch (e) {
+      setActionError({ id, message: e instanceof Error ? e.message : 'Please try again.' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const publishDraft = async (cls: PublicClassDTO) => {
+    setBusyId(cls.id)
+    setActionError(null)
+    try {
+      await api.teachPublishClass(cls.id)
+      toast({ title: 'Class published — members can now book it' })
+      setDrafts(ds => ds.filter(d => d.id !== cls.id))
+      load()
+      loadMine()
+    } catch (e) {
+      setActionError({ id: cls.id, message: e instanceof Error ? e.message : 'Please try again.' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const myClassById = new Map((myClasses ?? []).map(c => [c.id, c]))
+  const groupById = new Map(groups.map(g => [g.id, g]))
+  const publishedIds = new Set((data?.classes ?? []).map(c => c.id))
+  const visibleDrafts = drafts.filter(d => !publishedIds.has(d.id))
+  const canSchedule = caps.canManageClasses && approved
+
   return (
-    <div>
-      <p className="mb-4 text-sm text-muted-foreground">
-        Institution classes use the same BEAN Teach classrooms and LiveKit rooms as public classes — organization and
-        group audiences simply never appear in public discovery, and booking checks membership on the server.
-      </p>
-      {failed ? (
-        <EmptyState icon={GraduationCap} title="Could not load classes" description={failed} actionLabel="Try again" onAction={load} />
-      ) : !data ? (
-        <div className="flex min-h-[30vh] items-center justify-center" role="status" aria-label="Loading classes"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
-      ) : data.classes.length === 0 ? (
-        <EmptyState
-          icon={GraduationCap}
-          title="No institution classes yet"
-          description="Approved teachers with an instructor role create private classes from the Classes tab (choose an organization or group audience)."
-          actionLabel="Browse classes"
-          onAction={() => navigate({ view: 'classes' })}
-        />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {data.classes.map(c => (
-            <button
-              key={c.id}
-              type="button"
-              className="exam-card-hover flex h-full flex-col rounded-xl border border-border bg-card p-5 text-left transition-colors hover:border-gold/40"
-              onClick={() => navigate({ view: 'class', classId: c.id })}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-display text-base font-semibold text-foreground">{c.title}</h3>
-                <Badge variant="outline" className={c.audience === 'PUBLIC' ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold'}>
-                  {c.audience === 'PUBLIC' ? 'public' : c.audience === 'ORGANIZATION' ? 'org only' : 'group only'}
-                </Badge>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">{c.subject} · {c.teacherName}</p>
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CalendarDays className="h-3.5 w-3.5 text-gold" aria-hidden />
-                {formatClassLocal(c.startsAt)}
-              </div>
-            </button>
-          ))}
+    <div className="space-y-6">
+      <div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Institution classes use the same BEAN Teach classrooms and LiveKit rooms as public classes — organization and
+            group audiences simply never appear in public discovery, and booking checks membership on the server.
+          </p>
+          {canSchedule ? (
+            <Button size="sm" className="shrink-0 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Schedule class
+            </Button>
+          ) : null}
         </div>
-      )}
+        {caps.canManageClasses && teacherStatus === 'notApproved' ? (
+          <div className="mb-4 rounded-xl border border-gold/30 bg-gold/5 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-gold">Only approved BEAN teachers can schedule classes — apply via BEAN Teach.</p>
+            <p className="mt-1">Every class runs through your approved teacher profile; institutional roles never bypass that review.</p>
+            <Button size="sm" variant="outline" className="mt-3 border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'teach-apply' })}>
+              Apply via BEAN Teach
+            </Button>
+          </div>
+        ) : null}
+        {myFailed && canSchedule ? (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-3 text-sm">
+            <p className="text-muted-foreground">{myFailed} Seat counts and attendance may be incomplete.</p>
+            <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={loadMine}>Try again</Button>
+          </div>
+        ) : null}
+        {failed ? (
+          <EmptyState icon={GraduationCap} title="Could not load classes" description={failed} actionLabel="Try again" onAction={load} />
+        ) : !data ? (
+          <div className="flex min-h-[30vh] items-center justify-center" role="status" aria-label="Loading classes"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
+        ) : data.classes.length === 0 ? (
+          <EmptyState
+            icon={GraduationCap}
+            title="No institution classes yet"
+            description={canSchedule
+              ? 'Schedule the first class for your members — it stays private to this institution (or a single group).'
+              : 'Approved teachers with an instructor role schedule private classes; published ones appear here.'}
+            actionLabel={canSchedule ? undefined : 'Browse classes'}
+            onAction={canSchedule ? undefined : () => navigate({ view: 'classes' })}
+          />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {data.classes.map(c => (
+              <OrgClassCard
+                key={c.id}
+                row={c}
+                mine={myClassById.get(c.id) ?? null}
+                groupName={c.audience === 'GROUP' ? (groupById.get(c.organizationGroupId ?? '')?.name ?? null) : null}
+                busy={busyId === c.id}
+                actionError={actionError?.id === c.id ? actionError.message : null}
+                onOpen={() => navigate({ view: 'class', classId: c.id })}
+                onUnpublish={() => { const m = myClassById.get(c.id); if (m) void runLifecycle(m.id, () => api.teachUnpublishClass(m.id), 'Class unpublished — it is hidden from members until published again') }}
+                onCancel={() => { const m = myClassById.get(c.id); if (m) setCancelling(m) }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {visibleDrafts.length > 0 ? (
+        <section aria-label="Your draft classes">
+          <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Your drafts ({visibleDrafts.length})
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleDrafts.map(d => (
+              <div key={d.id} className="flex h-full flex-col gap-2">
+                <div className="flex h-full flex-col rounded-xl border border-dashed border-gold/40 bg-card p-5">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-display text-base font-semibold text-foreground">{d.title}</h3>
+                    <Badge variant="outline" className={classStatusBadgeClass('DRAFT')}>draft</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{d.subject}</p>
+                  <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5 text-gold" aria-hidden />
+                    {formatClassLocal(d.startsAt)}
+                  </div>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Only you can see this draft until published. Edit it from your BEAN Teach dashboard.
+                  </p>
+                </div>
+                <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busyId === d.id} onClick={() => void publishDraft(d)}>
+                  {busyId === d.id ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Rocket className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                  Publish
+                </Button>
+                {actionError?.id === d.id && <p className="text-xs text-destructive" role="alert">{actionError.message}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <ScheduleClassDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        orgId={orgId}
+        onCreated={cls => {
+          setDrafts(ds => [cls, ...ds])
+          setCreateOpen(false)
+          load()
+        }}
+      />
+
+      <AlertDialog open={!!cancelling} onOpenChange={o => !o && setCancelling(null)}>
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-foreground">Cancel this class?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              {cancelling && `\u201C${cancelling.title}\u201D will be removed from members' views and every reserved student will see the cancellation in their bookings. This is audited.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border bg-transparent text-muted-foreground hover:bg-elevated">Keep class</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={e => {
+                e.preventDefault()
+                if (!cancelling) return
+                const target = cancelling
+                setCancelling(null)
+                void runLifecycle(target.id, () => api.teachCancelClass(target.id), 'Class cancelled — reserved students were informed')
+              }}
+            >
+              {busyId === cancelling?.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Cancel class
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  )
+}
+
+function audienceBadgeClass(audience: string): string {
+  return audience === 'PUBLIC' ? 'border-border text-muted-foreground' : 'border-gold/40 text-gold'
+}
+
+function audienceBadgeLabel(audience: string): string {
+  return audience === 'PUBLIC' ? 'public' : audience === 'ORGANIZATION' ? 'org only' : 'group only'
+}
+
+function OrgClassCard({ row, mine, groupName, busy, actionError, onOpen, onUnpublish, onCancel }: {
+  row: OrgClassRowDTO
+  mine: MyClassDTO | null
+  groupName: string | null
+  busy: boolean
+  actionError: string | null
+  onOpen: () => void
+  onUnpublish: () => void
+  onCancel: () => void
+}) {
+  const display = classDisplayStatus(row.status, row.startsAt, row.durationMinutes)
+  const active = mine ? activeBookings(mine.bookings) : []
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <button
+        type="button"
+        className="exam-card-hover flex h-full flex-col rounded-xl border border-border bg-card p-5 text-left transition-colors hover:border-gold/40"
+        onClick={onOpen}
+        aria-label={`Open class ${row.title}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-display text-base font-semibold text-foreground">{row.title}</h3>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Badge variant="outline" className={audienceBadgeClass(row.audience)}>{audienceBadgeLabel(row.audience)}</Badge>
+            <Badge variant="outline" className={classStatusBadgeClass(display)}>{display.toLowerCase()}</Badge>
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {row.subject} · {row.teacherName}
+          {groupName ? ` · ${groupName}` : ''}
+        </p>
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <CalendarDays className="h-3.5 w-3.5 text-gold" aria-hidden />
+          {formatClassLocal(row.startsAt)} · {formatDuration(row.durationMinutes)}
+        </div>
+        {mine ? (
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {active.length} / {mine.capacity} seats booked
+          </p>
+        ) : null}
+      </button>
+      {mine ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            {display === 'PUBLISHED' ? <TeacherLiveClassButton classId={row.id} /> : null}
+            {display === 'PUBLISHED' ? (
+              <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={onUnpublish}>
+                <Undo2 className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Unpublish
+              </Button>
+            ) : null}
+            {display === 'PUBLISHED' ? (
+              <Button size="sm" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10" disabled={busy} onClick={onCancel}>
+                <Ban className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Cancel class
+              </Button>
+            ) : null}
+          </div>
+          <OwnedBookingsStrip cls={mine} />
+          {actionError && <p className="text-xs text-destructive" role="alert">{actionError}</p>}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function OwnedBookingsStrip({ cls }: { cls: MyClassDTO }) {
+  const navigate = useAppStore(s => s.navigate)
+  const [open, setOpen] = useState(false)
+  const active = activeBookings(cls.bookings)
+  const marked = attendanceMarkedCount(cls.bookings)
+  const ended = classEndTime(cls.startsAt, cls.durationMinutes).getTime() <= Date.now()
+  if (active.length === 0) {
+    return <p className="rounded-lg border border-border bg-elevated px-3 py-2 text-xs text-muted-foreground">No students booked yet.</p>
+  }
+  return (
+    <div className="rounded-lg border border-border bg-elevated px-3 py-2">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 text-xs font-medium text-foreground"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <span>{active.length} booked</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open ? (
+        <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto pr-1">
+          {active.map(b => (
+            <li key={b.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate text-foreground">{b.studentName ?? 'Student'}</span>
+              <Badge variant="outline" className={bookingStatusBadgeClass(b.status)}>{b.status.replace('_', ' ').toLowerCase()}</Badge>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        Attendance: {marked} of {active.length} marked
+        {ended
+          ? <> · mark from <button type="button" className="font-medium text-gold underline-offset-2 hover:underline" onClick={() => navigate({ view: 'teach-dashboard' })}>your BEAN Teach dashboard</button></>
+          : ' · marking unlocks after the class ends'}
+      </p>
+    </div>
+  )
+}
+
+function ScheduleClassDialog({ open, onOpenChange, orgId, onCreated }: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  orgId: string
+  onCreated: (cls: PublicClassDTO) => void
+}) {
+  const fallbackTz = guessTimeZone()
+  const [form, setForm] = useState(() => ({
+    title: '',
+    description: '',
+    subject: '',
+    targetLevel: TEACH_LEVEL_OPTIONS[0]?.value ?? 'SCHOOL_9_10',
+    language: 'English',
+    durationHours: '2',
+    durationMinutesPart: '0',
+    startsAtLocal: '',
+    timeZone: COMMON_TIMEZONES.includes(fallbackTz) ? fallbackTz : 'Asia/Kolkata',
+    capacity: '10',
+    minimumStudents: '1',
+    audience: 'ORGANIZATION' as 'ORGANIZATION' | 'GROUP',
+    groupId: '',
+  }))
+  const [groups, setGroups] = useState<GroupDTO[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Only ACTIVE groups are schedulable — mirrors the workspace behavior where
+  // archived batches hold no new classes.
+  useEffect(() => {
+    if (!open) return
+    const t = setTimeout(() => {
+      api.organizationGroups(orgId)
+        .then(res => setGroups(res.groups.filter(g => g.status === 'ACTIVE')))
+        .catch(() => setGroups([]))
+    }, 0)
+    return () => clearTimeout(t)
+  }, [open, orgId])
+
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm(f => ({ ...f, [key]: value }))
+  const durationMinutes = (Number.parseInt(form.durationHours, 10) || 0) * 60 + (Number.parseInt(form.durationMinutesPart, 10) || 0)
+  const invalidDuration = durationMinutes < 60 || durationMinutes > 360 || durationMinutes % 30 !== 0
+
+  const submit = async () => {
+    setError(null)
+    if (form.title.trim().length < 8) { setError('Give the class a title (8+ characters).'); return }
+    if (form.description.trim().length < 50) { setError('Describe the session in at least 50 characters.'); return }
+    if (form.subject.trim().length < 2) { setError('Add the subject (2+ characters).'); return }
+    if (!isFutureLocalSchedule(form.startsAtLocal)) { setError('Pick a future date and time for the class.'); return }
+    const capacity = Number.parseInt(form.capacity, 10)
+    const minimumStudents = Number.parseInt(form.minimumStudents, 10)
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 50) { setError('Capacity must be between 1 and 50.'); return }
+    if (!Number.isInteger(minimumStudents) || minimumStudents < 1 || minimumStudents > capacity) { setError('Minimum enrolment must be between 1 and the capacity.'); return }
+    const audienceError = institutionClassAudienceError(form.audience, form.audience === 'GROUP' ? form.groupId : null)
+    if (audienceError) { setError(audienceError); return }
+    setBusy(true)
+    try {
+      const res = await api.teachCreateClass({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        subject: form.subject.trim(),
+        targetLevel: form.targetLevel,
+        language: form.language.trim() || 'English',
+        durationMinutes,
+        startsAt: new Date(form.startsAtLocal).toISOString(),
+        timeZone: form.timeZone,
+        capacity,
+        minimumStudents,
+        audience: form.audience,
+        organizationId: orgId,
+        ...(form.audience === 'GROUP' && form.groupId ? { organizationGroupId: form.groupId } : {}),
+      })
+      toast({ title: 'Class scheduled as a draft — publish it when ready' })
+      onCreated(res.class)
+    } catch (e) {
+      // Server error shown inline; every entered value is preserved.
+      setError(e instanceof Error ? e.message : 'Could not schedule the class.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!busy) onOpenChange(o) }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-border bg-card">
+        <DialogHeader>
+          <DialogTitle className="font-display text-foreground">Schedule a class</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            Runs on the BEAN Teach classroom system. Saved as a draft first — publishing is a separate, explicit step.
+            Institution classes never appear in public discovery.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="oc-title">Class title</Label>
+            <Input id="oc-title" value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Quadratic equations — problem sprint" maxLength={120} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="oc-desc">Detailed description</Label>
+            <Textarea id="oc-desc" value={form.description} onChange={e => set('description', e.target.value)} placeholder="What you will cover, what students should bring, how the session runs (50–4000 characters)" rows={4} maxLength={4000} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-subject">Subject</Label>
+              <Input id="oc-subject" value={form.subject} onChange={e => set('subject', e.target.value)} maxLength={60} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Target level</Label>
+              <Select value={form.targetLevel} onValueChange={v => set('targetLevel', v)}>
+                <SelectTrigger aria-label="Target level"><SelectValue placeholder="Pick a level" /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  {TEACH_LEVEL_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-language">Language</Label>
+              <Input id="oc-language" value={form.language} onChange={e => set('language', e.target.value)} maxLength={30} />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label>Duration</Label>
+              <div className="flex items-center gap-2">
+                <Select value={form.durationHours} onValueChange={v => set('durationHours', v)}>
+                  <SelectTrigger aria-label="Duration hours"><SelectValue /></SelectTrigger>
+                  <SelectContent className="border-border bg-popover">
+                    {[1, 2, 3, 4, 5, 6].map(h => <SelectItem key={h} value={String(h)}>{h}h</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={form.durationMinutesPart} onValueChange={v => set('durationMinutesPart', v)}>
+                  <SelectTrigger aria-label="Duration minutes"><SelectValue /></SelectTrigger>
+                  <SelectContent className="border-border bg-popover">
+                    {[0, 30].map(m => <SelectItem key={m} value={String(m)}>{m}m</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className={`text-xs ${invalidDuration ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {formatDuration(durationMinutes)} — allowed range is 1h to 6h in 30-minute steps
+              </p>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-starts">Date &amp; time (your local device time)</Label>
+              <Input id="oc-starts" type="datetime-local" value={form.startsAtLocal} onChange={e => set('startsAtLocal', e.target.value)} className="[color-scheme:dark]" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Time zone</Label>
+              <Select value={form.timeZone} onValueChange={v => set('timeZone', v)}>
+                <SelectTrigger aria-label="Time zone"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  {(COMMON_TIMEZONES.includes(form.timeZone) ? COMMON_TIMEZONES : [form.timeZone, ...COMMON_TIMEZONES]).map(tz => (
+                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Stored as UTC and shown to members in their local time.</p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-capacity">Capacity (1–50)</Label>
+              <Input id="oc-capacity" type="number" min={1} max={50} value={form.capacity} onChange={e => set('capacity', e.target.value)} className="[color-scheme:dark]" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-minimum">Minimum enrolment</Label>
+              <Input id="oc-minimum" type="number" min={1} max={50} value={form.minimumStudents} onChange={e => set('minimumStudents', e.target.value)} className="[color-scheme:dark]" />
+              <p className="text-xs text-muted-foreground">Cannot exceed capacity.</p>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-audience">Audience</Label>
+              <Select value={form.audience} onValueChange={v => set('audience', v as 'ORGANIZATION' | 'GROUP')}>
+                <SelectTrigger id="oc-audience" aria-label="Audience"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  <SelectItem value="ORGANIZATION">Organization (private to this institution)</SelectItem>
+                  <SelectItem value="GROUP">Group only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {form.audience === 'GROUP' ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="oc-group">Group</Label>
+              {groups !== null && groups.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No active groups yet — create one in Groups &amp; batches first.</p>
+              ) : (
+                <Select value={form.groupId} onValueChange={v => set('groupId', v)}>
+                  <SelectTrigger id="oc-group" aria-label="Group"><SelectValue placeholder="Select group" /></SelectTrigger>
+                  <SelectContent className="border-border bg-popover">
+                    {(groups ?? []).map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : null}
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy || invalidDuration} onClick={submit}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Schedule class
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1270,7 +2202,7 @@ function AnnouncementsCard({ orgId, isAdmin, active }: { orgId: string; isAdmin:
       )}
       {isAdmin && active ? (
         <div className="mt-4 grid gap-2 border-t border-border pt-4">
-          <Input aria-label="Announcement title" placeholder="Announcement title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
+          <Input id="announcement-title-input" aria-label="Announcement title" placeholder="Announcement title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
           <Textarea aria-label="Announcement body" rows={2} placeholder="What should members know?" value={body} onChange={e => setBody(e.target.value)} maxLength={5000} />
           <Button className="bg-gold text-primary-foreground hover:bg-gold-hover sm:w-fit" disabled={busy || !title.trim() || body.trim().length < 10} onClick={publish}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Publish announcement
