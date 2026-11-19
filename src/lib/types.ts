@@ -1530,6 +1530,8 @@ export interface AnnouncementDTO {
 
 export interface OrgAnnouncementsResponse {
   announcements: AnnouncementDTO[]
+  /** True when the viewer is org staff — DRAFT + ARCHIVED items are included. */
+  includeAll: boolean
 }
 
 export interface OrgResourceDTO {

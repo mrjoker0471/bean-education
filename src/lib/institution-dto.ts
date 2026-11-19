@@ -270,3 +270,58 @@ export function toResourceDTO(r: OrganizationResource): OrgResourceDTO {
     createdAt: r.createdAt.toISOString(),
   }
 }
+
+// ─── Lifecycle management inputs (Phase 7 UI completion) ─────────────────────
+
+/** PATCH /organizations/assignments/[assignmentId] request body — all fields
+ *  optional; content edits are DRAFT-only (route-enforced), and status 'ACTIVE'
+ *  is a recovery verb that restores an ARCHIVED assignment to DRAFT. */
+export interface OrgAssignmentUpdateInput {
+  title?: string
+  instructions?: string | null
+  subjectLabel?: string | null
+  submissionType?: 'TEXT' | 'EXTERNAL_LINK' | 'TEXT_AND_LINK'
+  dueAt?: string | null
+  maxScore?: number | null
+  status?: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED' | 'ACTIVE'
+}
+
+/** PATCH /organizations/[id]/resources/[resourceId] request body — author or
+ *  org admins only; url must stay HTTPS, groupId must belong to the org. */
+export interface OrgResourceUpdateInput {
+  title?: string
+  description?: string | null
+  url?: string
+  groupId?: string | null
+}
+
+/** PATCH /organizations/[id]/announcements/[announcementId] request body —
+ *  content edits are instructor-only while not archived; 'ARCHIVED' archives
+ *  (author or admins), 'ACTIVE' restores an archived item to PUBLISHED. */
+export interface OrgAnnouncementUpdateInput {
+  title?: string
+  body?: string
+  groupId?: string | null
+  expiresAt?: string | null
+  status?: 'PUBLISHED' | 'ARCHIVED' | 'ACTIVE'
+}
+
+/** One row of GET /admin/organizations/[orgId]/audit. */
+export interface AdminOrganizationAuditEntryDTO {
+  id: string
+  entityType: string
+  entityId: string
+  action: string
+  actorId: string | null
+  actorRole: string | null
+  /** Resolved via the org's memberships — null when the actor never was one. */
+  actorDisplayName: string | null
+  detail: string | null
+  createdAt: string
+}
+
+/** GET /admin/organizations/[orgId]/audit response (last 50 events, newest first). */
+export interface AdminOrganizationAuditResponse {
+  organization: { id: string; name: string; verificationStatus: string }
+  audit: AdminOrganizationAuditEntryDTO[]
+}

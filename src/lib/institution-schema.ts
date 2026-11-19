@@ -139,9 +139,12 @@ export const assignmentUpdateSchema = z.object({
   title: plainText(ASSIGNMENT_TITLE_MIN, ASSIGNMENT_TITLE_MAX).optional(),
   instructions: optionalText(ASSIGNMENT_INSTRUCTIONS_MAX),
   subjectLabel: optionalText(80),
+  submissionType: z.enum(['TEXT', 'EXTERNAL_LINK', 'TEXT_AND_LINK']).optional(),
   dueAt: z.string().datetime({ offset: true }).optional().nullable(),
   maxScore: z.number().int().min(1).max(1000).optional().nullable(),
-  status: z.enum(['DRAFT', 'PUBLISHED', 'CLOSED', 'ARCHIVED']).optional(),
+  // 'ACTIVE' is a recovery verb: ARCHIVED → ACTIVE restores the assignment to
+  // DRAFT. It is never stored — the route maps it to DRAFT (see PATCH).
+  status: z.enum(['DRAFT', 'PUBLISHED', 'CLOSED', 'ARCHIVED', 'ACTIVE']).optional(),
 })
 
 export const submissionCreateSchema = z
@@ -166,6 +169,16 @@ export const announcementCreateSchema = z.object({
   title: plainText(4, ANNOUNCEMENT_TITLE_MAX),
   body: plainText(10, ANNOUNCEMENT_BODY_MAX),
   expiresAt: z.string().datetime({ offset: true }).optional().nullable(),
+  status: z.enum(['DRAFT', 'PUBLISHED']).optional().default('PUBLISHED'),
+})
+
+export const announcementUpdateSchema = z.object({
+  title: plainText(4, ANNOUNCEMENT_TITLE_MAX).optional(),
+  body: plainText(10, ANNOUNCEMENT_BODY_MAX).optional(),
+  groupId: z.string().min(6).max(64).optional().nullable(),
+  expiresAt: z.string().datetime({ offset: true }).optional().nullable(),
+  // 'ACTIVE' restores an ARCHIVED announcement to PUBLISHED (route-mapped).
+  status: z.enum(['PUBLISHED', 'ARCHIVED', 'ACTIVE']).optional(),
 })
 
 export const resourceCreateSchema = z.object({
@@ -173,4 +186,11 @@ export const resourceCreateSchema = z.object({
   title: plainText(4, RESOURCE_TITLE_MAX),
   description: optionalText(RESOURCE_DESC_MAX),
   url: z.string().trim().url().max(500),
+})
+
+export const resourceUpdateSchema = z.object({
+  title: plainText(4, RESOURCE_TITLE_MAX).optional(),
+  description: optionalText(RESOURCE_DESC_MAX),
+  url: z.string().trim().url().max(500).optional(),
+  groupId: z.string().min(6).max(64).optional().nullable(),
 })

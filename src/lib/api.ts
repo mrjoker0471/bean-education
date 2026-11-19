@@ -104,7 +104,14 @@ import type {
   AdminTrustTeachersResponse,
   AdminTrustAppealsResponse,
 } from './types'
-import type { GroupDetailDTO, OrgGroupUpdateInput } from './institution-dto'
+import type {
+  AdminOrganizationAuditResponse,
+  GroupDetailDTO,
+  OrgAnnouncementUpdateInput,
+  OrgAssignmentUpdateInput,
+  OrgGroupUpdateInput,
+  OrgResourceUpdateInput,
+} from './institution-dto'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -812,7 +819,7 @@ export const api = {
     ),
   organizationAnnouncements: (id: string) =>
     jsonFetch<OrgAnnouncementsResponse>(`/api/organizations/${encodeURIComponent(id)}/announcements`),
-  createAnnouncement: (id: string, body: { groupId?: string; title: string; body: string; expiresAt?: string }) =>
+  createAnnouncement: (id: string, body: { groupId?: string; title: string; body: string; expiresAt?: string; status?: 'DRAFT' | 'PUBLISHED' }) =>
     jsonFetch<{ announcement: AnnouncementDTO }>(`/api/organizations/${encodeURIComponent(id)}/announcements`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -824,6 +831,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  updateAssignment: (assignmentId: string, body: OrgAssignmentUpdateInput) =>
+    jsonFetch<{ assignment: AssignmentDTO }>(
+      `/api/organizations/assignments/${encodeURIComponent(assignmentId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  updateResource: (orgId: string, resourceId: string, body: OrgResourceUpdateInput) =>
+    jsonFetch<{ resource: OrgResourceDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/resources/${encodeURIComponent(resourceId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  deleteResource: (orgId: string, resourceId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/resources/${encodeURIComponent(resourceId)}`,
+      { method: 'DELETE' },
+    ),
+  updateAnnouncement: (orgId: string, announcementId: string, body: OrgAnnouncementUpdateInput) =>
+    jsonFetch<{ announcement: AnnouncementDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/announcements/${encodeURIComponent(announcementId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
 
   // ─── Phase 7 — Career portfolio & employer exchange ───
   careerProfile: () => jsonFetch<CareerProfileResponse>('/api/career/profile'),
@@ -890,6 +917,8 @@ export const api = {
     jsonFetch<AdminOrganizationsResponse>(`/api/admin/organizations${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
   adminOrganizationDecision: (orgId: string, body: { action: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE'; reason?: string }) =>
     jsonFetch<{ organization: PublicOrganizationDTO }>(`/api/admin/organizations/${encodeURIComponent(orgId)}/verification`, { method: 'POST', body: JSON.stringify(body) }),
+  adminOrganizationAudit: (orgId: string) =>
+    jsonFetch<AdminOrganizationAuditResponse>(`/api/admin/organizations/${encodeURIComponent(orgId)}/audit`),
   adminCareerOpportunities: (status?: string) =>
     jsonFetch<{ opportunities: PublicOpportunityClientDTO[]; total: number }>(`/api/admin/career/opportunities${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
   adminOpportunityModeration: (id: string, body: { action: 'APPROVE' | 'REJECT' | 'PAUSE' | 'CLOSE' | 'RESUME'; reason?: string }) =>
