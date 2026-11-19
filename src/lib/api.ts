@@ -809,6 +809,28 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  revokeInvitation: (orgId: string, invitationId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
+      { method: 'POST', body: '{}' },
+    ),
+  updateOrganizationGroup: (
+    orgId: string,
+    groupId: string,
+    body: { name?: string; academicYear?: string; programmeLabel?: string; batchLabel?: string; sectionLabel?: string; trackLabel?: string; startsAt?: string | null; endsAt?: string | null; capacity?: number | null; status?: 'ACTIVE' | 'ARCHIVED' },
+  ) =>
+    jsonFetch<{ group: GroupDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  updateAssignment: (
+    assignmentId: string,
+    body: { title?: string; instructions?: string; subjectLabel?: string; dueAt?: string | null; maxScore?: number | null; status?: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED' },
+  ) =>
+    jsonFetch<{ assignment: AssignmentDTO }>(
+      `/api/organizations/assignments/${encodeURIComponent(assignmentId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
 
   // ─── Phase 7 — Career portfolio & employer exchange ───
   careerProfile: () => jsonFetch<CareerProfileResponse>('/api/career/profile'),
@@ -824,13 +846,17 @@ export const api = {
   careerProjects: () => jsonFetch<{ projects: CareerProjectClientDTO[] }>('/api/career/projects'),
   addCareerProject: (body: { title: string; description?: string; category?: string; skillsUsed?: string[]; projectUrl?: string; startsAt?: string; endsAt?: string; visibility?: string }) =>
     jsonFetch<{ project: CareerProjectClientDTO }>('/api/career/projects', { method: 'POST', body: JSON.stringify(body) }),
-  updateCareerProject: (id: string, body: Partial<{ title: string; description: string; category: string; skillsUsed: string[]; projectUrl: string; visibility: string; status: string }>) =>
+  updateCareerProject: (id: string, body: Partial<{ title: string; description: string; category: string; skillsUsed: string[]; projectUrl: string; visibility: string; status: string; startsAt: string | null; endsAt: string | null }>) =>
     jsonFetch<{ project: CareerProjectClientDTO }>(`/api/career/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteCareerProject: (id: string) =>
     jsonFetch<{ ok: boolean }>(`/api/career/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   careerCredentials: () => jsonFetch<{ credentials: CareerCredentialClientDTO[] }>('/api/career/credentials'),
   shareCredential: (id: string, portfolioShared: boolean) =>
     jsonFetch<{ credential: { id: string; portfolioShared: boolean; status: string } }>(`/api/career/credentials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ portfolioShared }) }),
+  issueCredential: (body: { organizationId: string; studentId: string; credentialName: string; credentialDescription?: string; issuedDate: string; expiryDate?: string | null; credentialReference?: string }) =>
+    jsonFetch<{ credential: CareerCredentialClientDTO }>('/api/career/credentials/issue', { method: 'POST', body: JSON.stringify(body) }),
+  revokeCredential: (credentialId: string, body: { reason: string }) =>
+    jsonFetch<{ credential: { id: string; status: string; revokedAt: string | null } }>(`/api/career/credentials/${encodeURIComponent(credentialId)}/revoke`, { method: 'POST', body: JSON.stringify(body) }),
   careerEligibility: () => jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility'),
   requestEligibilityReview: () =>
     jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility', { method: 'POST', body: JSON.stringify({ acknowledge: true }) }),

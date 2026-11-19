@@ -1383,6 +1383,7 @@ export interface OrganizationDetailResponse {
 
 export interface MemberDTO {
   id: string
+  studentId: string
   role: string
   status: string
   student: { displayName: string | null }

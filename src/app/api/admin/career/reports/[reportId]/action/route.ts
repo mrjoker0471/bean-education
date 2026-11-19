@@ -1,8 +1,8 @@
-// ─── Phase 7: Admin — career safety reports ──────────────────────────────────
-// GET lists safety reports (status filter). POST records a human decision
-// (acknowledge/investigate/resolve/dismiss with note) and, where justified,
-// restricts the opportunity (pause) — a report NEVER auto-suspends anything.
-// Report descriptions and resolution notes stay admin-private.
+// ─── Phase 7: Admin — career safety report decision ──────────────────────────
+// POST records a human decision (acknowledge/investigate/resolve/dismiss with
+// note) and, where justified, restricts the opportunity (pause) — a report
+// NEVER auto-suspends anything. Report descriptions and resolution notes stay
+// admin-private. The reports listing lives at /api/admin/career/reports.
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/teach'
@@ -14,28 +14,6 @@ import { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-
-export async function GET(req: NextRequest) {
-  try {
-    const guard = await requireAdmin()
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
-
-    const url = new URL(req.url)
-    const status = (url.searchParams.get('status') ?? 'OPEN').toUpperCase()
-    const allowed = ['OPEN', 'UNDER_REVIEW', 'RESOLVED', 'DISMISSED', 'ALL']
-    const where = allowed.includes(status) && status !== 'ALL' ? { status } : {}
-
-    const reports = await db.careerSafetyReport.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    })
-    return NextResponse.json({ reports, total: reports.length }, { headers: { 'Cache-Control': 'no-store' } })
-  } catch (err) {
-    console.error('[api/admin/career/reports GET]', err)
-    return NextResponse.json({ error: 'Could not load safety reports.' }, { status: 500 })
-  }
-}
 
 type Params = { params: Promise<{ reportId: string }> }
 
@@ -61,6 +39,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     const outcome = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const report = await tx.careerSafetyReport.findUnique({ where: { id: reportId } })
       if (!report) return { kind: 'notFound' as const }
+      // Terminal-state freeze: RESOLVED / DISMISSED are final human decisions.
+      // Nothing (not even another pause) may act on a closed report — the UI
+      // hides the buttons and the server refuses with 409 (no client trust).
+      if (report.status === SAFETY_REPORT_STATUS.RESOLVED || report.status === SAFETY_REPORT_STATUS.DISMISSED) {
+        return { kind: 'conflict' as const, current: report.status }
+      }
 
       let opportunityPaused = false
       if (action === 'PAUSE_OPPORTUNITY') {
@@ -121,6 +105,8 @@ export async function POST(req: NextRequest, { params }: Params) {
         return NextResponse.json({ report: { id: outcome.report.id, status: outcome.report.status }, opportunityPaused: outcome.opportunityPaused })
       case 'notFound':
         return NextResponse.json({ error: 'Report not found' }, { status: 404 })
+      case 'conflict':
+        return NextResponse.json({ error: `This report is already ${outcome.current.toLowerCase()} — its decision is final.` }, { status: 409 })
       case 'badRequest':
         return NextResponse.json({ error: outcome.error }, { status: 400 })
     }

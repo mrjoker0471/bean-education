@@ -1,8 +1,8 @@
-// ─── Phase 7: Admin — opportunity moderation ─────────────────────────────────
-// GET lists opportunities by status (PENDING_REVIEW default). POST records a
-// moderation decision (approve publication / reject with required reason /
-// pause unsafe listings / close). Every decision is audited. Moderation never
-// touches teacher trust records.
+// ─── Phase 7: Admin — opportunity moderation decision ────────────────────────
+// POST records a moderation decision (approve publication / reject with
+// required reason / pause unsafe listings / resume paused listings / close).
+// Every decision is audited. Moderation never touches teacher trust records.
+// The moderation queue listing lives at /api/admin/career/opportunities.
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/teach'
@@ -15,35 +15,6 @@ import { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-
-export async function GET(req: NextRequest) {
-  try {
-    const guard = await requireAdmin()
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
-
-    const url = new URL(req.url)
-    const status = (url.searchParams.get('status') ?? 'PENDING_REVIEW').toUpperCase()
-    const allowed = ['PENDING_REVIEW', 'PUBLISHED', 'PAUSED', 'CLOSED', 'REJECTED', 'DRAFT', 'ALL']
-    const where = allowed.includes(status) && status !== 'ALL' ? { status } : {}
-
-    const [opportunities, total] = await Promise.all([
-      db.careerOpportunity.findMany({
-        where,
-        include: { organization: true },
-        orderBy: { updatedAt: 'desc' },
-        take: 100,
-      }),
-      db.careerOpportunity.count({ where }),
-    ])
-    return NextResponse.json(
-      { opportunities: opportunities.map(toPublicOpportunityDTO), total },
-      { headers: { 'Cache-Control': 'no-store' } },
-    )
-  } catch (err) {
-    console.error('[api/admin/career/opportunities GET]', err)
-    return NextResponse.json({ error: 'Could not load the moderation queue.' }, { status: 500 })
-  }
-}
 
 type Params = { params: Promise<{ opportunityId: string }> }
 

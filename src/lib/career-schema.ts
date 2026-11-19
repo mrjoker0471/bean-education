@@ -125,6 +125,15 @@ export const credentialShareSchema = z.object({
   portfolioShared: z.boolean(),
 })
 
+// ─── Credentials (institution side: revocation) ───
+// Revocation requires a written reason (10–1000 chars) that is audited — the
+// student sees that a credential was revoked and why. Only ISSUED credentials
+// can be revoked; revocation is permanent (no un-revoke exists).
+
+export const credentialRevokeSchema = z.object({
+  reason: plainText(10, 1000),
+})
+
 // ─── Eligibility ───
 
 export const eligibilityRequestSchema = z.object({
