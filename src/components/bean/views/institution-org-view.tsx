@@ -51,6 +51,7 @@ import {
 import { EmptyState } from '@/components/bean/empty-state'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
+import { evaluateOrgCapabilities, type OrgCapabilities, type OrgMembershipStatus, type OrgRole, type OrgVerificationStatus } from '@/lib/capabilities'
 import { formatClassLocal } from '@/components/bean/teach-format'
 import type {
   AnnouncementDTO,
@@ -160,6 +161,14 @@ export function InstitutionOrgView({ orgId, section }: { orgId: string; section?
 
   const org = dash.organization
   const isAdmin = dash.isAdmin
+  // Central capability evaluator (client mirror of the server guards): the UI
+  // never gates on ad-hoc role strings — every affordance keys off these flags.
+  const caps = evaluateOrgCapabilities({
+    role: dash.role as OrgRole,
+    membershipStatus: dash.membership.status as OrgMembershipStatus,
+    verificationStatus: dash.organization.verificationStatus as OrgVerificationStatus,
+    organizationActive: dash.organization.isActive,
+  })
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
@@ -216,7 +225,7 @@ export function InstitutionOrgView({ orgId, section }: { orgId: string; section?
       <div className="mt-6">
         {tab === 'overview' && <OverviewPanel dash={dash} />}
         {tab === 'members' && <MembersPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} onChanged={load} />}
-        {tab === 'groups' && <GroupsPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} />}
+        {tab === 'groups' && <GroupsPanel orgId={org.id} caps={caps} />}
         {tab === 'classes' && <ClassesPanel orgId={org.id} />}
         {tab === 'assignments' && <AssignmentsPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} groupsReady={dash.verification.operational} />}
         {tab === 'resources' && <ResourcesPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} />}
@@ -498,7 +507,8 @@ function actionLabel(action: string): string {
 
 // ─── Groups & batches ────────────────────────────────────────────────────────
 
-function GroupsPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: boolean; active: boolean }) {
+function GroupsPanel({ orgId, caps }: { orgId: string; caps: OrgCapabilities }) {
+  const navigate = useAppStore(s => s.navigate)
   const [groups, setGroups] = useState<GroupDTO[] | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -518,9 +528,9 @@ function GroupsPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: boole
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Batches, sections and cohorts — learners are enrolled into groups by instructors.</p>
-        {isAdmin && active ? (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">Batches, sections and cohorts — open a group to see its roster, classes and assignments.</p>
+        {caps.canCreateGroups ? (
           <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => setCreateOpen(true)}>
             New group
           </Button>
@@ -535,21 +545,34 @@ function GroupsPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: boole
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {groups.map(g => (
-            <div key={g.id} className="flex h-full flex-col rounded-xl border border-border bg-card p-5">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-display text-base font-semibold text-foreground">{g.name}</h3>
-                <Badge variant="outline" className="border-border text-muted-foreground">{g.status.toLowerCase()}</Badge>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-                {g.programmeLabel ? <span><span className="text-gold">Programme:</span> {g.programmeLabel}</span> : null}
-                {g.academicYear ? <span><span className="text-gold">Year:</span> {g.academicYear}</span> : null}
-                {g.batchLabel ? <span><span className="text-gold">Batch:</span> {g.batchLabel}</span> : null}
-                {g.sectionLabel ? <span><span className="text-gold">Section:</span> {g.sectionLabel}</span> : null}
-                {g.trackLabel ? <span><span className="text-gold">Track:</span> {g.trackLabel}</span> : null}
-                <span><span className="text-gold">Enrolled:</span> {g.activeEnrollmentCount}{g.capacity ? ` / ${g.capacity}` : ''}</span>
-              </div>
-              {isAdmin && active ? (
-                <Button size="sm" variant="outline" className="mt-4 border-gold/40 text-gold hover:bg-gold/10" onClick={() => setEnrollGroup(g)}>
+            <div key={g.id} className="flex h-full flex-col gap-3">
+              {/* Whole card opens the group workspace (keyboard reachable — a real button). */}
+              <button
+                type="button"
+                className="exam-card-hover flex h-full flex-col rounded-xl border border-border bg-card p-5 text-left transition-colors hover:border-gold/40"
+                onClick={() => navigate({ view: 'institution-group', orgId, groupId: g.id })}
+                aria-label={`Open group ${g.name}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-display text-base font-semibold text-foreground">{g.name}</h3>
+                  <Badge
+                    variant="outline"
+                    className={g.status === 'ARCHIVED' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-success/40 bg-success/10 text-success'}
+                  >
+                    {g.status === 'ARCHIVED' ? 'Archived' : 'Active'}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+                  {g.programmeLabel ? <span><span className="text-gold">Programme:</span> {g.programmeLabel}</span> : null}
+                  {g.academicYear ? <span><span className="text-gold">Year:</span> {g.academicYear}</span> : null}
+                  {g.batchLabel ? <span><span className="text-gold">Batch:</span> {g.batchLabel}</span> : null}
+                  {g.sectionLabel ? <span><span className="text-gold">Section:</span> {g.sectionLabel}</span> : null}
+                  {g.trackLabel ? <span><span className="text-gold">Track:</span> {g.trackLabel}</span> : null}
+                  <span><span className="text-gold">Enrolled:</span> {g.capacity === null ? `${g.activeEnrollmentCount} · unlimited` : `${g.activeEnrollmentCount} / ${g.capacity}`}</span>
+                </div>
+              </button>
+              {caps.canEnrollGroupMembers && g.status === 'ACTIVE' ? (
+                <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setEnrollGroup(g)}>
                   <UserPlus className="mr-2 h-3.5 w-3.5" aria-hidden /> Enroll member
                 </Button>
               ) : null}
@@ -943,7 +966,7 @@ function CreateAssignmentDialog({ open, onOpenChange, orgId, onCreated }: { open
   )
 }
 
-function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: AssignmentDetailResponse | null; isStaff: boolean; onClose: () => void }) {
+export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: AssignmentDetailResponse | null; isStaff: boolean; onClose: () => void }) {
   const [responseText, setResponseText] = useState('')
   const [externalLink, setExternalLink] = useState('')
   const [busy, setBusy] = useState(false)

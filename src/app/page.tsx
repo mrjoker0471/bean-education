@@ -34,6 +34,7 @@ import { TrustPolicyView } from '@/components/bean/views/trust-policy-view'
 // Phase 7 — Institution & Career
 import { InstitutionView } from '@/components/bean/views/institution-view'
 import { InstitutionOrgView } from '@/components/bean/views/institution-org-view'
+import { InstitutionGroupView } from '@/components/bean/views/institution-group-view'
 import { CareerView } from '@/components/bean/views/career-view'
 import { CareerProfileView } from '@/components/bean/views/career-profile-view'
 import { CareerPortfolioView } from '@/components/bean/views/career-portfolio-view'
@@ -96,6 +97,9 @@ export default function Page() {
             {/* Phase 7 — Institution & Career */}
             {route.view === 'institution' && <InstitutionView />}
             {route.view === 'institution-org' && route.orgId && <InstitutionOrgView orgId={route.orgId} section={route.section} />}
+            {route.view === 'institution-group' && route.orgId && route.groupId && (
+              <InstitutionGroupView orgId={route.orgId} groupId={route.groupId} tab={route.tab} />
+            )}
             {route.view === 'career' && <CareerView />}
             {route.view === 'career-profile' && <CareerProfileView />}
             {route.view === 'career-portfolio' && <CareerPortfolioView />}

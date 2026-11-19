@@ -42,6 +42,7 @@ export type Route =
   // Phase 7 — Institution & Career (additive; every existing route unchanged)
   | { view: 'institution' }
   | { view: 'institution-org'; orgId: string; section?: 'overview' | 'members' | 'groups' | 'classes' | 'assignments' | 'resources' | 'reports' }
+  | { view: 'institution-group'; orgId: string; groupId: string; tab?: InstitutionGroupTab }
   | { view: 'career' }
   | { view: 'career-profile' }
   | { view: 'career-portfolio' }
@@ -52,6 +53,19 @@ export type Route =
   | { view: 'admin-organizations' }
   | { view: 'admin-career' }
   | { view: 'not-found' }
+
+/** Tabs of the group workspace (#/institution/:orgId/groups/:groupId[/:tab]).
+ *  Unknown tab segments parse to `undefined` so the view falls back to overview. */
+export type InstitutionGroupTab = 'overview' | 'roster' | 'classes' | 'assignments' | 'resources' | 'announcements'
+
+export const INSTITUTION_GROUP_TABS: readonly InstitutionGroupTab[] = [
+  'overview',
+  'roster',
+  'classes',
+  'assignments',
+  'resources',
+  'announcements',
+]
 
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#/, '')
@@ -131,6 +145,19 @@ export function parseHash(hash: string): Route {
     // Phase 7 — Institution & Career
     case 'institution':
       if (!parts[1]) return { view: 'institution' }
+      // #/institution/:orgId/groups/:groupId[/:tab] — one group's workspace.
+      // `#/institution/:orgId/groups` (no groupId) stays the org groups section.
+      if (parts[2] === 'groups' && parts[3]) {
+        const groupTab = INSTITUTION_GROUP_TABS.includes(parts[4] as InstitutionGroupTab)
+          ? (parts[4] as InstitutionGroupTab)
+          : undefined
+        return {
+          view: 'institution-group',
+          orgId: decodeURIComponent(parts[1]),
+          groupId: decodeURIComponent(parts[3]),
+          tab: groupTab,
+        }
+      }
       return {
         view: 'institution-org',
         orgId: decodeURIComponent(parts[1]),
@@ -216,6 +243,10 @@ export function routeToHash(route: Route): string {
     case 'institution-org': {
       const base = `#/institution/${encodeURIComponent(route.orgId)}`
       return route.section ? `${base}/${route.section}` : base
+    }
+    case 'institution-group': {
+      const groupBase = `#/institution/${encodeURIComponent(route.orgId)}/groups/${encodeURIComponent(route.groupId)}`
+      return route.tab ? `${groupBase}/${route.tab}` : groupBase
     }
     case 'career': return '#/career'
     case 'career-profile': return '#/career/profile'
