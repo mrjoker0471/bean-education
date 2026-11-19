@@ -2,6 +2,32 @@
 
 All notable changes to BEAN Education. Format based on Keep a Changelog.
 
+## [Phase 7] — Institution & Career Ecosystem
+
+### Added
+- Multi-organization architecture: `Organization` (8 types, slug, truthful verification states DRAFT → PENDING_REVIEW → APPROVED/REJECTED/SUSPENDED with append-only `OrganizationAuditEvent`), `OrganizationMembership` (unique org+student pair; scoped roles OWNER/ADMIN/INSTRUCTOR/STAFF/LEARNER/CAREER_COORDINATOR/RECRUITER; INVITED/ACTIVE/SUSPENDED/LEFT history-preserving states) — a membership NEVER changes `Student.role`.
+- Secure invitations: 32-byte tokens stored as SHA-256 hashes only, raw token shown exactly once (copy-link; no email service is pretended), expiry/revocation/max-uses enforced, OWNER/ADMIN never invitable, LEARNER auto-activation policy, rate-limited.
+- Groups/batches/cohorts with unique enrollment and leave-preserves-history semantics.
+- Private institution classes on the existing BEAN Teach + Live Classroom stack: `ClassSession` gains nullable `audience/organizationId/organizationGroupId` (PUBLIC defaults; SQLite table-rebuild migration copies every existing row); public discovery filters `audience=PUBLIC`; detail 404s ineligible callers; booking re-checks org/group eligibility inside the seat-claim transaction; live tokens re-check on every request.
+- Institution assignments: group-scoped publication, one submission record per student per assignment (unique pair) with documented resubmission, HTTPS-only links, instructor-only grading restricted to the owning group, grades private to student + permitted staff.
+- In-app announcements and HTTPS learning resources (no email/notification service; no public feed; no private teacher-to-minor messaging).
+- Institution workspace UI: `#/institution` hub + `#/institution/:id` sections (Overview, Members, Invitations, Groups, Classes, Assignments, Resources, Reports) deriving only from authorized org-scoped endpoints.
+- Career portfolio (student-owned, PRIVATE by default): `CareerProfile` with PRIVATE/DISCOVERABLE/PAUSED visibility, truthful skill labels (SELF_DECLARED server-forced; INSTITUTION_ISSUED only via real issuance; BEAN_ASSESSMENT_VERIFIED unreachable — no assessment process exists), per-project sharing, institution-issued credentials with student-controlled portfolio sharing and audited revocation.
+- Adult-eligibility safeguard: `CareerEligibilityReview` (NOT_ELIGIBLE → PENDING_REVIEW → APPROVED/DENIED, admin decision, no identity documents collected) — server-blocks employer discovery AND applications until APPROVED while private planning stays available.
+- Verified-employer exchange: opportunities (JOB/INTERNSHIP/APPRENTICESHIP/PROJECT) with admin-moderated publication, candidate-controlled application snapshots (whitelist keys, ≤8KB, frozen at submission, contact only with explicit consent), one application per student/opportunity (DB unique), withdrawal, employer pipeline with candidate-visible vs private notes, consent-gated rate-limited candidate discovery (no AI scoring, opaque candidate refs, no contact details shown).
+- Admin: `#/admin/organizations` verification queue (deliberate human decisions with required written reasons) and `#/admin/career` (opportunity moderation, private safety reports with explicit pause actions — reports never auto-suspend, privacy-minimizing eligibility reviews).
+- Tests: 69 new tests across 4 suites — 418 total, all passing; free-pilot protection extended (no payment models/packages/routes/env vars; no refund code anywhere).
+
+### Docs
+- New: `docs/PHASE7_DESIGN.md`, `docs/PHASE7_INSTITUTIONS.md`, `docs/PHASE7_ORGANIZATION_SECURITY.md`, `docs/PHASE7_ASSIGNMENTS.md`, `docs/PHASE7_CAREER_PORTFOLIO.md`, `docs/PHASE7_EMPLOYER_EXCHANGE.md`, `docs/PHASE7_PRIVACY_AND_SAFEGUARDING.md`, `docs/PHASE7_RESULTS.md`. Updated: README, ARCHITECTURE, DEVELOPMENT, DEVELOPMENT_ROADMAP, DECISIONS.
+
+### Security
+- All institution/employer power is organization-scoped and server-verified from the session; client-supplied roles/ids/statuses are never trusted. Scoping re-checked on every nested resource (org A admin cannot touch org B).
+- Invitation security: hash-only storage (raw never persisted/logged), generic 404 for unknown tokens, email-restricted redemption, unique-pair duplicate prevention, rate limits (3 orgs / 30 invites / 10 accepts / 10 groups / 20 assignments / 30 submission edits per rolling 24h).
+- Private classes: eligibility re-checked inside the seat-claim transaction and on every live-token request; suspended/left members lose new access while history is retained.
+- Career privacy: discovery requires DISCOVERABLE + APPROVED eligibility (both server-enforced); snapshots contain only explicitly selected fields; employerNotes never leave employer DTOs; candidate DTOs never contain account ids/emails/phones; search audits omit query strings.
+- Append-only `OrganizationAuditEvent` + `CareerAuditEvent` written in the state-change transaction; no cascade deletion of audit history.
+
 ## Phase 6 — BEAN Trust & Quality (2026-11-19)
 
 Branch `feat/bean-trust-quality-phase-6`. Additive milestone: every Phase 4A/5 surface, route and rule is unchanged; still no payments, wallets or refunds (free pilot — refund rules are Phase 8).
@@ -137,3 +163,4 @@ Branch `feat/bean-live-classroom-phase-5` (from merged main 4dbc4d0). Additive m
 - `LIVEKIT_API_SECRET` server-only; no response contains it (tested). Participant identity is the opaque `bean:<studentId>` — never an email. Tokens are short-lived, room-specific, with `roomAdmin`/`roomCreate`/`roomRecord` explicitly denied — moderation and room management stay on the BEAN server (audited).
 - Usage budget cannot be oversubscribed under concurrent starts (conditional UPDATE re-checked at commit time, proven on real SQLite); reservations release on failure; finalisation is single-use; duplicate webhooks never double-count.
 - Same-origin + Zod on every mutation; ownership re-checked server-side on every request; append-only audit for start/end/mute/remove.
+
