@@ -104,6 +104,7 @@ import type {
   AdminTrustTeachersResponse,
   AdminTrustAppealsResponse,
 } from './types'
+import type { GroupDetailDTO, OrgGroupUpdateInput } from './institution-dto'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -763,6 +764,20 @@ export const api = {
     jsonFetch<{ ok: boolean }>(
       `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
       { method: 'DELETE' },
+    ),
+  removeGroupMember: (orgId: string, groupId: string, membershipId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
+      { method: 'DELETE', body: JSON.stringify({ membershipId }) },
+    ),
+  organizationGroup: (orgId: string, groupId: string) =>
+    jsonFetch<GroupDetailDTO>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}`,
+    ),
+  updateOrganizationGroup: (orgId: string, groupId: string, body: OrgGroupUpdateInput) =>
+    jsonFetch<{ group: GroupDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
     ),
   organizationClasses: (id: string) =>
     jsonFetch<OrgClassesResponse>(`/api/organizations/${encodeURIComponent(id)}/classes`),

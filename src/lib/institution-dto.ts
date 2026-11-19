@@ -13,6 +13,7 @@ import type {
   OrganizationAnnouncement,
   OrganizationAssignment,
   OrganizationGroup,
+  OrganizationGroupMembership,
   OrganizationInvitation,
   OrganizationMembership,
   OrganizationResource,
@@ -148,6 +149,52 @@ export function toGroupDTO(g: OrganizationGroup & { _count?: { enrollments: numb
     activeEnrollmentCount: g._count?.enrollments ?? 0,
     createdAt: g.createdAt.toISOString(),
   }
+}
+
+/** One roster row of a group — ACTIVE and LEFT enrollments both listed
+ *  (history is never hidden); display names only, NEVER emails. */
+export interface GroupRosterEntryDTO {
+  id: string
+  membershipId: string
+  enrollmentState: string
+  joinedAt: string
+  leftAt: string | null
+  member: { displayName: string | null }
+}
+
+export function toGroupRosterEntry(
+  e: OrganizationGroupMembership & { membership: OrganizationMembership & { student: { displayName: string | null } } },
+): GroupRosterEntryDTO {
+  return {
+    id: e.id,
+    membershipId: e.membershipId,
+    enrollmentState: e.enrollmentState,
+    joinedAt: e.joinedAt.toISOString(),
+    leftAt: e.leftAt?.toISOString() ?? null,
+    member: { displayName: e.membership.student.displayName },
+  }
+}
+
+/** GET /organizations/[id]/groups/[groupId] response. */
+export interface GroupDetailDTO {
+  group: GroupDTO
+  roster: GroupRosterEntryDTO[]
+  counts: { activeCount: number; capacity: number | null; totalEnrolled: number }
+}
+
+/** PATCH /organizations/[id]/groups/[groupId] request body — all fields
+ *  optional; capacity may never drop below the active enrollment count. */
+export interface OrgGroupUpdateInput {
+  name?: string
+  academicYear?: string | null
+  programmeLabel?: string | null
+  batchLabel?: string | null
+  sectionLabel?: string | null
+  trackLabel?: string | null
+  startsAt?: string | null
+  endsAt?: string | null
+  capacity?: number | null
+  status?: 'ACTIVE' | 'ARCHIVED'
 }
 
 export interface AssignmentDTO {

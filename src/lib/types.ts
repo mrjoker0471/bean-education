@@ -1435,19 +1435,44 @@ export interface OrgGroupsResponse {
   groups: GroupDTO[]
 }
 
+/** One recent audit activity row on the institution dashboard. `summary` is
+ *  the audit event's detail string; actor names are display names only. */
+export interface OrgRecentActivityItemDTO {
+  id: string
+  action: string
+  entityType: string
+  entityId: string
+  summary: string | null
+  actorRole: string | null
+  createdAt: string
+  actorDisplayName: string | null
+}
+
 export interface OrgDashboardResponse {
   organization: PublicOrganizationDTO
   membership: MyMembershipDTO
+  /** Role echo of the caller's organization membership. */
+  role: string
   isAdmin: boolean
+  /** OWNER | ADMIN | INSTRUCTOR — mirrors ORG_INSTRUCTOR_ROLES server-side. */
+  isStaff: boolean
   verification: { status: string; operational: boolean }
   overview: {
     activeMembers: number
     pendingMembers: number
     activeGroups: number
+    archivedGroups: number
     upcomingClasses: number
     publishedAssignments: number
+    closedAssignments: number
+    draftAssignments: number
     openSubmissions: number
+    submissionsAwaitingGrading: number
+    submissionsGraded: number
     activeAnnouncements: number
+    announcementsActive: number
+    resourcesTotal: number
+    recentActivity: OrgRecentActivityItemDTO[]
   }
 }
 
