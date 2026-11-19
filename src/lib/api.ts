@@ -1,6 +1,42 @@
 'use client'
 
 import type {
+  PublicOrganizationDTO,
+  AssignmentDetailResponse,
+  AssignmentDTO,
+  AnnouncementDTO,
+  GroupDTO,
+  InvitationAcceptResponse,
+  InvitationDTO,
+  MemberDTO,
+  MyOrganizationsResponse,
+  OrganizationDetailResponse,
+  OrgAnnouncementsResponse,
+  OrgAssignmentsResponse,
+  OrgClassesResponse,
+  OrgDashboardResponse,
+  OrgGroupsResponse,
+  OrgInvitationsResponse,
+  OrgMembersResponse,
+  OrgResourcesResponse,
+  OrgResourceDTO,
+  OwnOrganizationDTO,
+  AdminCareerReportsResponse,
+  AdminEligibilityResponse,
+  AdminOrganizationsResponse,
+  CandidateSearchResponse,
+  CareerCredentialClientDTO,
+  CareerEligibilityClientDTO,
+  CareerProfileClientDTO,
+  CareerProfileResponse,
+  CareerProjectClientDTO,
+  CareerSkillClientDTO,
+  EmployerApplicantsResponse,
+  EmployerOpportunitiesResponse,
+  MyApplicationsResponse,
+  OpportunitiesBrowseResponse,
+  OwnSafetyReportDTO,
+  PublicOpportunityClientDTO,
   AttemptResultDTO,
   AttemptStateDTO,
   AuthedStudent,
@@ -649,4 +685,206 @@ export const api = {
       `/api/admin/trust/appeals/${encodeURIComponent(appealId)}/action`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  // ─── Phase 7 — Institution workspace ───
+  myOrganizations: () => jsonFetch<MyOrganizationsResponse>('/api/organizations'),
+  createOrganization: (body: {
+    name: string
+    displayName?: string
+    orgType: string
+    description?: string
+    website?: string
+    publicContact?: string
+    country?: string
+    state?: string
+    city?: string
+    logoText?: string
+  }) =>
+    jsonFetch<{ organization: OwnOrganizationDTO }>('/api/organizations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  organizationDetail: (id: string) =>
+    jsonFetch<OrganizationDetailResponse>(`/api/organizations/${encodeURIComponent(id)}`),
+  updateOrganization: (id: string, body: Partial<{ displayName: string; description: string; website: string; publicContact: string; country: string; state: string; city: string; logoText: string }>) =>
+    jsonFetch<{ organization: OwnOrganizationDTO }>(`/api/organizations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  submitOrganization: (id: string) =>
+    jsonFetch<{ organization: OwnOrganizationDTO }>(`/api/organizations/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: '{}',
+    }),
+  organizationDashboard: (id: string) =>
+    jsonFetch<OrgDashboardResponse>(`/api/organizations/${encodeURIComponent(id)}/dashboard`),
+  organizationMembers: (id: string) =>
+    jsonFetch<OrgMembersResponse>(`/api/organizations/${encodeURIComponent(id)}/members`),
+  organizationMemberAction: (
+    orgId: string,
+    memberId: string,
+    body: { action: 'APPROVE_OWNER' | 'APPOINT_ADMIN' | 'SET_ROLE' | 'SUSPEND' | 'REINSTATE' | 'REMOVE'; role?: string; note?: string },
+  ) =>
+    jsonFetch<{ member: MemberDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  organizationInvitations: (id: string) =>
+    jsonFetch<OrgInvitationsResponse>(`/api/organizations/${encodeURIComponent(id)}/invitations`),
+  createInvitation: (
+    id: string,
+    body: { email?: string; intendedRole: string; ttlDays?: number; maxUses?: number },
+  ) =>
+    jsonFetch<{ invitation: InvitationDTO }>(`/api/organizations/${encodeURIComponent(id)}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  acceptInvitation: (token: string) =>
+    jsonFetch<InvitationAcceptResponse>('/api/organizations/invitations/accept', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  organizationGroups: (id: string) =>
+    jsonFetch<OrgGroupsResponse>(`/api/organizations/${encodeURIComponent(id)}/groups`),
+  createOrganizationGroup: (
+    id: string,
+    body: { name: string; academicYear?: string; programmeLabel?: string; batchLabel?: string; sectionLabel?: string; trackLabel?: string; startsAt?: string; endsAt?: string; capacity?: number },
+  ) =>
+    jsonFetch<{ group: GroupDTO }>(`/api/organizations/${encodeURIComponent(id)}/groups`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  enrollMember: (orgId: string, groupId: string, membershipId: string) =>
+    jsonFetch<{ ok: boolean; enrollmentId: string }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
+      { method: 'POST', body: JSON.stringify({ membershipId }) },
+    ),
+  leaveGroup: (orgId: string, groupId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
+      { method: 'DELETE' },
+    ),
+  organizationClasses: (id: string) =>
+    jsonFetch<OrgClassesResponse>(`/api/organizations/${encodeURIComponent(id)}/classes`),
+  organizationAssignments: (id: string) =>
+    jsonFetch<OrgAssignmentsResponse>(`/api/organizations/${encodeURIComponent(id)}/assignments`),
+  createAssignment: (
+    id: string,
+    body: { groupId: string; title: string; instructions?: string; subjectLabel?: string; submissionType?: string; dueAt?: string; maxScore?: number; publish?: boolean },
+  ) =>
+    jsonFetch<{ assignment: AssignmentDTO }>(`/api/organizations/${encodeURIComponent(id)}/assignments`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  assignmentDetail: (assignmentId: string) =>
+    jsonFetch<AssignmentDetailResponse>(`/api/organizations/assignments/${encodeURIComponent(assignmentId)}`),
+  submitAssignment: (
+    assignmentId: string,
+    body: { responseText?: string; externalLink?: string; submit?: boolean },
+  ) =>
+    jsonFetch<{ submission: { id: string; status: string; submittedAt: string | null } }>(
+      `/api/organizations/assignments/${encodeURIComponent(assignmentId)}/submissions`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  gradeSubmission: (
+    assignmentId: string,
+    submissionId: string,
+    body: { gradeValue?: string; teacherFeedback?: string; markReturned?: boolean },
+  ) =>
+    jsonFetch<{ submission: { id: string; status: string; gradedAt: string | null } }>(
+      `/api/organizations/assignments/${encodeURIComponent(assignmentId)}/submissions/${encodeURIComponent(submissionId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  organizationAnnouncements: (id: string) =>
+    jsonFetch<OrgAnnouncementsResponse>(`/api/organizations/${encodeURIComponent(id)}/announcements`),
+  createAnnouncement: (id: string, body: { groupId?: string; title: string; body: string; expiresAt?: string }) =>
+    jsonFetch<{ announcement: AnnouncementDTO }>(`/api/organizations/${encodeURIComponent(id)}/announcements`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  organizationResources: (id: string) =>
+    jsonFetch<OrgResourcesResponse>(`/api/organizations/${encodeURIComponent(id)}/resources`),
+  createResource: (id: string, body: { groupId?: string; title: string; description?: string; url: string }) =>
+    jsonFetch<{ resource: OrgResourceDTO }>(`/api/organizations/${encodeURIComponent(id)}/resources`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  // ─── Phase 7 — Career portfolio & employer exchange ───
+  careerProfile: () => jsonFetch<CareerProfileResponse>('/api/career/profile'),
+  saveCareerProfile: (body: Partial<{ headline: string; summary: string; preferredRoleTypes: string[]; preferredSkills: string[]; preferredLocations: string[]; workModes: string[]; publicSlug: string; visibility: string }>) =>
+    jsonFetch<{ profile: CareerProfileClientDTO }>('/api/career/profile', { method: 'PATCH', body: JSON.stringify(body) }),
+  careerSkills: () => jsonFetch<{ skills: CareerSkillClientDTO[] }>('/api/career/skills'),
+  addCareerSkill: (body: { skillName: string; proficiency?: string; description?: string }) =>
+    jsonFetch<{ skill: CareerSkillClientDTO }>('/api/career/skills', { method: 'POST', body: JSON.stringify(body) }),
+  updateCareerSkill: (id: string, body: { skillName?: string; proficiency?: string; description?: string; position?: number }) =>
+    jsonFetch<{ skill: CareerSkillClientDTO }>(`/api/career/skills/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteCareerSkill: (id: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/career/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  careerProjects: () => jsonFetch<{ projects: CareerProjectClientDTO[] }>('/api/career/projects'),
+  addCareerProject: (body: { title: string; description?: string; category?: string; skillsUsed?: string[]; projectUrl?: string; startsAt?: string; endsAt?: string; visibility?: string }) =>
+    jsonFetch<{ project: CareerProjectClientDTO }>('/api/career/projects', { method: 'POST', body: JSON.stringify(body) }),
+  updateCareerProject: (id: string, body: Partial<{ title: string; description: string; category: string; skillsUsed: string[]; projectUrl: string; visibility: string; status: string }>) =>
+    jsonFetch<{ project: CareerProjectClientDTO }>(`/api/career/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteCareerProject: (id: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/career/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  careerCredentials: () => jsonFetch<{ credentials: CareerCredentialClientDTO[] }>('/api/career/credentials'),
+  shareCredential: (id: string, portfolioShared: boolean) =>
+    jsonFetch<{ credential: { id: string; portfolioShared: boolean; status: string } }>(`/api/career/credentials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ portfolioShared }) }),
+  careerEligibility: () => jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility'),
+  requestEligibilityReview: () =>
+    jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility', { method: 'POST', body: JSON.stringify({ acknowledge: true }) }),
+  browseOpportunities: (params: { q?: string; type?: string; page?: number }) => {
+    const qs = new URLSearchParams()
+    if (params.q) qs.set('q', params.q)
+    if (params.type) qs.set('type', params.type)
+    if (params.page) qs.set('page', String(params.page))
+    const query = qs.toString()
+    return jsonFetch<OpportunitiesBrowseResponse>(`/api/career/opportunities${query ? `?${query}` : ''}`)
+  },
+  opportunityDetail: (id: string) =>
+    jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/career/opportunities/${encodeURIComponent(id)}`),
+  applyToOpportunity: (id: string, body: { snapshot: Record<string, unknown>; contactSharingConsent: boolean }) =>
+    jsonFetch<{ application: { id: string; status: string; submittedAt: string } }>(`/api/career/opportunities/${encodeURIComponent(id)}/apply`, { method: 'POST', body: JSON.stringify(body) }),
+  myApplications: () => jsonFetch<MyApplicationsResponse>('/api/career/my-applications'),
+  withdrawApplication: (id: string) =>
+    jsonFetch<{ application: { id: string; status: string } }>(`/api/career/applications/${encodeURIComponent(id)}/withdraw`, { method: 'PATCH', body: '{}' }),
+  fileCareerReport: (body: { targetType: string; targetId: string; category: string; subject: string; description: string }) =>
+    jsonFetch<{ report: { id: string; status: string } }>('/api/career/reports', { method: 'POST', body: JSON.stringify(body) }),
+  myCareerReports: () => jsonFetch<{ reports: OwnSafetyReportDTO[] }>('/api/career/reports'),
+  employerOpportunities: (organizationId: string) =>
+    jsonFetch<EmployerOpportunitiesResponse>(`/api/career/employer/opportunities?organizationId=${encodeURIComponent(organizationId)}`),
+  createEmployerOpportunity: (body: Record<string, unknown> & { organizationId: string }) =>
+    jsonFetch<{ opportunity: PublicOpportunityClientDTO }>('/api/career/employer/opportunities', { method: 'POST', body: JSON.stringify(body) }),
+  updateEmployerOpportunity: (id: string, body: Record<string, unknown>) =>
+    jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/career/employer/opportunities/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  employerApplicants: (opportunityId: string) =>
+    jsonFetch<EmployerApplicantsResponse>(`/api/career/employer/opportunities/${encodeURIComponent(opportunityId)}/applications`),
+  employerApplicationStatus: (applicationId: string, body: { status: string; candidateVisibleStatusNote?: string; employerNotes?: string }) =>
+    jsonFetch<{ application: { id: string; status: string; candidateVisibleStatusNote: string | null } }>(`/api/career/employer/applications/${encodeURIComponent(applicationId)}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
+  searchCandidates: (organizationId: string, params: { q?: string; skill?: string; roleType?: string; location?: string; page?: number }) => {
+    const qs = new URLSearchParams({ organizationId })
+    if (params.q) qs.set('q', params.q)
+    if (params.skill) qs.set('skill', params.skill)
+    if (params.roleType) qs.set('roleType', params.roleType)
+    if (params.location) qs.set('location', params.location)
+    if (params.page) qs.set('page', String(params.page))
+    return jsonFetch<CandidateSearchResponse>(`/api/career/employer/candidates?${qs.toString()}`)
+  },
+  adminOrganizations: (status?: string) =>
+    jsonFetch<AdminOrganizationsResponse>(`/api/admin/organizations${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
+  adminOrganizationDecision: (orgId: string, body: { action: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE'; reason?: string }) =>
+    jsonFetch<{ organization: PublicOrganizationDTO }>(`/api/admin/organizations/${encodeURIComponent(orgId)}/verification`, { method: 'POST', body: JSON.stringify(body) }),
+  adminCareerOpportunities: (status?: string) =>
+    jsonFetch<{ opportunities: PublicOpportunityClientDTO[]; total: number }>(`/api/admin/career/opportunities${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
+  adminOpportunityModeration: (id: string, body: { action: 'APPROVE' | 'REJECT' | 'PAUSE' | 'CLOSE' | 'RESUME'; reason?: string }) =>
+    jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/admin/career/opportunities/${encodeURIComponent(id)}/moderation`, { method: 'POST', body: JSON.stringify(body) }),
+  adminCareerReports: (status?: string) =>
+    jsonFetch<AdminCareerReportsResponse>(`/api/admin/career/reports${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
+  adminCareerReportAction: (id: string, body: { action: 'ACKNOWLEDGE' | 'INVESTIGATE' | 'RESOLVE' | 'DISMISS' | 'PAUSE_OPPORTUNITY'; note?: string }) =>
+    jsonFetch<{ report: { id: string; status: string }; opportunityPaused?: boolean }>(`/api/admin/career/reports/${encodeURIComponent(id)}/action`, { method: 'POST', body: JSON.stringify(body) }),
+  adminEligibility: (status?: string) =>
+    jsonFetch<AdminEligibilityResponse>(`/api/admin/career/eligibility${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
+  adminEligibilityDecision: (id: string, body: { decision: 'APPROVE' | 'DENY'; reason?: string }) =>
+    jsonFetch<{ eligibility: { status: string } }>(`/api/admin/career/eligibility/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(body) }),
 }

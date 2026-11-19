@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils'
 import {
   BookOpen,
   Bot,
+  Briefcase,
+  Building2,
   ClipboardCheck,
   FlaskConical,
   FolderOpen,
@@ -41,6 +43,9 @@ const SIGNED_IN_NAV: NavItem[] = [
   { key: 'workspace', label: 'My Learning', icon: FolderOpen, hash: '#/workspace', activeFor: ['workspace', 'materials', 'riishe'] },
   { key: 'goals', label: 'Goals', icon: Target, hash: '#/goals', activeFor: ['goals'] },
   { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class', 'teach-apply', 'teach-dashboard'] },
+  // Phase 7: institution workspace + career hub — signed-in students only.
+  { key: 'institution', label: 'Institution', icon: Building2, hash: '#/institution', activeFor: ['institution', 'institution-org'] },
+  { key: 'career', label: 'Career', icon: Briefcase, hash: '#/career', activeFor: ['career', 'career-profile', 'career-portfolio', 'career-opportunities', 'career-opportunity', 'career-applications', 'career-employer'] },
   { key: 'catalog', label: 'Exams', icon: BookOpen, hash: '#/catalog', activeFor: ['catalog', 'exam', 'topic', 'test', 'result'] },
   { key: 'progress', label: 'My Progress', icon: TrendingUp, hash: '#/progress', activeFor: ['progress'] },
 ]
@@ -67,6 +72,9 @@ export function Header() {
         ...(isCurator ? [{ key: 'pyq', label: 'PYQ Studio', icon: ShieldCheck, hash: '#/pyq-studio', activeFor: ['pyq-studio'] }] as NavItem[] : []),
         // Phase 4A: teacher application review — administrators only.
         ...(isAdmin ? [{ key: 'teach-review', label: 'Teacher Review', icon: ClipboardCheck, hash: '#/teach/review', activeFor: ['teach-review'] }] as NavItem[] : []),
+        // Phase 7: organization verification + career moderation — admins only.
+        ...(isAdmin ? [{ key: 'admin-organizations', label: 'Organizations', icon: Building2, hash: '#/admin/organizations', activeFor: ['admin-organizations'] }] as NavItem[] : []),
+        ...(isAdmin ? [{ key: 'admin-career', label: 'Career Moderation', icon: ClipboardCheck, hash: '#/admin/career', activeFor: ['admin-career'] }] as NavItem[] : []),
       ]
     : GUEST_NAV
 

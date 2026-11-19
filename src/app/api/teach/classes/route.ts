@@ -71,6 +71,9 @@ export async function GET(req: NextRequest) {
     const where = {
       status: 'PUBLISHED' as const,
       startsAt: { gt: now, ...(from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } : {}) },
+      // Phase 7: public discovery shows PUBLIC classes only — private
+      // institution classes (ORGANIZATION/GROUP audiences) never appear here.
+      audience: 'PUBLIC' as const,
       teacherProfile: {
         verificationStatus: 'APPROVED' as const,
         isPublished: true,
@@ -169,6 +172,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Schedule must be a future date and time.' }, { status: 400 })
     }
 
+    // Phase 7 — private institution classes: the creator must hold an ACTIVE
+    // instructor/admin/owner membership in the owning organization, the group
+    // (when given) must belong to that organization, and the org must be
+    // APPROVED + active. Institutional status never bypasses teacher approval
+    // (requireApprovedTeacher already ran) or Phase 6 trust restrictions.
+    let organizationId: string | null = null
+    let organizationGroupId: string | null = null
+    let audience = 'PUBLIC'
+    if (data.audience && data.audience !== 'PUBLIC') {
+      audience = data.audience
+      const orgId = data.organizationId ?? ''
+      const membership = await db.organizationMembership.findUnique({
+        where: { organizationId_studentId: { organizationId: orgId, studentId: student.id } },
+        include: { organization: { select: { verificationStatus: true, isActive: true } } },
+      })
+      const roleOk =
+        membership &&
+        membership.status === 'ACTIVE' &&
+        ['OWNER', 'ADMIN', 'INSTRUCTOR'].includes(membership.role)
+      if (!roleOk) {
+        return NextResponse.json({ error: 'You need an active instructor role in the organization to create its classes.' }, { status: 403 })
+      }
+      if (membership.organization.verificationStatus !== 'APPROVED' || !membership.organization.isActive) {
+        return NextResponse.json({ error: 'This organization is not verified yet — private classes unlock after BEAN approval.' }, { status: 403 })
+      }
+      if (data.audience === 'GROUP') {
+        const group = await db.organizationGroup.findUnique({ where: { id: data.organizationGroupId ?? '' } })
+        if (!group || group.organizationId !== orgId) {
+          return NextResponse.json({ error: 'Group not found in this organization.' }, { status: 404 })
+        }
+        organizationGroupId = group.id
+      }
+      organizationId = orgId
+    }
+
     // Anti-spam: cap concurrent active (DRAFT + PUBLISHED) classes per teacher.
     const activeCount = await db.classSession.count({
       where: { teacherProfileId: profile.id, status: { in: ['DRAFT', 'PUBLISHED'] } },
@@ -194,6 +232,9 @@ export async function POST(req: NextRequest) {
         capacity: data.capacity,
         minimumStudents: data.minimumStudents,
         plannedPricePaise: data.plannedPricePaise ?? 0,
+        audience,
+        organizationId,
+        organizationGroupId,
         status: 'DRAFT', // every new class starts as a draft — publish is explicit
       },
     })

@@ -399,6 +399,17 @@ model Student {
   reviewsWritten    ClassReview[]
   complaintsFiled   TeachComplaint[]
   appealsFiled      TeachAppeal[]
+  // BEAN Institution & Career (Phase 7) — all powers stay organization-scoped;
+  // these relations NEVER grant a new global role.
+  organizationMemberships OrganizationMembership[]
+  assignmentSubmissions   AssignmentSubmission[]
+  careerProfile           CareerProfile?
+  careerSkills            StudentCareerSkill[]
+  careerProjects          CareerProject[]
+  careerCredentials       CareerCredential[]
+  careerEligibilityReview CareerEligibilityReview?
+  careerApplications      CareerApplication[]
+  careerSafetyReports     CareerSafetyReport[]
 
   @@index([role])
 }
@@ -604,9 +615,17 @@ model ClassSession {
   liveSession       LiveClassSession?
   // BEAN Trust & Quality (Phase 6)
   reviews           ClassReview[]
+  // BEAN Institution (Phase 7): private institution classes. Nullable + safe
+  // defaults — every existing class stays PUBLIC and unchanged.
+  audience            String?     @default("PUBLIC") // PUBLIC | ORGANIZATION | GROUP
+  organizationId      String?
+  organizationGroupId String?
+  organization        Organization?        @relation(fields: [organizationId], references: [id])
+  organizationGroup   OrganizationGroup?   @relation(fields: [organizationGroupId], references: [id])
 
   @@index([status, startsAt])
   @@index([teacherProfileId, startsAt])
+  @@index([organizationId, audience])
 }
 
 model ClassBooking {
@@ -902,4 +921,450 @@ model AppealEvent {
   appeal    TeachAppeal @relation(fields: [appealId], references: [id], onDelete: Cascade)
 
   @@index([appealId, createdAt])
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BEAN Institution & Career Ecosystem (Phase 7) — additive only.
+// No existing column is altered except the three nullable ClassSession fields
+// above (safe PUBLIC defaults). Institution/employer power is organization-
+// scoped via OrganizationMembership; Student.role is never elevated by any of
+// these models. All state machines are enforced server-side (src/lib/
+// institution.ts, src/lib/career.ts) and recorded in append-only event tables.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// A verified organization means its identity was reviewed by BEAN. It does NOT
+// mean BEAN certifies government recognition, accreditation, affiliation or
+// academic quality — UI copy must reflect this truthfully.
+model Organization {
+  id                 String    @id @default(cuid())
+  name               String // official organization name
+  displayName        String?
+  orgType            String // SCHOOL | COLLEGE | UNIVERSITY | COACHING_CENTRE | PROFESSIONAL_INSTITUTE | SKILL_PROVIDER | EMPLOYER | OTHER
+  description        String?
+  website            String?
+  publicContact      String? // public contact info only — never private student data
+  country            String?
+  state              String?
+  city               String?
+  slug               String    @unique
+  logoText           String? // short emoji/mark for the profile header (no upload pipeline in Phase 7)
+  // DRAFT | PENDING_REVIEW | APPROVED | REJECTED | SUSPENDED — every transition
+  // is a deliberate human admin decision recorded in OrganizationAuditEvent.
+  verificationStatus String    @default("DRAFT")
+  verificationNote   String? // private admin note — never exposed to the organization
+  reviewedByAdminId  String?
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  isActive           Boolean   @default(true) // soft archival; orgs with history are never hard-deleted
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  memberships        OrganizationMembership[]
+  invitations        OrganizationInvitation[]
+  groups             OrganizationGroup[]
+  announcements      OrganizationAnnouncement[]
+  resources          OrganizationResource[]
+  assignments        OrganizationAssignment[]
+  issuedCredentials  CareerCredential[]
+  opportunities      CareerOpportunity[]
+  classes            ClassSession[]
+  auditEvents        OrganizationAuditEvent[]
+
+  @@index([verificationStatus])
+  @@index([orgType])
+}
+
+// One Student may hold different scoped memberships across different
+// organizations. A membership NEVER elevates Student.role.
+model OrganizationMembership {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  studentId             String
+  // OWNER | ADMIN | INSTRUCTOR | STAFF | LEARNER | CAREER_COORDINATOR | RECRUITER
+  role                  String    @default("LEARNER")
+  status                String    @default("INVITED") // INVITED | ACTIVE | SUSPENDED | LEFT
+  invitedByMembershipId String? // historical reference, no FK (history survives)
+  activatedAt           DateTime?
+  suspendedAt           DateTime?
+  leftAt                DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student               Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  groupEnrollments      OrganizationGroupMembership[]
+
+  @@unique([organizationId, studentId])
+  @@index([studentId])
+  @@index([organizationId, status])
+}
+
+// Secure invitation-based enrolment. Only a SHA-256 token hash is stored — the
+// raw token appears exactly once in the admin UI copy-link workflow and is
+// never persisted or logged. Invitations can never grant OWNER or ADMIN.
+model OrganizationInvitation {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  email                 String? // when set, only that account may accept
+  intendedRole          String // INSTRUCTOR | STAFF | LEARNER | CAREER_COORDINATOR | RECRUITER
+  tokenHash             String    @unique
+  createdByMembershipId String // historical reference
+  expiresAt             DateTime
+  maxUses               Int?
+  useCount              Int       @default(0)
+  acceptedAt            DateTime?
+  acceptedByStudentId   String?
+  revokedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// Group / batch / cohort inside an organization.
+model OrganizationGroup {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  name                  String
+  academicYear          String?
+  programmeLabel        String? // course / programme
+  batchLabel            String?
+  sectionLabel          String?
+  trackLabel            String? // subject or training track
+  startsAt              DateTime?
+  endsAt                DateTime?
+  capacity              Int?
+  status                String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdByMembershipId String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enrollments           OrganizationGroupMembership[]
+  assignments           OrganizationAssignment[]
+  classes               ClassSession[]
+  announcements         OrganizationAnnouncement[]
+  resources             OrganizationResource[]
+
+  @@index([organizationId, status])
+}
+
+// Enrollment of an organization member into a group. Unique pair prevents
+// duplicate active enrollment; records survive a member leaving (enrollmentState
+// flips to LEFT — rows are never deleted for history).
+model OrganizationGroupMembership {
+  id              String    @id @default(cuid())
+  groupId         String
+  membershipId    String
+  enrollmentState String    @default("ACTIVE") // ACTIVE | LEFT
+  joinedAt        DateTime  @default(now())
+  leftAt          DateTime?
+  group           OrganizationGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  membership      OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, membershipId])
+  @@index([membershipId])
+}
+
+// Append-only organization history: registration, verification decisions,
+// membership role changes, invitation lifecycle, group enrollment, assignment
+// publication, credential issuance/revocation. Never cascade-deleted.
+model OrganizationAuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String // ORGANIZATION | MEMBERSHIP | INVITATION | GROUP | GROUP_MEMBERSHIP | ASSIGNMENT | CREDENTIAL | ANNOUNCEMENT | RESOURCE
+  entityId       String
+  actorId        String?
+  actorRole      String?
+  action         String
+  detail         String?
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// In-app institutional communication (no email service exists; none is faked).
+model OrganizationAnnouncement {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  groupId            String? // scoped to one group when set
+  authorMembershipId String
+  title              String
+  body               String
+  status             String    @default("PUBLISHED") // DRAFT | PUBLISHED | ARCHIVED
+  publishedAt        DateTime?
+  expiresAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group              OrganizationGroup? @relation(fields: [groupId], references: [id])
+
+  @@index([organizationId, status])
+}
+
+// Learning resources shared by an institution (external HTTPS links only —
+// private documents stay inside the existing student-owned Riishe storage).
+model OrganizationResource {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  groupId            String?
+  authorMembershipId String
+  title              String
+  description        String?
+  url                String // validated https URL
+  createdAt          DateTime @default(now())
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group              OrganizationGroup? @relation(fields: [groupId], references: [id])
+
+  @@index([organizationId])
+}
+
+// Institution assignment. Only group instructors / org staff can publish;
+// students see assignments only for groups they are actively enrolled in.
+model OrganizationAssignment {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  groupId               String
+  createdByMembershipId String
+  title                 String
+  instructions          String?
+  subjectLabel          String?
+  submissionType        String    @default("TEXT_AND_LINK") // TEXT | EXTERNAL_LINK | TEXT_AND_LINK
+  status                String    @default("DRAFT") // DRAFT | PUBLISHED | CLOSED | ARCHIVED
+  publishedAt           DateTime?
+  dueAt                 DateTime?
+  maxScore              Int?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group                 OrganizationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  submissions           AssignmentSubmission[]
+
+  @@index([organizationId, groupId, status])
+}
+
+// One submission record per student per assignment (unique pair). Resubmission
+// updates this row while the assignment accepts work; grades and feedback are
+// private to the student and permitted institutional staff — never public.
+model AssignmentSubmission {
+  id                    String    @id @default(cuid())
+  assignmentId          String
+  studentId             String
+  responseText          String?
+  externalLink          String? // validated https URL
+  status                String    @default("DRAFT") // DRAFT | SUBMITTED | RETURNED | GRADED
+  submittedAt           DateTime?
+  gradedByMembershipId  String? // historical reference
+  gradeValue            String? // free-form grade label (institution-defined)
+  teacherFeedback       String?
+  gradedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  assignment            OrganizationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student               Student                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId, status])
+}
+
+// Student-owned career profile. PRIVATE by default — nothing is exposed to
+// employers merely because a student registered with BEAN.
+model CareerProfile {
+  id                 String   @id @default(cuid())
+  studentId          String   @unique
+  headline           String?
+  summary            String?
+  preferredRoleTypes String? // JSON string[]
+  preferredSkills    String? // JSON string[]
+  preferredLocations String? // JSON string[]
+  workModes          String? // JSON string[]
+  // PRIVATE | DISCOVERABLE | PAUSED. Discovery additionally requires an
+  // APPROVED CareerEligibilityReview (adult-eligibility safeguard) — both
+  // conditions are server-enforced.
+  visibility         String   @default("PRIVATE")
+  publicSlug         String?  @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  student            Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([visibility])
+}
+
+// Truthful skill labels only: a self-declared skill is never shown as verified.
+model StudentCareerSkill {
+  id                String   @id @default(cuid())
+  studentId         String
+  skillName         String
+  proficiency       String? // e.g. BEGINNER | INTERMEDIATE | ADVANCED (free label allowed)
+  description       String?
+  verificationLabel String   @default("SELF_DECLARED") // SELF_DECLARED | INSTITUTION_ISSUED | BEAN_ASSESSMENT_VERIFIED
+  sourceRef         String? // issuing organization or assessment reference
+  position          Int      @default(0) // student-controlled ordering
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, position])
+}
+
+// Portfolio projects. PRIVATE by default; students individually choose what to
+// share. External links are validated; untrusted HTML is never embedded.
+model CareerProject {
+  id          String    @id @default(cuid())
+  studentId   String
+  title       String
+  description String?
+  category    String? // ACADEMIC | PERSONAL | PRACTICAL | INTERNSHIP | RESEARCH | SKILL_DEMO
+  skillsUsed  String? // JSON string[]
+  projectUrl  String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  visibility  String    @default("PRIVATE") // PRIVATE | SHARED
+  status      String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, visibility])
+}
+
+// Institution-issued credential. Only an authorized membership of an APPROVED
+// organization can issue; issuance and revocation are audited. Students control
+// portfolio sharing via portfolioShared.
+model CareerCredential {
+  id                    String    @id @default(cuid())
+  studentId             String
+  issuerOrganizationId  String
+  credentialName        String
+  credentialDescription String?
+  issuedDate            DateTime
+  expiryDate            DateTime?
+  credentialReference   String?
+  status                String    @default("ISSUED") // ISSUED | REVOKED
+  issuedByMembershipId  String // historical reference
+  portfolioShared       Boolean   @default(false)
+  verifiedAt            DateTime  @default(now()) // institution verification moment
+  revokedAt             DateTime?
+  revokedByMembershipId String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  student               Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  issuerOrganization    Organization @relation(fields: [issuerOrganizationId], references: [id])
+
+  @@index([studentId, status])
+  @@index([issuerOrganizationId])
+}
+
+// Adult-eligibility safeguard (server-enforced): candidate discovery and job
+// applications require APPROVED status from a documented admin review. No raw
+// identity documents or numbers are ever collected or stored. Private career
+// planning and portfolio preparation remain available without approval.
+model CareerEligibilityReview {
+  id               String    @id @default(cuid())
+  studentId        String    @unique
+  status           String    @default("NOT_ELIGIBLE") // NOT_ELIGIBLE | PENDING_REVIEW | APPROVED | DENIED
+  requestedAt      DateTime?
+  reviewedByAdminId String?
+  reviewedAt       DateTime?
+  decisionReason   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  student          Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// Job / internship / apprenticeship / project listing. Only an APPROVED
+// EMPLOYER organization can create; admin review gates public publication.
+// compensationDescription is informational metadata — it never triggers any
+// payment processing (no payments exist anywhere in Phase 7).
+model CareerOpportunity {
+  id                     String    @id @default(cuid())
+  employerOrganizationId String
+  title                  String
+  description            String
+  responsibilities       String?
+  requiredSkills         String? // JSON string[]
+  preferredSkills        String? // JSON string[]
+  location               String?
+  workMode               String? // ONSITE | REMOTE | HYBRID (free label allowed)
+  opportunityType        String // JOB | INTERNSHIP | APPRENTICESHIP | PROJECT
+  compensationDescription String?
+  applicationDeadline    DateTime?
+  eligibilityDescription String?
+  status                 String    @default("DRAFT") // DRAFT | PENDING_REVIEW | PUBLISHED | PAUSED | CLOSED | REJECTED
+  reviewedByAdminId      String?
+  reviewedAt             DateTime?
+  rejectionReason        String?
+  publishedAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  organization           Organization       @relation(fields: [employerOrganizationId], references: [id])
+  applications           CareerApplication[]
+
+  @@index([status, opportunityType])
+  @@index([employerOrganizationId, status])
+}
+
+// Application to an opportunity. Unique pair prevents duplicate applications at
+// the database level. The submission-time snapshot (selected profile fields,
+// projects, credentials) is bounded JSON and is NEVER silently rewritten by
+// later profile changes. employerNotes is private to the employer and must
+// never appear in student DTOs.
+model CareerApplication {
+  id                     String    @id @default(cuid())
+  opportunityId          String
+  studentId              String
+  status                 String    @default("SUBMITTED") // SUBMITTED | UNDER_REVIEW | SHORTLISTED | INTERVIEW | SELECTED | REJECTED | WITHDRAWN
+  snapshotJson           String
+  contactSharingConsent  Boolean   @default(false)
+  employerNotes          String? // employer-private
+  candidateVisibleStatusNote String?
+  withdrawnAt            DateTime?
+  submittedAt            DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  opportunity            CareerOpportunity @relation(fields: [opportunityId], references: [id])
+  student                Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, studentId])
+  @@index([studentId, status])
+  @@index([opportunityId, status])
+}
+
+// Private safety report against a listing or organization conduct. Reports
+// NEVER auto-suspend anything — every enforcement is a recorded human decision.
+model CareerSafetyReport {
+  id              String    @id @default(cuid())
+  reporterId      String
+  targetType      String // OPPORTUNITY | ORGANIZATION
+  targetId        String
+  category        String // FRAUDULENT_LISTING | MISLEADING_DESCRIPTION | ORGANIZATION_CONDUCT | HARASSMENT | DISCRIMINATION | SAFEGUARDING | OTHER
+  subject         String
+  description     String
+  status          String    @default("OPEN") // OPEN | UNDER_REVIEW | RESOLVED | DISMISSED
+  assignedAdminId String?
+  resolutionNote  String? // admin-private
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  reporter        Student   @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([reporterId])
+}
+
+// Append-only career ecosystem history: opportunity moderation, application
+// status changes, eligibility decisions, safety decisions. Sensitive evidence
+// and complaint descriptions are never logged here.
+model CareerAuditEvent {
+  id        String   @id @default(cuid())
+  entityType String // OPPORTUNITY | APPLICATION | ELIGIBILITY | SAFETY_REPORT | CREDENTIAL
+  entityId  String
+  actorId   String?
+  actorRole String?
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }

@@ -27,6 +27,7 @@ import {
 } from '@/lib/livekit/live'
 import { createParticipantToken, isLivekitConfigured, lastLivekitConnectionError } from '@/lib/livekit/config'
 import { trustStateFor, restrictionMessage } from '@/lib/trust'
+import { evaluatePrivateClassAccess } from '@/lib/institution'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -51,6 +52,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { id },
       select: {
         id: true, title: true, status: true, startsAt: true, durationMinutes: true, timeZone: true,
+        // Phase 7: audience/organization fields for private-class eligibility.
+        audience: true, organizationId: true, organizationGroupId: true,
         teacherProfile: { select: { id: true, studentId: true, teachingName: true, verificationStatus: true } },
         liveSession: { select: { id: true, roomName: true, status: true } },
       },
@@ -75,6 +78,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (isOwner) {
       role = 'TEACHER'
     } else {
+      // Phase 7: private institution classes re-check organization/group
+      // eligibility on EVERY token request — a membership suspended after
+      // booking never yields a new live entry (the existing booking row is
+      // untouched, only entry is gated).
+      if (cls.audience && cls.audience !== 'PUBLIC') {
+        const membership = await db.organizationMembership.findUnique({
+          where: { organizationId_studentId: { organizationId: cls.organizationId ?? '', studentId: student.id } },
+          select: { id: true, status: true },
+        })
+        const enrollment =
+          cls.audience === 'GROUP' && cls.organizationGroupId && membership
+            ? await db.organizationGroupMembership.findUnique({
+                where: { groupId_membershipId: { groupId: cls.organizationGroupId, membershipId: membership.id } },
+                select: { enrollmentState: true },
+              })
+            : null
+        const access = evaluatePrivateClassAccess({
+          classSession: { audience: cls.audience, organizationId: cls.organizationId, organizationGroupId: cls.organizationGroupId },
+          membership: membership ? { role: 'LEARNER', status: membership.status } : null,
+          groupEnrollment: enrollment ? { enrollmentState: enrollment.enrollmentState } : null,
+        })
+        if (!access.ok) {
+          return NextResponse.json({ error: 'This live classroom is restricted to eligible members of its institution.' }, { status: 403 })
+        }
+      }
       const booking = await db.classBooking.findUnique({
         where: { classSessionId_studentId: { classSessionId: id, studentId: student.id } },
         select: { id: true, status: true },

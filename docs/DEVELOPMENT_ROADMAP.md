@@ -46,9 +46,13 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 - Verified reviews, teacher quality indicators, complaints, teacher responses, admin investigations, appeals, published refund policies, safeguarding.
 - A negative review never automatically triggers a refund.
 
-## Phase 7 — Institution and career features
+## Phase 7 — Institution and career features (delivered on `feat/bean-institution-career-phase-7`, pending PR review)
 
-- School, college, coaching-centre, professional-course and skill-learning workflows.
+- Institution workspace: multi-organization registration + human verification, scoped memberships, secure copy-link invitations, groups/batches/cohorts, private institution classes inside BEAN Teach + Live Classroom (audience-gated discovery/booking/live tokens), assignments with private grading, in-app announcements + HTTPS resources, institution dashboard with privacy-bounded analytics.
+- Student career portfolio: private-by-default profiles, truthful skill labels, per-project sharing, institution-issued credentials with student-controlled sharing.
+- Employer exchange: verified-employer listings with admin moderation, candidate-controlled application snapshots (explicit consent for contact), one-application-per-opportunity, withdrawal, consent-gated + rate-limited candidate discovery (no AI scoring).
+- Safeguarding: server-enforced adult-eligibility review blocks discovery/applications until APPROVED; no identity documents collected; DPDP questions flagged for professional review (docs/PHASE7_PRIVACY_AND_SAFEGUARDING.md).
+- Still no payments — free-pilot protection tests extended to Phase 7.
 
 ## Phase 8 — Final monetisation (ONLY after product validation)
 

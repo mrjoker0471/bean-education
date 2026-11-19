@@ -938,6 +938,8 @@ export interface PublicClassDTO {
   /** Planned future price in paise — metadata only, never charged in the pilot. */
   plannedPricePaise: number
   status: TeachClassStatus
+  /** Phase 7: PUBLIC | ORGANIZATION | GROUP — private institution classes. */
+  audience: string
   teacher: { id: string; teachingName: string; headline: string }
   createdAt: string
 }
@@ -1320,4 +1322,428 @@ export interface AdminAppealDTO {
 
 export interface AdminTrustAppealsResponse {
   appeals: AdminAppealDTO[]
+}
+
+// ─── Phase 7 — Institution & Career Ecosystem: client DTOs ───────────────────
+// Mirrors the server DTOs (src/lib/institution-dto.ts, src/lib/career-dto.ts).
+// Privacy: member lists carry displayName only; verification admin notes are
+// never sent to clients; snapshots and employer notes never appear in student
+// DTOs.
+
+export type OrgRole =
+  | 'OWNER'
+  | 'ADMIN'
+  | 'INSTRUCTOR'
+  | 'STAFF'
+  | 'LEARNER'
+  | 'CAREER_COORDINATOR'
+  | 'RECRUITER'
+
+export type OrgMembershipStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'LEFT'
+
+export type OrgVerificationStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'SUSPENDED'
+
+export interface PublicOrganizationDTO {
+  id: string
+  name: string
+  displayName: string | null
+  orgType: string
+  description: string | null
+  website: string | null
+  publicContact: string | null
+  country: string | null
+  state: string | null
+  city: string | null
+  slug: string
+  logoText: string | null
+  verificationStatus: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OwnOrganizationDTO extends PublicOrganizationDTO {
+  rejectionReason: string | null
+}
+
+export interface MyMembershipDTO {
+  id: string
+  role: string
+  status: string
+}
+
+export interface MyOrganizationsResponse {
+  organizations: { organization: PublicOrganizationDTO; membership: MyMembershipDTO }[]
+}
+
+export interface OrganizationDetailResponse {
+  organization: OwnOrganizationDTO
+  membership: MyMembershipDTO | null
+}
+
+export interface MemberDTO {
+  id: string
+  role: string
+  status: string
+  student: { displayName: string | null }
+  joinedAt: string | null
+  activatedAt: string | null
+  suspendedAt: string | null
+  leftAt: string | null
+}
+
+export interface OrgMembersResponse {
+  members: MemberDTO[]
+  counts: { total: number; active: number; pending: number; suspended: number }
+}
+
+export interface InvitationDTO {
+  id: string
+  email: string | null
+  intendedRole: string
+  expiresAt: string
+  maxUses: number | null
+  useCount: number
+  acceptedAt: string | null
+  revokedAt: string | null
+  createdAt: string
+  /** Present only in the POST create response — copy-link shown exactly once. */
+  rawToken?: string
+}
+
+export interface OrgInvitationsResponse {
+  invitations: InvitationDTO[]
+}
+
+export interface GroupDTO {
+  id: string
+  name: string
+  academicYear: string | null
+  programmeLabel: string | null
+  batchLabel: string | null
+  sectionLabel: string | null
+  trackLabel: string | null
+  startsAt: string | null
+  endsAt: string | null
+  capacity: number | null
+  status: string
+  activeEnrollmentCount: number
+  createdAt: string
+}
+
+export interface OrgGroupsResponse {
+  groups: GroupDTO[]
+}
+
+export interface OrgDashboardResponse {
+  organization: PublicOrganizationDTO
+  membership: MyMembershipDTO
+  isAdmin: boolean
+  verification: { status: string; operational: boolean }
+  overview: {
+    activeMembers: number
+    pendingMembers: number
+    activeGroups: number
+    upcomingClasses: number
+    publishedAssignments: number
+    openSubmissions: number
+    activeAnnouncements: number
+  }
+}
+
+export interface AssignmentDTO {
+  id: string
+  groupId: string
+  title: string
+  instructions: string | null
+  subjectLabel: string | null
+  submissionType: string
+  status: string
+  dueAt: string | null
+  maxScore: number | null
+  publishedAt: string | null
+  createdAt: string
+}
+
+export interface OrgAssignmentsResponse {
+  assignments: AssignmentDTO[]
+  viewerRole: string
+}
+
+export interface OwnSubmissionDTO {
+  id: string
+  status: string
+  responseText: string | null
+  externalLink: string | null
+  submittedAt: string | null
+  gradeValue: string | null
+  teacherFeedback: string | null
+  gradedAt: string | null
+}
+
+export interface StaffSubmissionDTO extends OwnSubmissionDTO {
+  student: { displayName: string | null }
+}
+
+export interface AssignmentDetailResponse {
+  assignment: AssignmentDTO
+  viewerRole: string
+  mySubmission?: OwnSubmissionDTO | null
+  submissions?: StaffSubmissionDTO[]
+}
+
+export interface AnnouncementDTO {
+  id: string
+  groupId: string | null
+  title: string
+  body: string
+  status: string
+  publishedAt: string | null
+  expiresAt: string | null
+  createdAt: string
+}
+
+export interface OrgAnnouncementsResponse {
+  announcements: AnnouncementDTO[]
+}
+
+export interface OrgResourceDTO {
+  id: string
+  groupId: string | null
+  title: string
+  description: string | null
+  url: string
+  createdAt: string
+}
+
+export interface OrgResourcesResponse {
+  resources: OrgResourceDTO[]
+}
+
+export interface OrgClassRowDTO {
+  id: string
+  title: string
+  subject: string
+  startsAt: string
+  durationMinutes: number
+  audience: string
+  organizationGroupId: string | null
+  teacherName: string
+  status: string
+}
+
+export interface OrgClassesResponse {
+  classes: OrgClassRowDTO[]
+}
+
+export interface InvitationAcceptResponse {
+  ok: boolean
+  membershipId: string
+  organizationName: string
+  role: string
+  status: string
+}
+
+// ─── Phase 7 — Career portfolio & employer exchange (client DTOs) ────────────
+
+export interface CareerProfileClientDTO {
+  id: string
+  headline: string | null
+  summary: string | null
+  preferredRoleTypes: string[]
+  preferredSkills: string[]
+  preferredLocations: string[]
+  workModes: string[]
+  visibility: string
+  publicSlug: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CareerEligibilityClientDTO {
+  status: string
+  requestedAt: string | null
+  reviewedAt: string | null
+  decisionReason: string | null
+}
+
+export interface CareerProfileResponse {
+  profile: CareerProfileClientDTO
+  eligibility: CareerEligibilityClientDTO
+}
+
+export interface CareerSkillClientDTO {
+  id: string
+  skillName: string
+  proficiency: string | null
+  description: string | null
+  verificationLabel: string
+  sourceRef: string | null
+  position: number
+}
+
+export interface CareerProjectClientDTO {
+  id: string
+  title: string
+  description: string | null
+  category: string | null
+  skillsUsed: string[]
+  projectUrl: string | null
+  startsAt: string | null
+  endsAt: string | null
+  visibility: string
+  status: string
+}
+
+export interface CareerCredentialClientDTO {
+  id: string
+  credentialName: string
+  credentialDescription: string | null
+  issuedDate: string
+  expiryDate: string | null
+  credentialReference: string | null
+  status: string
+  portfolioShared: boolean
+  issuer: { id: string; name: string; displayName: string | null; verificationStatus: string }
+}
+
+export interface PublicOpportunityClientDTO {
+  id: string
+  title: string
+  description: string
+  responsibilities: string | null
+  requiredSkills: string[]
+  preferredSkills: string[]
+  location: string | null
+  workMode: string | null
+  opportunityType: string
+  compensationDescription: string | null
+  applicationDeadline: string | null
+  eligibilityDescription: string | null
+  status: string
+  organization: { id: string; name: string; displayName: string | null; verificationStatus: string; logoText: string | null }
+  publishedAt: string | null
+}
+
+export interface OpportunitiesBrowseResponse {
+  opportunities: PublicOpportunityClientDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface OwnApplicationClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  opportunity: { id: string; title: string; opportunityType: string; organizationName: string; applicationDeadline: string | null }
+}
+
+export interface MyApplicationsResponse {
+  applications: OwnApplicationClientDTO[]
+}
+
+export interface EmployerApplicationClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  candidateVisibleStatusNote: string | null
+  applicant: {
+    headline: string | null
+    summary: string | null
+    skills: unknown
+    projects: unknown
+    credentials: unknown
+  }
+  contact: { email?: string } | null
+  employerNotes: string | null
+}
+
+export interface EmployerOpportunitiesResponse {
+  opportunities: PublicOpportunityClientDTO[]
+  counts: { draft: number; pending: number; published: number; closed: number }
+}
+
+export interface EmployerApplicantsResponse {
+  opportunity: { id: string; title: string }
+  applications: EmployerApplicationClientDTO[]
+  counts: Record<string, number>
+}
+
+export interface DiscoverableCandidateClientDTO {
+  headline: string | null
+  summaryPreview: string | null
+  preferredRoleTypes: string[]
+  preferredSkills: string[]
+  preferredLocations: string[]
+  workModes: string[]
+  skills: CareerSkillClientDTO[]
+  projects: CareerProjectClientDTO[]
+  credentials: CareerCredentialClientDTO[]
+  candidateRef: string
+}
+
+export interface CandidateSearchResponse {
+  candidates: DiscoverableCandidateClientDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface OwnSafetyReportDTO {
+  id: string
+  targetType: string
+  targetId: string
+  category: string
+  subject: string
+  status: string
+  createdAt: string
+  resolutionVisible: string | null
+}
+
+export interface AdminOrganizationRow extends PublicOrganizationDTO {
+  owner: string | null
+  memberCount: number
+  groupCount: number
+  classCount: number
+}
+
+export interface AdminOrganizationsResponse {
+  organizations: AdminOrganizationRow[]
+  total: number
+}
+
+export interface AdminEligibilityRow {
+  id: string
+  student: { displayName: string | null }
+  status: string
+  requestedAt: string | null
+  reviewedAt: string | null
+  decisionReason: string | null
+}
+
+export interface AdminEligibilityResponse {
+  reviews: AdminEligibilityRow[]
+}
+
+export interface AdminCareerReportRow {
+  id: string
+  reporterId: string
+  targetType: string
+  targetId: string
+  category: string
+  subject: string
+  description: string
+  status: string
+  assignedAdminId: string | null
+  resolutionNote: string | null
+  resolvedAt: string | null
+  createdAt: string
+}
+
+export interface AdminCareerReportsResponse {
+  reports: AdminCareerReportRow[]
+  total: number
 }

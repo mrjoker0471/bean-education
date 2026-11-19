@@ -121,3 +121,27 @@ Status: accepted. Trust & Quality deliberately ships zero money logic: no paymen
 ## ADR-030 — displayName consent is a flag on the review row, not the student profile (2026-11-19)
 
 Status: accepted. `ClassReview.showDisplayName` (default false) records, per review, whether THAT review may show the author's chosen display name; public mappers read this flag (never the profile) and otherwise render "Verified student". Rationale: consent is per-publication, not global — a student may want their name on a rave review and anonymity on a critical one (the critical one is exactly where retaliation risk concentrates), and profile-level consent would silently retro-apply to every past review when toggled. Consequence: reviewers manage consent per review via the 7-day edit window; no surface ever derives identity from the flag (no email/account id is reachable from it — the mapper outputs only `displayName ?? null`).
+
+## ADR-031 — Organization-scoped roles instead of new global roles (2026-11-19)
+
+Status: accepted. Institution/employer power is carried by `OrganizationMembership.role` (OWNER/ADMIN/INSTRUCTOR/STAFF/LEARNER/CAREER_COORDINATOR/RECRUITER) scoped to one organization, checked server-side per request — never by new `Student.role` values. Rationale: a person can simultaneously be a learner in one institution, an approved BEAN teacher and an owner of another organization; global roles cannot express that without an explosion of mutually-exclusive states and a second authorization model. Consequence: every org route re-verifies membership; `Student.role` remains STUDENT | PYQ_CURATOR | ADMIN with no API able to raise it.
+
+## ADR-032 — Invitation tokens stored hash-only; copy-link instead of email (2026-11-19)
+
+Status: accepted. Invitations use 32-byte CSPRNG tokens whose SHA-256 hash is the only persisted form; the raw token appears exactly once in the create response for an explicitly-labelled copy-link workflow. Rationale: BEAN has no email infrastructure and must not pretend it does; a link-distribution flow is honest, and hash-only storage means a database leak exposes no redeemable tokens. OWNER/ADMIN are structurally not invitable — elevation always requires an existing administrator's audited action.
+
+## ADR-033 — Private classes reuse ClassSession with a nullable audience (2026-11-19)
+
+Status: accepted. Institution classes are `ClassSession` rows with nullable `audience/organizationId/organizationGroupId` (default PUBLIC) rather than a parallel class model. Rationale: they must reuse the seat-claim SQL, capacity guarantees, trust enforcement, live sessions, attendance evidence and reviews — a second model would fork all of that. Consequence: public discovery filters `audience='PUBLIC'`; booking re-checks eligibility inside the seat-claim transaction; live tokens re-check per request; suspended members lose new access while history is retained.
+
+## ADR-034 — Adult-eligibility gate blocks employer discovery and applications server-side (2026-11-19)
+
+Status: accepted. `CareerEligibilityReview` (admin-reviewed, `NOT_ELIGIBLE` default) is required IN ADDITION to the student's DISCOVERABLE choice before either candidate discovery or applications succeed; both routes re-check per request. Rationale: BEAN serves school-age students; no UI preference can protect a minor from an employer search — only a server gate can. No identity documents are collected (the review is procedural and privacy-minimizing); if reliable verification is unavailable, discovery stays disabled while private planning remains available. DPDP compliance questions are flagged for professional review, not assumed solved.
+
+## ADR-035 — Application snapshots are frozen at submission (2026-11-19)
+
+Status: accepted. `CareerApplication.snapshotJson` is built server-side from the candidate's explicit per-item selections (whitelisted keys, ≤8 KB), stored verbatim, and never re-derived from the live profile. Contact details enter only with an explicit per-application consent flag. Rationale: a snapshot is what the employer evaluated — silently rewriting it after profile edits would misrepresent the application and could expose data the candidate did not consent to share at that moment. Consequence: candidates keep control by withdrawing; employers see exactly what was shared at apply time.
+
+## ADR-036 — The institution/career trust contexts stay separate from teacher TrustActions (2026-11-19)
+
+Status: accepted. Organization verification, opportunity moderation and career safety use their own records (`OrganizationAuditEvent`, `CareerAuditEvent`, `CareerSafetyReport`) and never write teacher `TrustAction` rows or read teacher trust state as employer/institution state. Rationale: ADR-024's separation principle — mixing contexts would let one domain's decisions contaminate another's enforcement surface (e.g. an employer incident pausing a teacher's classes). Consequence: admins moderate each context in its own queue; a report never auto-suspends anything in any context.
