@@ -1526,6 +1526,10 @@ export interface AnnouncementDTO {
   publishedAt: string | null
   expiresAt: string | null
   createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
 export interface OrgAnnouncementsResponse {
@@ -1541,6 +1545,10 @@ export interface OrgResourceDTO {
   description: string | null
   url: string
   createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
 export interface OrgResourcesResponse {

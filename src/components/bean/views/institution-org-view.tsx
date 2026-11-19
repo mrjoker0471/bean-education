@@ -55,17 +55,28 @@ import { useAppStore } from '@/lib/store'
 import { evaluateOrgCapabilities, type OrgCapabilities, type OrgMembershipStatus, type OrgRole, type OrgVerificationStatus } from '@/lib/capabilities'
 import {
   activeBookings,
+  announcementExpiryState,
+  assignmentIsOverdue,
+  assignmentLifecycleActions,
+  assignmentStatusBadgeClass,
   attendanceMarkedCount,
   buildInviteLink,
   classDisplayStatus,
   classStatusBadgeClass,
   deriveInvitationStatus,
+  expiryFromDays,
+  filterAssignmentsByGroup,
   humanizeAuditAction,
+  httpsUrlError,
   institutionClassAudienceError,
   invitationStatusBadgeClass,
   isFutureLocalSchedule,
+  localInputValue,
+  submissionDraftError,
+  submissionStatusBadgeClass,
   upcomingOrgClasses,
 } from '@/lib/institution-ui'
+import type { AssignmentLifecycleAction } from '@/lib/institution-ui'
 import {
   bookingStatusBadgeClass,
   classEndTime,
@@ -89,6 +100,7 @@ import type {
   OrgDashboardResponse,
   OrgInvitationsResponse,
   OrgMembersResponse,
+  OrgResourceDTO,
   OrgResourcesResponse,
   PublicClassDTO,
 } from '@/lib/types'
@@ -299,8 +311,8 @@ export function InstitutionOrgView({ orgId, section }: { orgId: string; section?
         )}
         {tab === 'groups' && <GroupsPanel orgId={org.id} caps={caps} />}
         {tab === 'classes' && <ClassesPanel orgId={org.id} caps={caps} teacherStatus={teacherStatus} />}
-        {tab === 'assignments' && <AssignmentsPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} groupsReady={dash.verification.operational} />}
-        {tab === 'resources' && <ResourcesPanel orgId={org.id} isAdmin={isAdmin} active={dash.verification.operational} />}
+        {tab === 'assignments' && <AssignmentsPanel orgId={org.id} caps={caps} active={dash.verification.operational} />}
+        {tab === 'resources' && <ResourcesPanel orgId={org.id} caps={caps} active={dash.verification.operational} viewerMembershipId={dash.membership.id} />}
         {tab === 'reports' && <ReportsPanel dash={dash} />}
       </div>
     </div>
@@ -488,7 +500,7 @@ function OverviewPanel({ dash, caps, approvedTeacher, onInviteMember }: {
       </div>
 
       <div id="announcement-composer">
-        <AnnouncementsCard orgId={orgId} isAdmin={dash.isAdmin} active={dash.verification.operational} />
+        <AnnouncementsCard orgId={orgId} caps={caps} active={dash.verification.operational} viewerMembershipId={dash.membership.id} />
       </div>
     </div>
   )
@@ -1730,18 +1742,27 @@ function ScheduleClassDialog({ open, onOpenChange, orgId, onCreated }: {
 
 // ─── Assignments ─────────────────────────────────────────────────────────────
 
-function AssignmentsPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: boolean; active: boolean; groupsReady: boolean }) {
+function AssignmentsPanel({ orgId, caps, active }: { orgId: string; caps: OrgCapabilities; active: boolean }) {
   const [data, setData] = useState<AssignmentDTO[] | null>(null)
   const [viewerRole, setViewerRole] = useState<string>('')
+  const [groups, setGroups] = useState<GroupDTO[]>([])
+  const [groupFilter, setGroupFilter] = useState<string>('ALL')
+  const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [failed, setFailed] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [detail, setDetail] = useState<AssignmentDetailResponse | null>(null)
+  const [editing, setEditing] = useState<AssignmentDTO | null>(null)
+  const [confirming, setConfirming] = useState<{ assignment: AssignmentDTO; action: Exclude<AssignmentLifecycleAction, 'EDIT'> } | null>(null)
+  const [acting, setActing] = useState(false)
 
   const load = useCallback(() => {
     setData(null)
     api.organizationAssignments(orgId)
       .then(res => { setData(res.assignments); setViewerRole(res.viewerRole); setFailed(null) })
       .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load assignments.'))
+    api.organizationGroups(orgId)
+      .then(res => setGroups(res.groups))
+      .catch(() => setGroups([]))
   }, [orgId])
 
   useEffect(() => {
@@ -1749,50 +1770,291 @@ function AssignmentsPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: 
     return () => clearTimeout(t)
   }, [load])
 
+  // Staff grading/lifecycle UI follows the viewerRole echo of the list endpoint;
+  // the server re-checks every action against the session membership.
   const isStaff = ['OWNER', 'ADMIN', 'INSTRUCTOR'].includes(viewerRole)
+  const activeGroups = groups.filter(g => g.status === 'ACTIVE')
+  const groupName = (groupId: string) => groups.find(g => g.id === groupId)?.name ?? null
+
+  const visible = filterAssignmentsByGroup(data ?? [], groupFilter === 'ALL' ? null : groupFilter)
+    .filter(a => statusFilter === 'ALL' || a.status === statusFilter)
+
+  const runLifecycle = async (assignment: AssignmentDTO, action: Exclude<AssignmentLifecycleAction, 'EDIT'>) => {
+    setActing(true)
+    try {
+      const status = action === 'PUBLISH' ? 'PUBLISHED' : action === 'CLOSE' ? 'CLOSED' : action === 'ARCHIVE' ? 'ARCHIVED' : 'ACTIVE'
+      await api.updateAssignment(assignment.id, { status })
+      toast({ title: LIFECYCLE_TOASTS[action] })
+      setConfirming(null)
+      load()
+    } catch (e) {
+      toast({ title: 'Could not update the assignment', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+    } finally {
+      setActing(false)
+    }
+  }
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">Group assignments with private submissions — grades and feedback are visible only to the student and permitted staff.</p>
-        {isStaff && active && isAdmin ? (
+        {caps.canCreateAssignments && active ? (
           <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => setCreateOpen(true)}>New assignment</Button>
         ) : null}
       </div>
+
+      {!failed && data && data.length > 0 ? (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="as-filter-group">Filter by group</Label>
+            <Select value={groupFilter} onValueChange={setGroupFilter}>
+              <SelectTrigger id="as-filter-group" aria-label="Filter assignments by group"><SelectValue /></SelectTrigger>
+              <SelectContent className="border-border bg-popover">
+                <SelectItem value="ALL">All groups</SelectItem>
+                {activeGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="as-filter-status">Filter by status</Label>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger id="as-filter-status" aria-label="Filter assignments by status"><SelectValue /></SelectTrigger>
+              <SelectContent className="border-border bg-popover">
+                <SelectItem value="ALL">All statuses</SelectItem>
+                <SelectItem value="DRAFT">Draft</SelectItem>
+                <SelectItem value="PUBLISHED">Published</SelectItem>
+                <SelectItem value="CLOSED">Closed</SelectItem>
+                <SelectItem value="ARCHIVED">Archived</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : null}
+
       {failed ? (
         <EmptyState icon={ClipboardList} title="Could not load assignments" description={failed} actionLabel="Try again" onAction={load} />
       ) : !data ? (
         <div className="flex min-h-[30vh] items-center justify-center" role="status" aria-label="Loading assignments"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
       ) : data.length === 0 ? (
         <EmptyState icon={ClipboardList} title="No assignments yet" description="Instructors publish assignments to their groups; enrolled learners submit work here." />
+      ) : visible.length === 0 ? (
+        <EmptyState icon={ClipboardList} title="No assignments match these filters" description="Try another group or status — the list is filtered, not empty." />
       ) : (
         <div className="space-y-3">
-          {data.map(a => (
-            <button
-              key={a.id}
-              type="button"
-              className="exam-card-hover flex w-full flex-col rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-gold/40"
-              onClick={() => { api.assignmentDetail(a.id).then(setDetail).catch(e => toast({ title: 'Could not open assignment', description: e instanceof Error ? e.message : '', variant: 'destructive' })) }}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-display text-base font-semibold text-foreground">{a.title}</h3>
-                <Badge variant="outline" className={a.status === 'PUBLISHED' ? 'border-success/40 text-success' : 'border-border text-muted-foreground'}>
-                  {a.status.toLowerCase()}
-                </Badge>
+          {visible.map(a => {
+            const actions = isStaff ? assignmentLifecycleActions(a.status) : []
+            const overdue = assignmentIsOverdue(a.dueAt, a.status)
+            return (
+              <div key={a.id} className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-gold/40">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    aria-label={`Open assignment ${a.title}`}
+                    onClick={() => { api.assignmentDetail(a.id).then(setDetail).catch(e => toast({ title: 'Could not open assignment', description: e instanceof Error ? e.message : '', variant: 'destructive' })) }}
+                  >
+                    <h3 className="font-display text-base font-semibold text-foreground">{a.title}</h3>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      {groupName(a.groupId) ? <span><span className="text-gold">Group:</span> {groupName(a.groupId)}</span> : null}
+                      {a.subjectLabel ? <span><span className="text-gold">Subject:</span> {a.subjectLabel}</span> : null}
+                      {a.dueAt ? (
+                        <span className={overdue ? 'text-destructive' : undefined}>
+                          <span className="text-gold">Due:</span> {formatClassLocal(a.dueAt)}
+                          {overdue ? ' — overdue' : ''}
+                        </span>
+                      ) : null}
+                      {a.maxScore ? <span><span className="text-gold">Max score:</span> {a.maxScore}</span> : null}
+                    </div>
+                  </button>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <Badge variant="outline" className={assignmentStatusBadgeClass(a.status)}>{a.status.toLowerCase()}</Badge>
+                    {overdue ? <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">Overdue</Badge> : null}
+                  </div>
+                </div>
+                {actions.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3" role="group" aria-label={`Assignment actions for ${a.title}`}>
+                    {actions.includes('PUBLISH') ? (
+                      <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setConfirming({ assignment: a, action: 'PUBLISH' })}>Publish</Button>
+                    ) : null}
+                    {actions.includes('EDIT') && caps.canCreateAssignments ? (
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setEditing(a)}>Edit draft</Button>
+                    ) : null}
+                    {actions.includes('CLOSE') ? (
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setConfirming({ assignment: a, action: 'CLOSE' })}>Close</Button>
+                    ) : null}
+                    {actions.includes('ARCHIVE') ? (
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setConfirming({ assignment: a, action: 'ARCHIVE' })}>Archive</Button>
+                    ) : null}
+                    {actions.includes('RESTORE') ? (
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setConfirming({ assignment: a, action: 'RESTORE' })}>Restore</Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {a.subjectLabel ? <span><span className="text-gold">Subject:</span> {a.subjectLabel}</span> : null}
-                {a.dueAt ? <span><span className="text-gold">Due:</span> {formatClassLocal(a.dueAt)}</span> : null}
-                {a.maxScore ? <span><span className="text-gold">Max score:</span> {a.maxScore}</span> : null}
-              </div>
-            </button>
-          ))}
+            )
+          })}
         </div>
       )}
 
       <CreateAssignmentDialog open={createOpen} onOpenChange={setCreateOpen} orgId={orgId} onCreated={() => { setCreateOpen(false); load() }} />
+      {editing ? (
+        <EditAssignmentDialog assignment={editing} onDismiss={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />
+      ) : null}
       <AssignmentDetailDialog detail={detail} isStaff={isStaff} onClose={() => { setDetail(null); load() }} />
+
+      <AlertDialog open={confirming !== null} onOpenChange={o => { if (!o && !acting) setConfirming(null) }}>
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-foreground">{confirming ? LIFECYCLE_CONFIRM_TITLES[confirming.action] : ''}</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              {confirming ? LIFECYCLE_CONFIRM_DESCRIPTIONS[confirming.action](confirming.assignment) : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-muted-foreground hover:bg-elevated" disabled={acting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={confirming?.action === 'ARCHIVE' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-gold text-primary-foreground hover:bg-gold-hover'}
+              disabled={acting}
+              onClick={e => { e.preventDefault(); if (confirming) void runLifecycle(confirming.assignment, confirming.action) }}
+            >
+              {acting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+              {confirming ? LIFECYCLE_ACTION_LABELS[confirming.action] : 'Confirm'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  )
+}
+
+const LIFECYCLE_ACTION_LABELS: Record<Exclude<AssignmentLifecycleAction, 'EDIT'>, string> = {
+  PUBLISH: 'Publish assignment',
+  CLOSE: 'Close assignment',
+  ARCHIVE: 'Archive assignment',
+  RESTORE: 'Restore assignment',
+}
+
+const LIFECYCLE_CONFIRM_TITLES: Record<Exclude<AssignmentLifecycleAction, 'EDIT'>, string> = {
+  PUBLISH: 'Publish this assignment?',
+  CLOSE: 'Close this assignment?',
+  ARCHIVE: 'Archive this assignment?',
+  RESTORE: 'Restore this assignment?',
+}
+
+const LIFECYCLE_CONFIRM_DESCRIPTIONS: Record<Exclude<AssignmentLifecycleAction, 'EDIT'>, (a: AssignmentDTO) => string> = {
+  PUBLISH: () => 'Students in the group will see it immediately and can start submitting work.',
+  CLOSE: () => 'Submissions stop — the assignment stays visible with its current status.',
+  ARCHIVE: a => `"${a.title}" leaves the active list. Archived assignments can be restored later as drafts.`,
+  RESTORE: () => 'The assignment returns to draft so you can revise and republish it.',
+}
+
+const LIFECYCLE_TOASTS: Record<Exclude<AssignmentLifecycleAction, 'EDIT'>, string> = {
+  PUBLISH: 'Assignment published',
+  CLOSE: 'Assignment closed',
+  ARCHIVE: 'Assignment archived',
+  RESTORE: 'Assignment restored to draft',
+}
+
+function EditAssignmentDialog({ assignment, onDismiss, onSaved }: {
+  assignment: AssignmentDTO
+  onDismiss: () => void
+  onSaved: () => void
+}) {
+  const [title, setTitle] = useState(assignment.title)
+  const [subjectLabel, setSubjectLabel] = useState(assignment.subjectLabel ?? '')
+  const [instructions, setInstructions] = useState(assignment.instructions ?? '')
+  const [dueAt, setDueAt] = useState(localInputValue(assignment.dueAt))
+  const [maxScore, setMaxScore] = useState(assignment.maxScore === null ? '' : String(assignment.maxScore))
+  const [submissionType, setSubmissionType] = useState(assignment.submissionType || 'TEXT_AND_LINK')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    setError(null)
+    if (title.trim().length < 4) {
+      setError('Give the assignment a title (4+ characters).')
+      return
+    }
+    if (dueAt && !isFutureLocalSchedule(dueAt)) {
+      setError('The due date must be in the future.')
+      return
+    }
+    const score = maxScore.trim() ? Number(maxScore) : null
+    if (score !== null && (!Number.isInteger(score) || score < 1 || score > 1000)) {
+      setError('Max score must be a whole number between 1 and 1000.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.updateAssignment(assignment.id, {
+        title: title.trim(),
+        instructions: instructions.trim() || null,
+        subjectLabel: subjectLabel.trim() || null,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+        maxScore: score,
+        submissionType: submissionType as 'TEXT' | 'EXTERNAL_LINK' | 'TEXT_AND_LINK',
+      })
+      toast({ title: 'Draft updated' })
+      onSaved()
+    } catch (e) {
+      // Values stay exactly as typed so the edit can be corrected and retried.
+      setError(e instanceof Error ? e.message : 'Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onDismiss() }}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-border bg-card">
+        <DialogHeader>
+          <DialogTitle className="font-display text-foreground">Edit draft assignment</DialogTitle>
+          <DialogDescription className="text-muted-foreground">Only draft assignments can be edited — content freezes once published.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="ase-title">Title</Label>
+            <Input id="ase-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="ase-instructions">Instructions (optional)</Label>
+            <Textarea id="ase-instructions" rows={3} value={instructions} onChange={e => setInstructions(e.target.value)} maxLength={4000} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="ase-subject">Subject (optional)</Label>
+              <Input id="ase-subject" value={subjectLabel} onChange={e => setSubjectLabel(e.target.value)} maxLength={80} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ase-type">Submission type</Label>
+              <Select value={submissionType} onValueChange={setSubmissionType}>
+                <SelectTrigger id="ase-type" aria-label="Submission type"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  <SelectItem value="TEXT_AND_LINK">Text or link</SelectItem>
+                  <SelectItem value="TEXT">Text only</SelectItem>
+                  <SelectItem value="EXTERNAL_LINK">External link only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ase-due">Due (optional)</Label>
+              <Input id="ase-due" type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)} className="[color-scheme:dark]" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ase-max">Max score (optional)</Label>
+              <Input id="ase-max" type="number" min={1} max={1000} value={maxScore} onChange={e => setMaxScore(e.target.value)} className="[color-scheme:dark]" />
+            </div>
+          </div>
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={onDismiss}>Cancel</Button>
+          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={submit}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1802,6 +2064,7 @@ function CreateAssignmentDialog({ open, onOpenChange, orgId, onCreated }: { open
   const [title, setTitle] = useState('')
   const [instructions, setInstructions] = useState('')
   const [subjectLabel, setSubjectLabel] = useState('')
+  const [submissionType, setSubmissionType] = useState('TEXT_AND_LINK')
   const [dueAt, setDueAt] = useState('')
   const [maxScore, setMaxScore] = useState('')
   const [publish, setPublish] = useState(true)
@@ -1816,10 +2079,21 @@ function CreateAssignmentDialog({ open, onOpenChange, orgId, onCreated }: { open
     return () => clearTimeout(t)
   }, [open, orgId])
 
+  const activeGroups = groups.filter(g => g.status === 'ACTIVE')
+
   const submit = async () => {
     setError(null)
     if (!groupId || title.trim().length < 4) {
       setError('Pick a group and give the assignment a title (4+ characters).')
+      return
+    }
+    if (dueAt && !isFutureLocalSchedule(dueAt)) {
+      setError('The due date must be in the future.')
+      return
+    }
+    const score = maxScore.trim() ? Number(maxScore) : null
+    if (score !== null && (!Number.isInteger(score) || score < 1 || score > 1000)) {
+      setError('Max score must be a whole number between 1 and 1000.')
       return
     }
     setBusy(true)
@@ -1829,13 +2103,15 @@ function CreateAssignmentDialog({ open, onOpenChange, orgId, onCreated }: { open
         title: title.trim(),
         instructions: instructions.trim() || undefined,
         subjectLabel: subjectLabel.trim() || undefined,
+        submissionType,
         dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
-        maxScore: maxScore ? Number(maxScore) : undefined,
+        maxScore: score ?? undefined,
         publish,
       })
       toast({ title: publish ? 'Assignment published to the group' : 'Assignment saved as draft' })
       onCreated()
     } catch (e) {
+      // Keep every typed value so the composer can be corrected and retried.
       setError(e instanceof Error ? e.message : 'Please try again.')
     } finally {
       setBusy(false)
@@ -1855,7 +2131,7 @@ function CreateAssignmentDialog({ open, onOpenChange, orgId, onCreated }: { open
             <Select value={groupId} onValueChange={setGroupId}>
               <SelectTrigger id="as-group" aria-label="Group"><SelectValue placeholder="Select group" /></SelectTrigger>
               <SelectContent className="border-border bg-popover">
-                {groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                {activeGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -1866,6 +2142,17 @@ function CreateAssignmentDialog({ open, onOpenChange, orgId, onCreated }: { open
           <div className="grid gap-2">
             <Label htmlFor="as-instructions">Instructions (optional)</Label>
             <Textarea id="as-instructions" rows={3} value={instructions} onChange={e => setInstructions(e.target.value)} maxLength={4000} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="as-type">Submission type</Label>
+            <Select value={submissionType} onValueChange={setSubmissionType}>
+              <SelectTrigger id="as-type" aria-label="Submission type"><SelectValue /></SelectTrigger>
+              <SelectContent className="border-border bg-popover">
+                <SelectItem value="TEXT_AND_LINK">Text or link</SelectItem>
+                <SelectItem value="TEXT">Text only</SelectItem>
+                <SelectItem value="EXTERNAL_LINK">External link only</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="grid gap-2">
@@ -1902,6 +2189,7 @@ export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: A
   const [responseText, setResponseText] = useState('')
   const [externalLink, setExternalLink] = useState('')
   const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const [grades, setGrades] = useState<Record<string, { gradeValue: string; teacherFeedback: string }>>({})
 
   useEffect(() => {
@@ -1909,6 +2197,7 @@ export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: A
     const t = setTimeout(() => {
       setResponseText(detail.mySubmission?.responseText ?? '')
       setExternalLink(detail.mySubmission?.externalLink ?? '')
+      setFormError(null)
       const initial: Record<string, { gradeValue: string; teacherFeedback: string }> = {}
       for (const s of detail.submissions ?? []) initial[s.id] = { gradeValue: s.gradeValue ?? '', teacherFeedback: s.teacherFeedback ?? '' }
       setGrades(initial)
@@ -1918,14 +2207,27 @@ export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: A
 
   if (!detail) return null
   const a = detail.assignment
+  const showLinkField = a.submissionType !== 'TEXT'
+  const showTextField = a.submissionType !== 'EXTERNAL_LINK'
+  // Honest mirror of the server's submission policy: PUBLISHED assignments only,
+  // before the deadline (a returned rework follows the same rule).
+  const nowMs = Date.now()
+  const submissionsOpen = a.status === 'PUBLISHED' && (!a.dueAt || new Date(a.dueAt).getTime() > nowMs)
 
   const submitWork = async () => {
+    setFormError(null)
+    const validation = submissionDraftError({ responseText, externalLink, submissionType: a.submissionType })
+    if (validation) {
+      setFormError(validation)
+      return
+    }
     setBusy(true)
     try {
       await api.submitAssignment(a.id, { responseText: responseText.trim() || undefined, externalLink: externalLink.trim() || undefined })
-      toast({ title: 'Submission saved' })
+      toast({ title: detail.mySubmission ? 'Submission updated' : 'Submission saved' })
       onClose()
     } catch (e) {
+      // The dialog stays open with every typed value so the submission can be fixed.
       toast({ title: 'Could not submit', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
     } finally {
       setBusy(false)
@@ -1953,6 +2255,7 @@ export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: A
           <DialogTitle className="font-display text-foreground">{a.title}</DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {a.subjectLabel ? `${a.subjectLabel} · ` : ''}Status: {a.status.toLowerCase()}{a.dueAt ? ` · due ${formatClassLocal(a.dueAt)}` : ''}
+            {a.maxScore ? ` · max score ${a.maxScore}` : ''}
           </DialogDescription>
         </DialogHeader>
         {a.instructions ? <p className="whitespace-pre-wrap rounded-lg border border-border bg-elevated p-3 text-sm text-muted-foreground">{a.instructions}</p> : null}
@@ -1963,68 +2266,115 @@ export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: A
           ) : (
             <div className="space-y-3">
               <Separator className="bg-border" />
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold">Submissions (staff only)</p>
-              {(detail.submissions ?? []).map(s => (
-                <div key={s.id} className="rounded-lg border border-border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">{s.student.displayName || 'Student'}</p>
-                    <Badge variant="outline" className="border-border text-muted-foreground">{s.status.toLowerCase()}</Badge>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold">
+                Submissions ({(detail.submissions ?? []).length}) — staff only, private to this assignment
+              </p>
+              {(detail.submissions ?? []).map(s => {
+                // A SUBMITTED row that already carries grade data can only come from a
+                // rework after a return — surfaced from real fields, never invented.
+                const resubmitted = s.status === 'SUBMITTED' && (Boolean(s.gradedAt) || Boolean(s.gradeValue))
+                return (
+                  <div key={s.id} className="rounded-lg border border-border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{s.student.displayName || 'Student'}</p>
+                      <Badge variant="outline" className={submissionStatusBadgeClass(s.status)}>{s.status.toLowerCase()}</Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
+                      {s.submittedAt ? <span>Submitted {formatClassLocal(s.submittedAt)}</span> : <span>Not submitted yet</span>}
+                      {s.gradedAt ? <span>Graded {formatClassLocal(s.gradedAt)}</span> : null}
+                    </div>
+                    {resubmitted ? (
+                      <p className="mt-1 text-xs text-gold">Resubmitted after a return — awaiting re-grading.</p>
+                    ) : null}
+                    {s.responseText ? <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{s.responseText}</p> : null}
+                    {s.externalLink ? (
+                      <a href={s.externalLink} target="_blank" rel="noreferrer noopener" className="mt-1 block break-all text-xs text-gold underline-offset-4 hover:underline">
+                        {s.externalLink}
+                      </a>
+                    ) : null}
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <Input
+                        aria-label={`Grade for ${s.student.displayName || 'student'}`}
+                        placeholder={a.maxScore ? `Grade (out of ${a.maxScore})` : 'Grade (e.g. 8/10)'}
+                        value={grades[s.id]?.gradeValue ?? ''}
+                        onChange={e => setGrades(g => ({ ...g, [s.id]: { ...(g[s.id] ?? { teacherFeedback: '' }), gradeValue: e.target.value } }))}
+                        maxLength={40}
+                      />
+                      <Input
+                        aria-label={`Feedback for ${s.student.displayName || 'student'}`}
+                        placeholder="Private feedback"
+                        value={grades[s.id]?.teacherFeedback ?? ''}
+                        onChange={e => setGrades(g => ({ ...g, [s.id]: { ...(g[s.id] ?? { gradeValue: '' }), teacherFeedback: e.target.value } }))}
+                        maxLength={2000}
+                      />
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={() => void gradeOne(s.id, false)}>Save grade</Button>
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={() => void gradeOne(s.id, true)}>Return for rework</Button>
+                    </div>
                   </div>
-                  {s.responseText ? <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{s.responseText}</p> : null}
-                  {s.externalLink ? (
-                    <a href={s.externalLink} target="_blank" rel="noreferrer noopener" className="mt-1 block break-all text-xs text-gold underline-offset-4 hover:underline">
-                      {s.externalLink}
-                    </a>
-                  ) : null}
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <Input
-                      aria-label={`Grade for ${s.student.displayName || 'student'}`}
-                      placeholder="Grade (e.g. 8/10)"
-                      value={grades[s.id]?.gradeValue ?? ''}
-                      onChange={e => setGrades(g => ({ ...g, [s.id]: { ...(g[s.id] ?? { teacherFeedback: '' }), gradeValue: e.target.value } }))}
-                      maxLength={40}
-                    />
-                    <Input
-                      aria-label={`Feedback for ${s.student.displayName || 'student'}`}
-                      placeholder="Private feedback"
-                      value={grades[s.id]?.teacherFeedback ?? ''}
-                      onChange={e => setGrades(g => ({ ...g, [s.id]: { ...(g[s.id] ?? { gradeValue: '' }), teacherFeedback: e.target.value } }))}
-                      maxLength={2000}
-                    />
-                  </div>
-                  <div className="mt-2 flex gap-2">
-                    <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={() => void gradeOne(s.id, false)}>Save grade</Button>
-                    <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={() => void gradeOne(s.id, true)}>Return for rework</Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )
         ) : (
           <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="sub-text">Your response</Label>
-              <Textarea id="sub-text" rows={5} value={responseText} onChange={e => setResponseText(e.target.value)} maxLength={8000} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="sub-link">External project link (optional)</Label>
-              <Input id="sub-link" value={externalLink} onChange={e => setExternalLink(e.target.value)} placeholder="https://…" />
-            </div>
             {detail.mySubmission ? (
               <div className="rounded-lg border border-border bg-elevated p-3 text-sm text-muted-foreground">
-                <p>Current status: <span className="text-foreground">{detail.mySubmission.status.toLowerCase()}</span></p>
+                <p>
+                  Current status:{' '}
+                  <Badge variant="outline" className={`ml-1 ${submissionStatusBadgeClass(detail.mySubmission.status)}`}>
+                    {detail.mySubmission.status.toLowerCase()}
+                  </Badge>
+                </p>
+                {detail.mySubmission.submittedAt ? (
+                  <p className="mt-1">Submitted {formatClassLocal(detail.mySubmission.submittedAt)}</p>
+                ) : null}
+                {detail.mySubmission.status === 'SUBMITTED' && (Boolean(detail.mySubmission.gradedAt) || Boolean(detail.mySubmission.gradeValue)) ? (
+                  <p className="mt-1 text-gold">Resubmitted after a return — awaiting re-grading.</p>
+                ) : null}
+                {detail.mySubmission.status === 'RETURNED' ? (
+                  <p className="mt-1 text-destructive">Returned for rework — revise your work below and save to resubmit before the deadline.</p>
+                ) : null}
                 {detail.mySubmission.gradedAt && detail.mySubmission.gradeValue ? (
                   <p className="mt-1">Grade: <span className="text-gold">{detail.mySubmission.gradeValue}</span></p>
                 ) : null}
-                {detail.mySubmission.teacherFeedback ? <p className="mt-1">Feedback: {detail.mySubmission.teacherFeedback}</p> : null}
+                {detail.mySubmission.gradedAt && detail.mySubmission.teacherFeedback ? (
+                  <p className="mt-1">Feedback: {detail.mySubmission.teacherFeedback}</p>
+                ) : null}
               </div>
-            ) : null}
-            <DialogFooter>
-              <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={submitWork}>
-                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : <Send className="mr-2 h-4 w-4" aria-hidden />}
-                Save submission
-              </Button>
-            </DialogFooter>
+            ) : (
+              <p className="text-sm text-muted-foreground">You have not submitted yet — save your work below.</p>
+            )}
+            {submissionsOpen ? (
+              <>
+                {showTextField ? (
+                  <div className="grid gap-2">
+                    <Label htmlFor="sub-text">{a.submissionType === 'TEXT' ? 'Your response' : 'Your response (optional per submission type)'}</Label>
+                    <Textarea id="sub-text" rows={5} value={responseText} onChange={e => setResponseText(e.target.value)} maxLength={8000} />
+                  </div>
+                ) : null}
+                {showLinkField ? (
+                  <div className="grid gap-2">
+                    <Label htmlFor="sub-link">External project link{a.submissionType === 'EXTERNAL_LINK' ? '' : ' (optional)'}</Label>
+                    <Input id="sub-link" value={externalLink} onChange={e => setExternalLink(e.target.value)} placeholder="https://…" />
+                  </div>
+                ) : null}
+                {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
+                <DialogFooter>
+                  <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={submitWork}>
+                    {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : <Send className="mr-2 h-4 w-4" aria-hidden />}
+                    {detail.mySubmission ? 'Update submission' : 'Save submission'}
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <p className="rounded-lg border border-border bg-elevated p-3 text-sm text-muted-foreground" role="status">
+                {a.status !== 'PUBLISHED'
+                  ? 'This assignment is not open for submissions.'
+                  : 'The submission deadline has passed.'}
+              </p>
+            )}
           </div>
         )}
       </DialogContent>
@@ -2034,19 +2384,28 @@ export function AssignmentDetailDialog({ detail, isStaff, onClose }: { detail: A
 
 // ─── Resources (+ announcements in overview) ─────────────────────────────────
 
-function ResourcesPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: boolean; active: boolean }) {
+function ResourcesPanel({ orgId, caps, active, viewerMembershipId }: { orgId: string; caps: OrgCapabilities; active: boolean; viewerMembershipId: string }) {
   const [data, setData] = useState<OrgResourcesResponse | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [groups, setGroups] = useState<GroupDTO[]>([])
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [url, setUrl] = useState('')
+  const [groupScope, setGroupScope] = useState('ALL')
   const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<OrgResourceDTO | null>(null)
+  const [deleting, setDeleting] = useState<OrgResourceDTO | null>(null)
+  const [acting, setActing] = useState(false)
 
   const load = useCallback(() => {
     setData(null)
     api.organizationResources(orgId)
       .then(res => { setData(res); setFailed(null) })
       .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load resources.'))
+    api.organizationGroups(orgId)
+      .then(res => setGroups(res.groups))
+      .catch(() => setGroups([]))
   }, [orgId])
 
   useEffect(() => {
@@ -2054,19 +2413,53 @@ function ResourcesPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: bo
     return () => clearTimeout(t)
   }, [load])
 
+  const activeGroups = groups.filter(g => g.status === 'ACTIVE')
+  const groupName = (groupId: string | null) => (groupId ? groups.find(g => g.id === groupId)?.name ?? null : null)
+
   const share = async () => {
+    setFormError(null)
+    const linkError = httpsUrlError(url)
+    if (linkError) {
+      setFormError(linkError)
+      return
+    }
     setBusy(true)
     try {
-      await api.createResource(orgId, { title: title.trim(), description: description.trim() || undefined, url: url.trim() })
+      await api.createResource(orgId, {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        url: url.trim(),
+        groupId: groupScope === 'ALL' ? undefined : groupScope,
+      })
       toast({ title: 'Resource shared' })
-      setTitle(''); setDescription(''); setUrl('')
+      setTitle(''); setDescription(''); setUrl(''); setGroupScope('ALL')
       load()
     } catch (e) {
-      toast({ title: 'Could not share', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+      // Typed values survive so the form can be corrected and retried.
+      setFormError(e instanceof Error ? e.message : 'Please try again.')
     } finally {
       setBusy(false)
     }
   }
+
+  const remove = async () => {
+    if (!deleting) return
+    setActing(true)
+    try {
+      await api.deleteResource(orgId, deleting.id)
+      toast({ title: 'Resource removed' })
+      setDeleting(null)
+      load()
+    } catch (e) {
+      toast({ title: 'Could not remove the resource', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+    } finally {
+      setActing(false)
+    }
+  }
+
+  // Author-or-admin, mirroring the PATCH/DELETE guard (authorMembershipId is the
+  // server-side row identity; admins get moderation rights).
+  const canManage = (r: OrgResourceDTO) => r.authorMembershipId === viewerMembershipId || caps.canModerateResources
 
   return (
     <div className="space-y-6">
@@ -2077,35 +2470,170 @@ function ResourcesPanel({ orgId, isAdmin, active }: { orgId: string; isAdmin: bo
         ) : !data ? (
           <div className="flex min-h-[25vh] items-center justify-center" role="status"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
         ) : data.resources.length === 0 ? (
-          <EmptyState icon={BookMarked} title="No resources yet" description="Share reference links, recordings or study pages with your members." />
+          <EmptyState icon={BookMarked} title="No resources shared yet" description="Share reference links, recordings or study pages with your members." />
         ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-            {data.resources.map(r => (
-              <li key={r.id} className="p-4">
-                <p className="text-sm font-medium text-foreground">{r.title}</p>
-                {r.description ? <p className="mt-1 text-xs text-muted-foreground">{r.description}</p> : null}
-                <a href={r.url} target="_blank" rel="noreferrer noopener" className="mt-1 block break-all text-xs text-gold underline-offset-4 hover:underline">
-                  {r.url}
-                </a>
-              </li>
-            ))}
+            {data.resources.map(r => {
+              const manage = canManage(r)
+              return (
+                <li key={r.id} className="p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-foreground">{r.title}</p>
+                    <Badge variant="outline" className="border-border text-muted-foreground">
+                      {groupName(r.groupId) || 'All institution'}
+                    </Badge>
+                  </div>
+                  {r.description ? <p className="mt-1 text-xs text-muted-foreground">{r.description}</p> : null}
+                  <a href={r.url} target="_blank" rel="noreferrer noopener" className="mt-1 block break-all text-xs text-gold underline-offset-4 hover:underline">
+                    {r.url}
+                  </a>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {r.authorName ? `Shared by ${r.authorName}` : 'Shared'} · {formatClassLocal(r.createdAt)}
+                  </p>
+                  {manage ? (
+                    <div className="mt-2 flex gap-2" role="group" aria-label={`Resource actions for ${r.title}`}>
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setEditing(r)}>Edit</Button>
+                      <Button size="sm" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={() => setDeleting(r)}>Delete</Button>
+                    </div>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
-      {isAdmin && active ? (
+      {caps.canShareResources && active ? (
         <div className="rounded-xl border border-border bg-card p-4">
           <h3 className="font-display text-sm font-semibold text-foreground">Share a resource</h3>
           <div className="mt-3 grid gap-3">
             <Input aria-label="Resource title" placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
             <Input aria-label="Resource description" placeholder="Short description (optional)" value={description} onChange={e => setDescription(e.target.value)} maxLength={600} />
             <Input aria-label="Resource URL" placeholder="https://…" value={url} onChange={e => setUrl(e.target.value)} />
+            <div className="grid gap-2">
+              <Label htmlFor="res-scope">Visibility</Label>
+              <Select value={groupScope} onValueChange={setGroupScope}>
+                <SelectTrigger id="res-scope" aria-label="Resource visibility"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  <SelectItem value="ALL">All institution</SelectItem>
+                  {activeGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
             <Button className="bg-gold text-primary-foreground hover:bg-gold-hover sm:w-fit" disabled={busy || !title.trim() || !url.trim()} onClick={share}>
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Share resource
             </Button>
           </div>
         </div>
       ) : null}
+
+      {editing ? (
+        <EditResourceDialog orgId={orgId} resource={editing} groups={activeGroups} onDismiss={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />
+      ) : null}
+
+      <AlertDialog open={deleting !== null} onOpenChange={o => { if (!o && !acting) setDeleting(null) }}>
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-foreground">Delete this resource?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              {deleting ? `"${deleting.title}" will be removed for every member. This permanently removes the resource. Audit history is retained.` : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-muted-foreground hover:bg-elevated" disabled={acting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={acting} onClick={e => { e.preventDefault(); void remove() }}>
+              {acting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Delete resource
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  )
+}
+
+function EditResourceDialog({ orgId, resource, groups, onDismiss, onSaved }: {
+  orgId: string
+  resource: OrgResourceDTO
+  groups: GroupDTO[]
+  onDismiss: () => void
+  onSaved: () => void
+}) {
+  const [title, setTitle] = useState(resource.title)
+  const [description, setDescription] = useState(resource.description ?? '')
+  const [url, setUrl] = useState(resource.url)
+  const [groupScope, setGroupScope] = useState(resource.groupId ?? 'ALL')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    setError(null)
+    if (title.trim().length < 4) {
+      setError('Give the resource a title (4+ characters).')
+      return
+    }
+    const linkError = httpsUrlError(url)
+    if (linkError) {
+      setError(linkError)
+      return
+    }
+    setBusy(true)
+    try {
+      await api.updateResource(orgId, resource.id, {
+        title: title.trim(),
+        description: description.trim() || null,
+        url: url.trim(),
+        groupId: groupScope === 'ALL' ? null : groupScope,
+      })
+      toast({ title: 'Resource updated' })
+      onSaved()
+    } catch (e) {
+      // Values stay as typed so the edit can be corrected and retried.
+      setError(e instanceof Error ? e.message : 'Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onDismiss() }}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-border bg-card">
+        <DialogHeader>
+          <DialogTitle className="font-display text-foreground">Edit resource</DialogTitle>
+          <DialogDescription className="text-muted-foreground">Links must stay HTTPS; visibility can move between the whole institution and one group.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="re-title">Title</Label>
+            <Input id="re-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="re-desc">Description (optional)</Label>
+            <Input id="re-desc" value={description} onChange={e => setDescription(e.target.value)} maxLength={600} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="re-url">URL</Label>
+            <Input id="re-url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="re-scope">Visibility</Label>
+            <Select value={groupScope} onValueChange={setGroupScope}>
+              <SelectTrigger id="re-scope" aria-label="Resource visibility"><SelectValue /></SelectTrigger>
+              <SelectContent className="border-border bg-popover">
+                <SelectItem value="ALL">All institution</SelectItem>
+                {groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={onDismiss}>Cancel</Button>
+          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={submit}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -2146,17 +2674,37 @@ function ReportsPanel({ dash }: { dash: OrgDashboardResponse }) {
   )
 }
 
-function AnnouncementsCard({ orgId, isAdmin, active }: { orgId: string; isAdmin: boolean; active: boolean }) {
+/** Staff-facing status colors for DRAFT / PUBLISHED / ARCHIVED announcements. */
+function announcementStatusBadgeClass(status: string): string {
+  if (status === 'DRAFT') return 'border-gold/40 bg-gold/10 text-gold'
+  if (status === 'PUBLISHED') return 'border-success/40 bg-success/10 text-success'
+  return 'border-border bg-elevated text-muted-foreground'
+}
+
+function AnnouncementsCard({ orgId, caps, active, viewerMembershipId }: { orgId: string; caps: OrgCapabilities; active: boolean; viewerMembershipId: string }) {
   const [items, setItems] = useState<AnnouncementDTO[] | null>(null)
+  const [includeAll, setIncludeAll] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [groups, setGroups] = useState<GroupDTO[]>([])
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [audience, setAudience] = useState('ALL')
+  const [expiryDays, setExpiryDays] = useState('0')
+  const [saveDraft, setSaveDraft] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<AnnouncementDTO | null>(null)
+  const [confirming, setConfirming] = useState<{ announcement: AnnouncementDTO; action: 'ARCHIVE' | 'PUBLISH_DRAFT' } | null>(null)
+  const [acting, setActing] = useState(false)
 
   const load = useCallback(() => {
     setItems(null)
     api.organizationAnnouncements(orgId)
-      .then(res => setItems(res.announcements))
-      .catch(() => setItems([]))
+      .then(res => { setItems(res.announcements); setIncludeAll(res.includeAll); setFailed(null) })
+      .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load announcements.'))
+    api.organizationGroups(orgId)
+      .then(res => setGroups(res.groups))
+      .catch(() => setGroups([]))
   }, [orgId])
 
   useEffect(() => {
@@ -2164,17 +2712,51 @@ function AnnouncementsCard({ orgId, isAdmin, active }: { orgId: string; isAdmin:
     return () => clearTimeout(t)
   }, [load])
 
+  const activeGroups = groups.filter(g => g.status === 'ACTIVE')
+  const groupName = (groupId: string | null) => (groupId ? groups.find(g => g.id === groupId)?.name ?? null : null)
+
   const publish = async () => {
+    setFormError(null)
+    if (title.trim().length < 4 || body.trim().length < 10) {
+      setFormError('Give the announcement a title (4+ characters) and a body (10+ characters).')
+      return
+    }
     setBusy(true)
     try {
-      await api.createAnnouncement(orgId, { title: title.trim(), body: body.trim() })
-      toast({ title: 'Announcement published' })
-      setTitle(''); setBody('')
+      const expiresAt = expiryFromDays(Number(expiryDays))
+      await api.createAnnouncement(orgId, {
+        title: title.trim(),
+        body: body.trim(),
+        groupId: audience === 'ALL' ? undefined : audience,
+        expiresAt: expiresAt ?? undefined,
+        status: saveDraft ? 'DRAFT' : 'PUBLISHED',
+      })
+      toast({ title: saveDraft ? 'Announcement saved as draft' : 'Announcement published' })
+      setTitle(''); setBody(''); setAudience('ALL'); setExpiryDays('0'); setSaveDraft(false)
       load()
     } catch (e) {
-      toast({ title: 'Could not publish', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+      // Typed values survive so the composer can be corrected and retried.
+      setFormError(e instanceof Error ? e.message : 'Please try again.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  // Author-or-admin for archive/restore, mirroring the server guard.
+  const canModerate = (a: AnnouncementDTO) => a.authorMembershipId === viewerMembershipId || caps.canModerateAnnouncements
+
+  const runConfirmed = async () => {
+    if (!confirming) return
+    setActing(true)
+    try {
+      await api.updateAnnouncement(orgId, confirming.announcement.id, { status: confirming.action === 'ARCHIVE' ? 'ARCHIVED' : 'PUBLISHED' })
+      toast({ title: confirming.action === 'ARCHIVE' ? 'Announcement archived' : 'Announcement published' })
+      setConfirming(null)
+      load()
+    } catch (e) {
+      toast({ title: 'Could not update the announcement', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+    } finally {
+      setActing(false)
     }
   }
 
@@ -2184,31 +2766,228 @@ function AnnouncementsCard({ orgId, isAdmin, active }: { orgId: string; isAdmin:
         <Megaphone className="h-4 w-4 text-gold" aria-hidden />
         <h3 className="font-display text-base font-semibold text-foreground">Announcements</h3>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">In-app only — members of this organization see them here.</p>
-      {!items ? (
+      <p className="mt-1 text-xs text-muted-foreground">
+        In-app only — members of this organization see them here.
+        {includeAll ? ' You manage drafts and archived items too.' : ''}
+      </p>
+      {failed ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-destructive">{failed}</p>
+          <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={load}>Try again</Button>
+        </div>
+      ) : !items ? (
         <div className="flex min-h-[10vh] items-center justify-center" role="status"><Loader2 className="h-5 w-5 animate-spin text-gold" /></div>
       ) : items.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">No announcements yet.</p>
       ) : (
         <ul className="mt-3 space-y-3">
-          {items.map(a => (
-            <li key={a.id} className="rounded-lg border border-border bg-elevated p-3">
-              <p className="text-sm font-medium text-foreground">{a.title}</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{a.body}</p>
-              {a.publishedAt ? <p className="mt-1 text-xs text-muted-foreground">{formatClassLocal(a.publishedAt)}</p> : null}
-            </li>
-          ))}
+          {items.map(a => {
+            const expiry = announcementExpiryState(a.expiresAt)
+            const staffRow = includeAll
+            return (
+              <li key={a.id} className="rounded-lg border border-border bg-elevated p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">{a.title}</p>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className="border-border text-muted-foreground">{groupName(a.groupId) || 'All institution'}</Badge>
+                    {staffRow ? <Badge variant="outline" className={announcementStatusBadgeClass(a.status)}>{a.status.toLowerCase()}</Badge> : null}
+                  </div>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{a.body}</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {a.authorName ? `By ${a.authorName} · ` : ''}
+                  {a.publishedAt ? `Published ${formatClassLocal(a.publishedAt)}` : `Created ${formatClassLocal(a.createdAt)}`}
+                </p>
+                {a.expiresAt ? (
+                  <p className={`mt-0.5 text-xs ${expiry === 'EXPIRED' ? 'text-destructive' : expiry === 'SOON' ? 'text-gold' : 'text-muted-foreground'}`}>
+                    {expiry === 'EXPIRED' ? `Expired ${formatClassLocal(a.expiresAt)}` : `Expires ${formatClassLocal(a.expiresAt)}`}
+                  </p>
+                ) : null}
+                {staffRow ? (
+                  <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label={`Announcement actions for ${a.title}`}>
+                    {caps.canPublishAnnouncements && a.status !== 'ARCHIVED' ? (
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setEditing(a)}>Edit</Button>
+                    ) : null}
+                    {caps.canPublishAnnouncements && a.status === 'DRAFT' ? (
+                      <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => setConfirming({ announcement: a, action: 'PUBLISH_DRAFT' })}>Publish draft</Button>
+                    ) : null}
+                    {canModerate(a) && a.status === 'PUBLISHED' ? (
+                      <Button size="sm" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={() => setConfirming({ announcement: a, action: 'ARCHIVE' })}>Archive</Button>
+                    ) : null}
+                    {canModerate(a) && a.status === 'ARCHIVED' ? (
+                      <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => setConfirming({ announcement: a, action: 'PUBLISH_DRAFT' })}>Restore</Button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
       )}
-      {isAdmin && active ? (
-        <div className="mt-4 grid gap-2 border-t border-border pt-4">
+      {caps.canPublishAnnouncements && active ? (
+        <div className="mt-4 grid gap-3 border-t border-border pt-4">
           <Input id="announcement-title-input" aria-label="Announcement title" placeholder="Announcement title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
           <Textarea aria-label="Announcement body" rows={2} placeholder="What should members know?" value={body} onChange={e => setBody(e.target.value)} maxLength={5000} />
-          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover sm:w-fit" disabled={busy || !title.trim() || body.trim().length < 10} onClick={publish}>
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Publish announcement
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2">
+              <Label htmlFor="ann-audience">Audience</Label>
+              <Select value={audience} onValueChange={setAudience}>
+                <SelectTrigger id="ann-audience" aria-label="Announcement audience"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  <SelectItem value="ALL">All institution</SelectItem>
+                  {activeGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ann-expiry">Expires after</Label>
+              <Select value={expiryDays} onValueChange={setExpiryDays}>
+                <SelectTrigger id="ann-expiry" aria-label="Announcement expiry"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  <SelectItem value="0">Never</SelectItem>
+                  <SelectItem value="1">1 day</SelectItem>
+                  <SelectItem value="7">7 days</SelectItem>
+                  <SelectItem value="30">30 days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex items-end gap-2 pb-2 text-sm text-muted-foreground">
+              <input type="checkbox" checked={saveDraft} onChange={e => setSaveDraft(e.target.checked)} className="h-4 w-4 accent-[#D6A514]" />
+              Save as draft
+            </label>
+          </div>
+          {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
+          <Button
+            className="bg-gold text-primary-foreground hover:bg-gold-hover sm:w-fit"
+            disabled={busy || !title.trim() || body.trim().length < 10}
+            onClick={publish}
+          >
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+            {saveDraft ? 'Save draft announcement' : 'Publish announcement'}
           </Button>
         </div>
       ) : null}
+
+      {editing ? (
+        <EditAnnouncementDialog orgId={orgId} announcement={editing} groups={activeGroups} onDismiss={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />
+      ) : null}
+
+      <AlertDialog open={confirming !== null} onOpenChange={o => { if (!o && !acting) setConfirming(null) }}>
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-foreground">
+              {confirming?.action === 'ARCHIVE' ? 'Archive this announcement?' : confirming ? `Publish "${confirming.announcement.title}"?` : ''}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              {confirming?.action === 'ARCHIVE'
+                ? 'Members stop seeing it immediately. The content is kept and can be restored later.'
+                : confirming
+                  ? (confirming.announcement.status === 'ARCHIVED'
+                    ? 'It becomes visible to its audience again with status PUBLISHED.'
+                    : 'It becomes visible to its audience immediately and stays until it expires or is archived.')
+                  : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-muted-foreground hover:bg-elevated" disabled={acting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={confirming?.action === 'ARCHIVE' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-gold text-primary-foreground hover:bg-gold-hover'}
+              disabled={acting}
+              onClick={e => { e.preventDefault(); void runConfirmed() }}
+            >
+              {acting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+              {confirming?.action === 'ARCHIVE' ? 'Archive announcement' : 'Publish'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  )
+}
+
+function EditAnnouncementDialog({ orgId, announcement, groups, onDismiss, onSaved }: {
+  orgId: string
+  announcement: AnnouncementDTO
+  groups: GroupDTO[]
+  onDismiss: () => void
+  onSaved: () => void
+}) {
+  const [title, setTitle] = useState(announcement.title)
+  const [body, setBody] = useState(announcement.body)
+  const [audience, setAudience] = useState(announcement.groupId ?? 'ALL')
+  const [expiresAt, setExpiresAt] = useState(localInputValue(announcement.expiresAt))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    setError(null)
+    if (title.trim().length < 4 || body.trim().length < 10) {
+      setError('The title needs 4+ characters and the body 10+ characters.')
+      return
+    }
+    if (expiresAt && !isFutureLocalSchedule(expiresAt)) {
+      setError('The expiry must be in the future (or cleared to never expire).')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.updateAnnouncement(orgId, announcement.id, {
+        title: title.trim(),
+        body: body.trim(),
+        groupId: audience === 'ALL' ? null : audience,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      })
+      toast({ title: 'Announcement updated' })
+      onSaved()
+    } catch (e) {
+      // Values stay as typed so the edit can be corrected and retried.
+      setError(e instanceof Error ? e.message : 'Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onDismiss() }}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-border bg-card">
+        <DialogHeader>
+          <DialogTitle className="font-display text-foreground">Edit announcement</DialogTitle>
+          <DialogDescription className="text-muted-foreground">Content edits apply immediately while the announcement is not archived.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="an-title">Title</Label>
+            <Input id="an-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={160} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="an-body">Body</Label>
+            <Textarea id="an-body" rows={4} value={body} onChange={e => setBody(e.target.value)} maxLength={5000} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="an-audience">Audience</Label>
+              <Select value={audience} onValueChange={setAudience}>
+                <SelectTrigger id="an-audience" aria-label="Announcement audience"><SelectValue /></SelectTrigger>
+                <SelectContent className="border-border bg-popover">
+                  <SelectItem value="ALL">All institution</SelectItem>
+                  {groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="an-expiry">Expires (optional)</Label>
+              <Input id="an-expiry" type="datetime-local" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} className="[color-scheme:dark]" />
+            </div>
+          </div>
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busy} onClick={onDismiss}>Cancel</Button>
+          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" disabled={busy} onClick={submit}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null} Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

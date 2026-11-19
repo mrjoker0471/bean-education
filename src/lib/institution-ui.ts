@@ -160,3 +160,132 @@ export function isFutureLocalSchedule(value: string, now: Date = new Date()): bo
   const t = new Date(value).getTime()
   return !Number.isNaN(t) && t > now.getTime()
 }
+
+// ─── Assignments workspace helpers (Phase 7 UI completion) ───────────────────
+
+export type AssignmentLifecycleAction = 'PUBLISH' | 'CLOSE' | 'ARCHIVE' | 'RESTORE' | 'EDIT'
+
+/**
+ * Lifecycle actions the staff UI offers per real assignment status — an exact
+ * mirror of the server transition machine in PATCH
+ * /api/organizations/assignments/[assignmentId]:
+ *   DRAFT → PUBLISHED | ARCHIVED (+ DRAFT-only content edits)
+ *   PUBLISHED → CLOSED | ARCHIVED
+ *   CLOSED → ARCHIVED
+ *   ARCHIVED → ACTIVE (restore; rendered as "Restore")
+ * Unknown statuses yield no actions — the UI never invents a transition the
+ * server would reject.
+ */
+const ASSIGNMENT_LIFECYCLE: Record<string, readonly AssignmentLifecycleAction[]> = {
+  DRAFT: ['PUBLISH', 'ARCHIVE', 'EDIT'],
+  PUBLISHED: ['CLOSE', 'ARCHIVE'],
+  CLOSED: ['ARCHIVE'],
+  ARCHIVED: ['RESTORE'],
+}
+
+export function assignmentLifecycleActions(status: string): AssignmentLifecycleAction[] {
+  return [...(ASSIGNMENT_LIFECYCLE[status] ?? [])]
+}
+
+export function assignmentStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'DRAFT': return 'border-gold/40 bg-gold/10 text-gold'
+    case 'PUBLISHED': return 'border-success/40 bg-success/10 text-success'
+    case 'CLOSED':
+    case 'ARCHIVED': return 'border-border bg-elevated text-muted-foreground'
+    default: return 'border-border text-muted-foreground'
+  }
+}
+
+/**
+ * A PUBLISHED assignment whose due date has passed is overdue. DRAFT items
+ * were never open for submissions and CLOSED/ARCHIVED are already terminal,
+ * so they never render overdue styling — matches the server, which rejects
+ * late submissions only while an assignment is PUBLISHED past its dueAt.
+ */
+export function assignmentIsOverdue(dueAt: string | null | undefined, status: string, now: Date = new Date()): boolean {
+  if (!dueAt || status !== 'PUBLISHED') return false
+  const t = new Date(dueAt).getTime()
+  return !Number.isNaN(t) && t <= now.getTime()
+}
+
+/** Client-side group filter for the assignments list (null/'ALL' = every group). */
+export function filterAssignmentsByGroup<T extends { groupId: string }>(rows: readonly T[], groupId: string | null): T[] {
+  if (!groupId) return [...rows]
+  return rows.filter(r => r.groupId === groupId)
+}
+
+/** Submission status chip colors for the staff grading queue. */
+export function submissionStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'SUBMITTED': return 'border-gold/40 bg-gold/10 text-gold'
+    case 'GRADED': return 'border-success/40 bg-success/10 text-success'
+    case 'RETURNED': return 'border-destructive/40 bg-destructive/10 text-destructive'
+    default: return 'border-border bg-elevated text-muted-foreground'
+  }
+}
+
+/**
+ * Client-side mirror of submissionCreateSchema: something must be submitted
+ * (per the assignment's submission type) and external links must be HTTPS.
+ * Pure — the server re-validates everything.
+ */
+export function httpsUrlError(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return 'A link is required.'
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.hostname.length === 0) return 'Links must be valid HTTPS URLs.'
+    return null
+  } catch {
+    return 'Links must be valid HTTPS URLs.'
+  }
+}
+
+export function submissionDraftError(input: { responseText: string; externalLink: string; submissionType: string }): string | null {
+  const hasText = input.responseText.trim().length > 0
+  const hasLink = input.externalLink.trim().length > 0
+  if (hasLink) {
+    const linkError = httpsUrlError(input.externalLink)
+    if (linkError) return linkError
+  }
+  if (input.submissionType === 'TEXT' && !hasText) return 'This assignment requires a written response.'
+  if (input.submissionType === 'EXTERNAL_LINK' && !hasLink) return 'This assignment requires an external project link.'
+  if (!hasText && !hasLink) return 'Add a written response or an external project link before submitting.'
+  return null
+}
+
+/**
+ * Convert an ISO timestamp to the value format of <input type="datetime-local">
+ * in the viewer's local time ('' when missing/invalid). Used to prefill edit
+ * dialogs so resubmitting after a validation failure keeps the entered value.
+ */
+export function localInputValue(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Expiry picker (never/1/7/30 days) → future ISO timestamp, or null for "never". */
+export function expiryFromDays(days: number, now: Date = new Date()): string | null {
+  if (!Number.isFinite(days) || days <= 0) return null
+  return new Date(now.getTime() + days * 24 * 3600_000).toISOString()
+}
+
+export type AnnouncementExpiryState = 'EXPIRED' | 'SOON' | null
+
+/**
+ * Honest expiry signal from the announcement's real expiresAt: EXPIRED once
+ * past, SOON within the next 72 hours, null otherwise. Nothing is inferred
+ * from views or counts.
+ */
+export function announcementExpiryState(expiresAt: string | null | undefined, now: Date = new Date()): AnnouncementExpiryState {
+  if (!expiresAt) return null
+  const t = new Date(expiresAt).getTime()
+  if (Number.isNaN(t)) return null
+  if (t <= now.getTime()) return 'EXPIRED'
+  if (t - now.getTime() <= 72 * 3600_000) return 'SOON'
+  return null
+}

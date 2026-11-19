@@ -236,9 +236,13 @@ export interface AnnouncementDTO {
   publishedAt: string | null
   expiresAt: string | null
   createdAt: string
+  /** Row identity of the authoring membership — lets the UI gate author-only actions. */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
-export function toAnnouncementDTO(a: OrganizationAnnouncement): AnnouncementDTO {
+export function toAnnouncementDTO(a: OrganizationAnnouncement, authorName: string | null = null): AnnouncementDTO {
   return {
     id: a.id,
     groupId: a.groupId,
@@ -248,6 +252,8 @@ export function toAnnouncementDTO(a: OrganizationAnnouncement): AnnouncementDTO 
     publishedAt: a.publishedAt?.toISOString() ?? null,
     expiresAt: a.expiresAt?.toISOString() ?? null,
     createdAt: a.createdAt.toISOString(),
+    authorMembershipId: a.authorMembershipId,
+    authorName,
   }
 }
 
@@ -258,9 +264,13 @@ export interface OrgResourceDTO {
   description: string | null
   url: string
   createdAt: string
+  /** Row identity of the authoring membership — lets the UI gate author-or-admin actions. */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
-export function toResourceDTO(r: OrganizationResource): OrgResourceDTO {
+export function toResourceDTO(r: OrganizationResource, authorName: string | null = null): OrgResourceDTO {
   return {
     id: r.id,
     groupId: r.groupId,
@@ -268,6 +278,8 @@ export function toResourceDTO(r: OrganizationResource): OrgResourceDTO {
     description: r.description,
     url: r.url,
     createdAt: r.createdAt.toISOString(),
+    authorMembershipId: r.authorMembershipId,
+    authorName,
   }
 }
 

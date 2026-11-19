@@ -19,6 +19,18 @@ export const runtime = 'nodejs'
 
 type Params = { params: Promise<{ id: string }> }
 
+/** Resolve authoring members' display names (id → membership → student) — display
+ *  names only, never emails. Kept additive: guards and visibility filters untouched. */
+async function authorNamesByMembershipId(organizationId: string, membershipIds: string[]): Promise<Map<string, string | null>> {
+  const ids = [...new Set(membershipIds)]
+  if (ids.length === 0) return new Map()
+  const rows = await db.organizationMembership.findMany({
+    where: { organizationId, id: { in: ids } },
+    select: { id: true, student: { select: { displayName: true } } },
+  })
+  return new Map(rows.map((m) => [m.id, m.student.displayName]))
+}
+
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const { id } = await params
@@ -37,8 +49,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
         where: { organizationId: id },
         orderBy: { createdAt: 'desc' },
       })
+      const authorNames = await authorNamesByMembershipId(id, all.map((a) => a.authorMembershipId))
       return NextResponse.json(
-        { announcements: all.map(toAnnouncementDTO), includeAll: true },
+        { announcements: all.map((a) => toAnnouncementDTO(a, authorNames.get(a.authorMembershipId) ?? null)), includeAll: true },
         { headers: { 'Cache-Control': 'no-store' } },
       )
     }
@@ -60,8 +73,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       orderBy: { publishedAt: 'desc' },
     })
     const visible = announcements.filter((a) => !a.expiresAt || a.expiresAt.getTime() > now.getTime())
+    const authorNames = await authorNamesByMembershipId(id, visible.map((a) => a.authorMembershipId))
     return NextResponse.json(
-      { announcements: visible.map(toAnnouncementDTO), includeAll: false },
+      { announcements: visible.map((a) => toAnnouncementDTO(a, authorNames.get(a.authorMembershipId) ?? null)), includeAll: false },
       { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch (err) {
@@ -124,7 +138,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       })
       return created
     })
-    return NextResponse.json({ announcement: toAnnouncementDTO(announcement) }, { status: 201 })
+    const authorNames = await authorNamesByMembershipId(id, [guard.membership.id])
+    return NextResponse.json(
+      { announcement: toAnnouncementDTO(announcement, authorNames.get(guard.membership.id) ?? null) },
+      { status: 201 },
+    )
   } catch (err) {
     console.error('[api/organizations/[id]/announcements POST]', err)
     return NextResponse.json({ error: 'Could not publish the announcement.' }, { status: 500 })

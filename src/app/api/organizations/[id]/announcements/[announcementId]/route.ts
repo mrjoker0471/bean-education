@@ -20,6 +20,18 @@ export const runtime = 'nodejs'
 
 type Params = { params: Promise<{ id: string; announcementId: string }> }
 
+/** Resolve authoring members' display names (id → membership → student) — display
+ *  names only, never emails. Additive to the lifecycle route; guards untouched. */
+async function authorNamesByMembershipId(organizationId: string, membershipIds: string[]): Promise<Map<string, string | null>> {
+  const ids = [...new Set(membershipIds)]
+  if (ids.length === 0) return new Map()
+  const rows = await db.organizationMembership.findMany({
+    where: { organizationId, id: { in: ids } },
+    select: { id: true, student: { select: { displayName: true } } },
+  })
+  return new Map(rows.map((m) => [m.id, m.student.displayName]))
+}
+
 /** Allowed next statuses per current status ('ACTIVE' = restore ARCHIVED). */
 const ANNOUNCEMENT_TRANSITIONS: Record<string, readonly string[]> = {
   DRAFT: ['PUBLISHED'],
@@ -153,7 +165,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
       return next
     })
-    return NextResponse.json({ announcement: toAnnouncementDTO(updated) })
+    const authorNames = await authorNamesByMembershipId(id, [updated.authorMembershipId])
+    return NextResponse.json({ announcement: toAnnouncementDTO(updated, authorNames.get(updated.authorMembershipId) ?? null) })
   } catch (err) {
     console.error('[api/organizations/[id]/announcements/[announcementId] PATCH]', err)
     return NextResponse.json({ error: 'Could not update the announcement.' }, { status: 500 })
