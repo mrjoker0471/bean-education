@@ -204,7 +204,7 @@ export function toAnnouncementDTO(a: OrganizationAnnouncement): AnnouncementDTO 
   }
 }
 
-export interface ResourceDTO {
+export interface OrgResourceDTO {
   id: string
   groupId: string | null
   title: string
@@ -213,7 +213,7 @@ export interface ResourceDTO {
   createdAt: string
 }
 
-export function toResourceDTO(r: OrganizationResource): ResourceDTO {
+export function toResourceDTO(r: OrganizationResource): OrgResourceDTO {
   return {
     id: r.id,
     groupId: r.groupId,

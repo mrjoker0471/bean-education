@@ -268,6 +268,7 @@ export function toPublicClass(
     minimumStudents: session.minimumStudents,
     plannedPricePaise: session.plannedPricePaise,
     status: session.status as PublicClassDTO['status'],
+    audience: session.audience ?? 'PUBLIC',
     teacher: { id: teacher.id, teachingName: teacher.teachingName, headline: teacher.headline },
     createdAt: session.createdAt.toISOString(),
   }

@@ -54,10 +54,25 @@ export const teachClassCreateSchema = z
     // Optional future regular price in PAISE — metadata only during the free
     // pilot; no order or payment is ever created from this value.
     plannedPricePaise: z.number().int().min(0).max(10_000_000).optional(),
+    // Phase 7 — private institution classes. Absent ⇒ PUBLIC (existing
+    // behavior unchanged). ORGANIZATION/GROUP audiences require the creator to
+    // hold an active instructor/admin/owner membership in the owning
+    // organization; eligibility is re-checked on booking and live entry.
+    audience: z.enum(['PUBLIC', 'ORGANIZATION', 'GROUP']).optional(),
+    organizationId: z.string().min(6).max(64).optional(),
+    organizationGroupId: z.string().min(6).max(64).optional(),
   })
   .refine((v) => v.minimumStudents <= v.capacity, {
     message: 'Minimum enrolment cannot exceed capacity',
     path: ['minimumStudents'],
+  })
+  .refine((v) => (v.audience && v.audience !== 'PUBLIC' ? Boolean(v.organizationId) : true), {
+    message: 'A private class requires its owning organization',
+    path: ['organizationId'],
+  })
+  .refine((v) => (v.audience === 'GROUP' ? Boolean(v.organizationGroupId) : true), {
+    message: 'A group class requires its owning group',
+    path: ['organizationGroupId'],
   })
 
 export const teachClassPatchSchema = z.object({

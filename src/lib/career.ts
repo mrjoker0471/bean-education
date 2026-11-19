@@ -147,7 +147,7 @@ export function canApply(eligibilityStatus: string): boolean {
  */
 export function isValidApplicationSnapshot(snapshot: unknown): boolean {
   if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)) return false
-  const ALLOWED_KEYS = ['headline', 'summary', 'preferredRoleTypes', 'preferredSkills', 'preferredLocations', 'workModes', 'skills', 'projects', 'credentials', 'shareContact']
+  const ALLOWED_KEYS = ['headline', 'summary', 'note', 'preferredRoleTypes', 'preferredSkills', 'preferredLocations', 'workModes', 'skills', 'projects', 'credentials', 'shareContact']
   const keys = Object.keys(snapshot as Record<string, unknown>)
   if (keys.length === 0 || keys.length > ALLOWED_KEYS.length) return false
   for (const k of keys) {

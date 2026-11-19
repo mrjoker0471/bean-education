@@ -34,6 +34,14 @@ import { TrustPolicyView } from '@/components/bean/views/trust-policy-view'
 // Phase 7 — Institution & Career
 import { InstitutionView } from '@/components/bean/views/institution-view'
 import { InstitutionOrgView } from '@/components/bean/views/institution-org-view'
+import { CareerView } from '@/components/bean/views/career-view'
+import { CareerProfileView } from '@/components/bean/views/career-profile-view'
+import { CareerPortfolioView } from '@/components/bean/views/career-portfolio-view'
+import { OpportunityBrowseView, OpportunityDetailView } from '@/components/bean/views/career-opportunities-view'
+import { CareerApplicationsView } from '@/components/bean/views/career-applications-view'
+import { CareerEmployerView } from '@/components/bean/views/career-employer-view'
+import { AdminOrganizationsView } from '@/components/bean/views/admin-organizations-view'
+import { AdminCareerView } from '@/components/bean/views/admin-career-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { Compass, Loader2 } from 'lucide-react'
@@ -88,6 +96,15 @@ export default function Page() {
             {/* Phase 7 — Institution & Career */}
             {route.view === 'institution' && <InstitutionView />}
             {route.view === 'institution-org' && route.orgId && <InstitutionOrgView orgId={route.orgId} section={route.section} />}
+            {route.view === 'career' && <CareerView />}
+            {route.view === 'career-profile' && <CareerProfileView />}
+            {route.view === 'career-portfolio' && <CareerPortfolioView />}
+            {route.view === 'career-opportunities' && <OpportunityBrowseView />}
+            {route.view === 'career-opportunity' && route.opportunityId && <OpportunityDetailView opportunityId={route.opportunityId} />}
+            {route.view === 'career-applications' && <CareerApplicationsView />}
+            {route.view === 'career-employer' && <CareerEmployerView />}
+            {route.view === 'admin-organizations' && <AdminOrganizationsView />}
+            {route.view === 'admin-career' && <AdminCareerView />}
             {route.view === 'auth' && (
               <AuthView
                 onAuthed={(student, mode) => {

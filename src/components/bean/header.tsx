@@ -72,6 +72,9 @@ export function Header() {
         ...(isCurator ? [{ key: 'pyq', label: 'PYQ Studio', icon: ShieldCheck, hash: '#/pyq-studio', activeFor: ['pyq-studio'] }] as NavItem[] : []),
         // Phase 4A: teacher application review — administrators only.
         ...(isAdmin ? [{ key: 'teach-review', label: 'Teacher Review', icon: ClipboardCheck, hash: '#/teach/review', activeFor: ['teach-review'] }] as NavItem[] : []),
+        // Phase 7: organization verification + career moderation — admins only.
+        ...(isAdmin ? [{ key: 'admin-organizations', label: 'Organizations', icon: Building2, hash: '#/admin/organizations', activeFor: ['admin-organizations'] }] as NavItem[] : []),
+        ...(isAdmin ? [{ key: 'admin-career', label: 'Career Moderation', icon: ClipboardCheck, hash: '#/admin/career', activeFor: ['admin-career'] }] as NavItem[] : []),
       ]
     : GUEST_NAV
 
