@@ -1,14 +1,22 @@
 'use client'
 
 // ─── Phase 7 — My applications (#/career/applications) ───────────────────────
-// The student's own application tracker: status with the employer's
-// candidate-visible note, withdrawal, and the safety-report entry point.
-// employerNotes are never present in these DTOs (server-enforced privacy).
+// Two tabs:
+//   • Applications — the student's own tracker: status with the employer's
+//     candidate-visible note, withdrawal, and the safety-report entry point.
+//     employerNotes are never present in these DTOs (server-enforced privacy).
+//   • Reports — the student's own filed safety reports. The DTO
+//     (OwnSafetyReportDTO in src/lib/types.ts) exposes ONLY: subject, category,
+//     targetType, targetId, status, createdAt and resolutionVisible (a fixed
+//     completion message when RESOLVED/DISMISSED). Internal case notes and
+//     resolutionNote are admin-only and are never shown here — nothing is
+//     invented beyond those fields.
 
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -23,9 +31,9 @@ import { Label } from '@/components/ui/label'
 import { EmptyState } from '@/components/bean/empty-state'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
-import type { MyApplicationsResponse, OwnApplicationClientDTO } from '@/lib/types'
+import type { MyApplicationsResponse, OwnApplicationClientDTO, OwnSafetyReportDTO } from '@/lib/types'
 import { toast } from '@/hooks/use-toast'
-import { Inbox, Loader2, ShieldAlert } from 'lucide-react'
+import { FileWarning, Inbox, Loader2, ShieldAlert } from 'lucide-react'
 
 const STATUS_BADGE: Record<string, string> = {
   SUBMITTED: 'border-gold/40 bg-gold/10 text-gold',
@@ -37,6 +45,13 @@ const STATUS_BADGE: Record<string, string> = {
   WITHDRAWN: 'border-border bg-elevated text-muted-foreground',
 }
 
+const REPORT_STATUS_BADGE: Record<string, string> = {
+  OPEN: 'border-gold/40 bg-gold/10 text-gold',
+  UNDER_REVIEW: 'border-gold/40 bg-gold/10 text-gold',
+  RESOLVED: 'border-success/40 bg-success/10 text-success',
+  DISMISSED: 'border-border bg-elevated text-muted-foreground',
+}
+
 const REPORT_CATEGORIES = ['FRAUDULENT_LISTING', 'MISLEADING_DESCRIPTION', 'ORGANIZATION_CONDUCT', 'HARASSMENT', 'DISCRIMINATION', 'SAFEGUARDING', 'OTHER']
 
 export function CareerApplicationsView() {
@@ -46,6 +61,8 @@ export function CareerApplicationsView() {
 
   const [data, setData] = useState<MyApplicationsResponse | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [reports, setReports] = useState<OwnSafetyReportDTO[] | null>(null)
+  const [reportsFailed, setReportsFailed] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [reportFor, setReportFor] = useState<OwnApplicationClientDTO | null>(null)
   const [category, setCategory] = useState('')
@@ -55,9 +72,26 @@ export function CareerApplicationsView() {
 
   const load = useCallback(() => {
     setData(null)
-    api.myApplications()
-      .then(res => { setData(res); setFailed(null) })
-      .catch(e => setFailed(e instanceof Error ? e.message : 'Could not load your applications.'))
+    setReports(null)
+    setFailed(null)
+    setReportsFailed(null)
+    // Applications are the primary surface; reports failing is shown honestly
+    // inside the Reports tab without hiding the tracker.
+    Promise.allSettled([api.myApplications(), api.myCareerReports()])
+      .then(([apps, reps]) => {
+        if (apps.status === 'fulfilled') {
+          setData(apps.value)
+          setFailed(null)
+        } else {
+          setFailed(apps.reason instanceof Error ? apps.reason.message : 'Could not load your applications.')
+        }
+        if (reps.status === 'fulfilled') {
+          setReports(reps.value.reports)
+          setReportsFailed(null)
+        } else {
+          setReportsFailed(reps.reason instanceof Error ? reps.reason.message : 'Could not load your reports.')
+        }
+      })
   }, [])
 
   useEffect(() => {
@@ -92,6 +126,7 @@ export function CareerApplicationsView() {
       })
       toast({ title: 'Report filed privately — BEAN administrators will investigate. Nothing is auto-suspended.' })
       setReportFor(null); setCategory(''); setSubject(''); setDescription('')
+      load()
     } catch (e) {
       toast({ title: 'Could not file report', description: e instanceof Error ? e.message : '', variant: 'destructive' })
     } finally {
@@ -116,43 +151,91 @@ export function CareerApplicationsView() {
       <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">My applications</h1>
       <p className="mt-2 text-sm text-muted-foreground">Statuses update as employers review your submission. Employers see only the snapshot you selected — never your live profile.</p>
 
-      {failed ? (
+      {failed && !data ? (
         <div className="mt-8"><EmptyState icon={Inbox} title="Could not load applications" description={failed} actionLabel="Try again" onAction={load} /></div>
       ) : !data ? (
         <div className="mt-8 flex min-h-[30vh] items-center justify-center" role="status"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
-      ) : data.applications.length === 0 ? (
-        <div className="mt-8">
-          <EmptyState icon={Inbox} title="No applications yet" description="Browse moderated opportunities from verified employers." actionLabel="Browse opportunities" onAction={() => navigate({ view: 'career-opportunities' })} />
-        </div>
       ) : (
-        <ul className="mt-8 space-y-3">
-          {data.applications.map(a => (
-            <li key={a.id} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <button type="button" className="font-display text-base font-semibold text-foreground hover:text-gold" onClick={() => navigate({ view: 'career-opportunity', opportunityId: a.opportunity.id })}>
-                    {a.opportunity.title}
-                  </button>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{a.opportunity.organizationName} · {a.opportunity.opportunityType.toLowerCase()} · applied {new Date(a.submittedAt).toLocaleDateString()}</p>
-                </div>
-                <Badge variant="outline" className={STATUS_BADGE[a.status] ?? 'border-border text-muted-foreground'}>{a.status.replace('_', ' ').toLowerCase()}</Badge>
-              </div>
-              {a.candidateVisibleStatusNote ? (
-                <p className="mt-2 rounded-lg border border-border bg-elevated p-3 text-sm text-muted-foreground">Note from employer: {a.candidateVisibleStatusNote}</p>
-              ) : null}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {['SUBMITTED', 'UNDER_REVIEW', 'SHORTLISTED', 'INTERVIEW'].includes(a.status) ? (
-                  <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busyId === a.id} onClick={() => void withdraw(a)}>
-                    Withdraw
-                  </Button>
-                ) : null}
-                <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setReportFor(a)}>
-                  <ShieldAlert className="mr-1 h-3.5 w-3.5" aria-hidden /> Report this listing
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <Tabs defaultValue="applications" className="mt-6">
+          <TabsList className="bg-elevated" aria-label="Application sections">
+            <TabsTrigger value="applications">Applications</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
+          </TabsList>
+
+          {/* ── Applications tab (existing tracker, unchanged flow) ── */}
+          <TabsContent value="applications" className="mt-4">
+            {data.applications.length === 0 ? (
+              <EmptyState icon={Inbox} title="No applications yet" description="Browse moderated opportunities from verified employers." actionLabel="Browse opportunities" onAction={() => navigate({ view: 'career-opportunities' })} />
+            ) : (
+              <ul className="space-y-3">
+                {data.applications.map(a => (
+                  <li key={a.id} className="rounded-xl border border-border bg-card p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <button type="button" className="font-display text-base font-semibold text-foreground hover:text-gold" onClick={() => navigate({ view: 'career-opportunity', opportunityId: a.opportunity.id })}>
+                          {a.opportunity.title}
+                        </button>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{a.opportunity.organizationName} · {a.opportunity.opportunityType.toLowerCase()} · applied {new Date(a.submittedAt).toLocaleDateString()}</p>
+                      </div>
+                      <Badge variant="outline" className={STATUS_BADGE[a.status] ?? 'border-border text-muted-foreground'}>{a.status.replace('_', ' ').toLowerCase()}</Badge>
+                    </div>
+                    {a.candidateVisibleStatusNote ? (
+                      <p className="mt-2 rounded-lg border border-border bg-elevated p-3 text-sm text-muted-foreground">Note from employer: {a.candidateVisibleStatusNote}</p>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {['SUBMITTED', 'UNDER_REVIEW', 'SHORTLISTED', 'INTERVIEW'].includes(a.status) ? (
+                        <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" disabled={busyId === a.id} onClick={() => void withdraw(a)}>
+                          Withdraw
+                        </Button>
+                      ) : null}
+                      <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setReportFor(a)}>
+                        <ShieldAlert className="mr-1 h-3.5 w-3.5" aria-hidden /> Report this listing
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+
+          {/* ── Reports tab: only fields OwnSafetyReportDTO actually exposes ── */}
+          <TabsContent value="reports" className="mt-4">
+            {reportsFailed ? (
+              <EmptyState icon={FileWarning} title="Could not load your reports" description={reportsFailed} actionLabel="Try again" onAction={load} />
+            ) : !reports ? (
+              <div className="flex min-h-[20vh] items-center justify-center" role="status"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
+            ) : reports.length === 0 ? (
+              <EmptyState
+                icon={FileWarning}
+                title="No reports filed"
+                description="If a listing or organization misbehaves, you can report it privately from any application — reports never auto-suspend anything; BEAN administrators investigate each one."
+              />
+            ) : (
+              <ul className="space-y-3">
+                {reports.map(r => (
+                  <li key={r.id} className="rounded-xl border border-border bg-card p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-display text-base font-semibold text-foreground">{r.subject}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {r.category.replace(/_/g, ' ').toLowerCase()} · {r.targetType.toLowerCase()} · filed {new Date(r.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className={REPORT_STATUS_BADGE[r.status] ?? 'border-border text-muted-foreground'}>{r.status.replace('_', ' ').toLowerCase()}</Badge>
+                    </div>
+                    {r.resolutionVisible ? (
+                      <p className="mt-2 rounded-lg border border-border bg-elevated p-3 text-sm text-muted-foreground">Outcome: {r.resolutionVisible}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              BEAN shares only the status and, when a review is complete, a brief outcome message. Internal case notes
+              and details stay confidential — they are never part of the reporter-facing record.
+            </p>
+          </TabsContent>
+        </Tabs>
       )}
 
       <Dialog open={!!reportFor} onOpenChange={o => !o && !busy && setReportFor(null)}>

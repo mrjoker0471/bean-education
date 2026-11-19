@@ -17,6 +17,8 @@ import { formatDate } from '@/components/bean/format'
 import {
   ArrowRight,
   BookOpenCheck,
+  Briefcase,
+  Building2,
   CalendarCheck,
   ClipboardList,
   Clock3,
@@ -403,6 +405,45 @@ function DashboardData({ onRetry }: { onRetry: () => void }) {
           </SectionCard>
         </div>
       </div>
+
+      {/* ── Institution & Career ── */}
+      <section aria-label="Institution and career" className="mt-6">
+        <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold text-foreground">
+          <Building2 className="h-4 w-4 text-gold" aria-hidden /> Institution &amp; Career
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'institution' })}
+            className="exam-card-hover flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-gold/40"
+            aria-label="Open institution workspace"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gold/30 bg-gold/10" aria-hidden>
+              <Building2 className="h-5 w-5 text-gold" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-display text-sm font-semibold text-foreground">Open institution workspace</span>
+              <span className="mt-0.5 block truncate text-xs text-muted-foreground">Your organizations, groups and classes.</span>
+            </span>
+            <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'career' })}
+            className="exam-card-hover flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-gold/40"
+            aria-label="Explore career tools"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gold/30 bg-gold/10" aria-hidden>
+              <Briefcase className="h-5 w-5 text-gold" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-display text-sm font-semibold text-foreground">Explore career tools</span>
+              <span className="mt-0.5 block truncate text-xs text-muted-foreground">Portfolio, opportunities and applications.</span>
+            </span>
+            <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          </button>
+        </div>
+      </section>
     </div>
   )
 }
