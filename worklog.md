@@ -430,3 +430,18 @@ Work Log:
 
 Stage Summary:
 - Signed-in students now have a complete server-side data foundation: profile read/update with defensive JSON parsing, CRUD study goals with catalogue cross-validation and a 50-goal cap, and a single honest dashboard aggregate over studentId-owned rows only. Exact DTO shapes are documented in agent-ctx/11-a-zai-code.md for the UI-wiring agent (task 11-b) — StudentProfileDTO, GoalDTO (+ eager exam/topic labels), DashboardResponse.
+
+---
+Task ID: phase7-ui-completion (final session)
+Agent: Z.ai Code
+Task: PHASE 7 UI COMPLETION & WORKFLOW POLISH — final gap closure, evidence, delivery prep.
+
+Work Log:
+- Resumed the 11-commit branch (feat/bean-phase7-ui-completion, base origin/main 129ab09). Found 3 referenced-but-untracked admin career queue routes; verified against schema (CareerEligibilityReview/CareerOpportunity/CareerSafetyReport) + lib exports, tsc-clean → committed as 0064dfe so a fresh checkout resolves the admin center imports.
+- Full §16 verification re-run on the final tree: bun test 705 pass / 0 fail (44 files, 4134 assertions; Phase 2A/2B/4A/5/6/7 baselines green); bunx tsc --noEmit clean; bun run lint clean; db:status → 8 migrations present (sandbox DB provisioned via db push, no _prisma_migrations ledger — pre-existing condition, no reset performed).
+- Browser E2E on next dev -p 3100 (worktree DB) with API-registered fixtures (uiadmin/uiemployer/uicandidate; admin granted only via scripts/grant-role.ts): completed the missing evidence legs end-to-end — owner "Submit for verification" → admin approve (evidence dialog + decision dialog with note) → eligibility APPROVED → employer PUBLISHED opportunity after moderation → candidate DISCOVERABLE portfolio + consent-based application (email consent OFF) → employer applicants ("no contact sharing") + status change with candidate-visible vs private notes → candidate sees only the visible note. Screenshot 12-admin-verification.png + 11-employer-applicants.png captured; all 12 required workflow shots now present.
+- 4-breakpoint sweep (1440 via shots 01–12 + 1280/768/390 for career home and opportunity discovery) — layout and sticky footer hold; agent-browser console/page error audit: 0 errors across all sessions.
+- Privacy/authorization assertions observed live: non-admin gate on #/admin/organizations; DRAFT org offers no admin decision (legal transitions only from PENDING_REVIEW); snapshot immutability copy + payload preview; employer notes never reach candidate DOM; org-scoped employer workspace copy.
+- Docs: docs/PHASE7_UI_COMPLETION_RESULTS.md (commit-level results incl. test/verification numbers and git-hygiene statement); local evidence hub agent-ctx/e2e/REPORT.md (screenshots index + server-state confirmations; agent-ctx is gitignored by design).
+Stage Summary:
+- All Phase 7 workflows are now demonstrably usable through the website with real API data and no fabricated metrics; the branch carries 13 commits (11 functional/test + results doc + worklog) and is ready for the user to open the PR — nothing merged by the agent, main untouched.
