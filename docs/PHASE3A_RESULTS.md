@@ -48,3 +48,7 @@ Three real research runs executed through the production pipeline (`next dev -p 
 
 - Branch created from verified `origin/main` (`26dd3b8…`); no main-branch commits; no force-push; no merge; the PR is opened by the repository owner.
 - The platform-owned local-only commit `f127b79` on the main checkout is untouched; all work happened in the `p3a-wt` worktree with an isolated database.
+
+## 6. Push status (honest report)
+
+The sandbox was reset again between sessions and `/home/z/.ssh` + the OpenSSH shim were wiped, so the previously registered deploy key is gone. A fresh ED25519 deploy keypair was generated locally (`ssh-ed25519 …B6nFYsSFf1Ljhkwj40FduyG2ayF/usmWTZuHNAIrsSV bean-phase3a-push@2026-11-20`) and the pure-JS ssh2 transport (sshshim → `ssh.github.com:443`) was rebuilt and verified: it reaches GitHub and fails exactly at public-key authentication. The only missing step is registering the new public key as a repository deploy key (write access) — after that `git push origin feat/bean-riishe-phase3a-deep-research` completes delivery. Nothing force-pushed, nothing merged, main untouched.
