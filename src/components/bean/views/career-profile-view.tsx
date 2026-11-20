@@ -43,6 +43,7 @@ interface SavedFormValues {
   preferredLocations: string
   workModes: string
   visibility: string
+  publicSlug: string
 }
 
 export function CareerProfileView() {
@@ -59,6 +60,7 @@ export function CareerProfileView() {
   const [preferredLocations, setLocations] = useState('')
   const [workModes, setWorkModes] = useState('')
   const [visibility, setVisibility] = useState('PRIVATE')
+  const [publicSlug, setPublicSlug] = useState('')
   const [eligibility, setEligibility] = useState<CareerEligibilityClientDTO | null>(null)
   const [busy, setBusy] = useState(false)
   // Last server-confirmed form values — the baseline for the dirty indicator
@@ -76,6 +78,7 @@ export function CareerProfileView() {
     preferredLocations: res.profile.preferredLocations.join(', '),
     workModes: res.profile.workModes.join(', '),
     visibility: res.profile.visibility,
+    publicSlug: res.profile.publicSlug ?? '',
   })
 
   const load = useCallback(() => {
@@ -91,6 +94,7 @@ export function CareerProfileView() {
         setLocations(res.profile.preferredLocations.join(', '))
         setWorkModes(res.profile.workModes.join(', '))
         setVisibility(res.profile.visibility)
+        setPublicSlug(res.profile.publicSlug ?? '')
         setSavedValues(readFormValues(res))
         setSaveError(null)
         setEligibility(res.eligibility)
@@ -106,10 +110,10 @@ export function CareerProfileView() {
 
   const isDirty = useMemo(
     () => careerProfileIsDirty(
-      { headline, summary, preferredRoleTypes, preferredSkills, preferredLocations, workModes, visibility },
+      { headline, summary, preferredRoleTypes, preferredSkills, preferredLocations, workModes, visibility, publicSlug },
       savedValues,
     ),
-    [headline, summary, preferredRoleTypes, preferredSkills, preferredLocations, workModes, visibility, savedValues],
+    [headline, summary, preferredRoleTypes, preferredSkills, preferredLocations, workModes, visibility, publicSlug, savedValues],
   )
 
   const save = async () => {
@@ -123,6 +127,7 @@ export function CareerProfileView() {
         preferredSkills: preferredSkills.split(',').map(s => s.trim()).filter(Boolean),
         preferredLocations: preferredLocations.split(',').map(s => s.trim()).filter(Boolean),
         workModes: workModes.split(',').map(s => s.trim()).filter(Boolean),
+        publicSlug: publicSlug.trim() || null,
         visibility,
       })
       // Server confirmed — update the authoritative snapshot and feedback.
@@ -135,6 +140,7 @@ export function CareerProfileView() {
         preferredLocations: res.profile.preferredLocations.join(', '),
         workModes: res.profile.workModes.join(', '),
         visibility: res.profile.visibility,
+        publicSlug: res.profile.publicSlug ?? '',
       }
       setSavedValues(confirmed)
       setSavedAt(new Date().toISOString())
@@ -283,6 +289,26 @@ export function CareerProfileView() {
                 </Button>
               </div>
             ) : null}
+            {/* Public slug — the shareable handle for the public portfolio preview.
+                Settable at any visibility; only ever resolvable once the profile is
+                discoverable AND adult-eligibility is approved (server-enforced). */}
+            <div className="mt-4 grid gap-1.5">
+              <Label htmlFor="career-public-slug">Public portfolio slug (optional)</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="career-public-slug"
+                  value={publicSlug}
+                  onChange={e => setPublicSlug(e.target.value.toLowerCase())}
+                  placeholder="e.g. cara-career"
+                  maxLength={60}
+                  autoComplete="off"
+                  className="max-w-xs font-mono text-sm"
+                />
+                <span className="text-xs text-muted-foreground">
+                  4–60 lowercase letters, digits or hyphens. Shared only when your profile is discoverable.
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* Fields */}

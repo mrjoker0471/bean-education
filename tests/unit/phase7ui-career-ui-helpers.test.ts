@@ -334,6 +334,7 @@ describe('careerProfileIsDirty', () => {
     preferredLocations: 'Kolkata',
     workModes: 'Hybrid',
     visibility: 'PRIVATE',
+    publicSlug: 'ca-aspirant',
   }
 
   it('is clean when the editor matches the saved values exactly', () => {
@@ -353,10 +354,12 @@ describe('careerProfileIsDirty', () => {
     expect(careerProfileIsDirty({ ...saved, preferredLocations: 'Delhi' }, saved)).toBe(true)
     expect(careerProfileIsDirty({ ...saved, workModes: 'Onsite' }, saved)).toBe(true)
     expect(careerProfileIsDirty({ ...saved, visibility: 'DISCOVERABLE' }, saved)).toBe(true)
+    expect(careerProfileIsDirty({ ...saved, publicSlug: 'new-slug' }, saved)).toBe(true)
+    expect(careerProfileIsDirty({ ...saved, publicSlug: '  ca-aspirant  ' }, saved)).toBe(false)
   })
 
   it('is never dirty without a server-confirmed baseline', () => {
-    expect(careerProfileIsDirty({ headline: 'x', summary: '', preferredRoleTypes: '', preferredSkills: '', preferredLocations: '', workModes: '', visibility: 'PRIVATE' }, null)).toBe(false)
+    expect(careerProfileIsDirty({ headline: 'x', summary: '', preferredRoleTypes: '', preferredSkills: '', preferredLocations: '', workModes: '', visibility: 'PRIVATE', publicSlug: '' }, null)).toBe(false)
   })
 })
 

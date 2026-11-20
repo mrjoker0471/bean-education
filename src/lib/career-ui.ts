@@ -317,6 +317,7 @@ export interface CareerProfileFormValues {
   preferredLocations: string
   workModes: string
   visibility: string
+  publicSlug: string
 }
 
 /**
@@ -334,7 +335,8 @@ export function careerProfileIsDirty(current: CareerProfileFormValues, saved: Ca
     normalizeList(current.preferredSkills) !== normalizeList(saved.preferredSkills) ||
     normalizeList(current.preferredLocations) !== normalizeList(saved.preferredLocations) ||
     normalizeList(current.workModes) !== normalizeList(saved.workModes) ||
-    current.visibility !== saved.visibility
+    current.visibility !== saved.visibility ||
+    current.publicSlug.trim() !== saved.publicSlug.trim()
   )
 }
 

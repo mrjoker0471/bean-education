@@ -860,7 +860,7 @@ export const api = {
 
   // ─── Phase 7 — Career portfolio & employer exchange ───
   careerProfile: () => jsonFetch<CareerProfileResponse>('/api/career/profile'),
-  saveCareerProfile: (body: Partial<{ headline: string; summary: string; preferredRoleTypes: string[]; preferredSkills: string[]; preferredLocations: string[]; workModes: string[]; publicSlug: string; visibility: string }>) =>
+  saveCareerProfile: (body: Partial<{ headline: string; summary: string; preferredRoleTypes: string[]; preferredSkills: string[]; preferredLocations: string[]; workModes: string[]; publicSlug: string | null; visibility: string }>) =>
     jsonFetch<{ profile: CareerProfileClientDTO }>('/api/career/profile', { method: 'PATCH', body: JSON.stringify(body) }),
   careerSkills: () => jsonFetch<{ skills: CareerSkillClientDTO[] }>('/api/career/skills'),
   addCareerSkill: (body: { skillName: string; proficiency?: string; description?: string }) =>
