@@ -17,7 +17,6 @@ import type { NextRequest } from 'next/server'
 
 const state = {
   student: null as Record<string, unknown> | null,
-  adminGuard: null as { ok: boolean; status?: number; error?: string; student?: Record<string, unknown>; value?: null } | null,
   students: [] as Record<string, unknown>[],
   organizations: [] as Record<string, unknown>[],
   memberships: [] as Record<string, unknown>[],
@@ -30,7 +29,6 @@ const state = {
 
 function resetState() {
   state.student = null
-  state.adminGuard = null
   state.students = []
   state.organizations = []
   state.memberships = []
@@ -150,9 +148,12 @@ mock.module('@/lib/auth', () => ({
   sameOrigin: () => true,
   getSessionStudent: async () => state.student,
 }))
-mock.module('@/lib/teach', () => ({
-  requireAdmin: async () => state.adminGuard,
-}))
+// NOTE: '@/lib/teach' is intentionally NOT mocked. The admin audit route uses
+// the real requireAdmin(), which reads requireStudent() from the auth mock
+// above — setting state.student to a role ADMIN session exercises the real
+// admin guard. A module mock here would leak into every later test file in
+// the same bun process (files run alphabetically) and break the teach/trust
+// route tests that import the real requireAdmin.
 
 const resourceItemRoute = await import('@/app/api/organizations/[id]/resources/[resourceId]/route')
 const announcementsRoute = await import('@/app/api/organizations/[id]/announcements/route')
@@ -219,9 +220,6 @@ const staff2Session = { id: 'student-staff2', email: 'staff2@bean.test', role: '
 const adminSession = { id: 'student-admin', email: 'admin@bean.test', role: 'STUDENT' }
 const learnerSession = { id: 'student-learner', email: 'learner@bean.test', role: 'STUDENT' }
 const beanAdminSession = { id: 'student-bean-admin', email: 'bean-admin@bean.test', role: 'ADMIN' }
-
-const adminGuardOk = { ok: true, student: beanAdminSession, value: null }
-const adminGuardDenied = { ok: false, status: 403, error: 'Teacher review is restricted to BEAN administrators.' }
 
 function seedResource(overrides: Record<string, unknown> = {}) {
   state.resources.push({
@@ -513,7 +511,7 @@ describe('GET /api/admin/organizations/[orgId]/audit', () => {
   beforeEach(resetState)
 
   it('a BEAN admin reads the org audit trail with actor display names, newest first', async () => {
-    state.adminGuard = adminGuardOk
+    state.student = beanAdminSession
     seedStandardOrg()
     state.auditEvents.push(
       { id: 'audit-old', organizationId: 'org1', entityType: 'ASSIGNMENT', entityId: 'a1', actorId: 'student-staff', actorRole: 'STUDENT', action: 'ASSIGNMENT_PUBLISHED', detail: null, createdAt: new Date('2025-01-01T00:00:00Z') },
@@ -534,7 +532,7 @@ describe('GET /api/admin/organizations/[orgId]/audit', () => {
   })
 
   it('a non-admin gets 403', async () => {
-    state.adminGuard = adminGuardDenied
+    state.student = learnerSession
     seedStandardOrg()
 
     const res = await adminAuditRoute.GET(req('/api/admin/organizations/org1/audit'), {
@@ -544,7 +542,7 @@ describe('GET /api/admin/organizations/[orgId]/audit', () => {
   })
 
   it('an unknown organization is 404', async () => {
-    state.adminGuard = adminGuardOk
+    state.student = beanAdminSession
     seedStandardOrg()
 
     const res = await adminAuditRoute.GET(req('/api/admin/organizations/org-missing/audit'), {
