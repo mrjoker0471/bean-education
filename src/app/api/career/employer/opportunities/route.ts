@@ -7,7 +7,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireStudent, sameOrigin } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { appendCareerAudit, OPPORTUNITY_STATUS } from '@/lib/career'
+import {
+  appendCareerAudit,
+  EMPLOYER_PAGE_SIZE_DEFAULT,
+  EMPLOYER_PAGE_SIZE_MAX,
+  MAX_PAGE_NUMBER,
+  OPPORTUNITY_STATUS,
+} from '@/lib/career'
 import { isApprovedEmployerOrg, ORG_EMPLOYER_ROLES, requireOrgRole } from '@/lib/institution'
 import { opportunityCreateSchema } from '@/lib/career-schema'
 import { toPublicOpportunityDTO } from '@/lib/career-dto'
@@ -21,30 +27,55 @@ const listSchema = z.object({
   organizationId: z.string().min(6).max(64),
 })
 
+const LISTING_STATUSES = Object.values(OPPORTUNITY_STATUS)
+
 export async function GET(req: NextRequest) {
   try {
     const student = await requireStudent()
     if (!student) return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
 
-    const parsed = listSchema.safeParse({ organizationId: new URL(req.url).searchParams.get('organizationId') ?? '' })
+    const url = new URL(req.url)
+    const parsed = listSchema.safeParse({ organizationId: url.searchParams.get('organizationId') ?? '' })
     if (!parsed.success) return NextResponse.json({ error: 'organizationId is required' }, { status: 400 })
 
     const guard = await requireOrgRole(student.id, parsed.data.organizationId, ORG_EMPLOYER_ROLES)
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
 
-    const opportunities = await db.careerOpportunity.findMany({
-      where: { employerOrganizationId: parsed.data.organizationId },
-      include: { organization: true },
-      orderBy: { updatedAt: 'desc' },
-    })
+    // Optional management filters: status (enum or ALL, default ALL) + pagination.
+    const statusRaw = (url.searchParams.get('status') ?? '').trim().toUpperCase()
+    const page = Math.max(1, Math.min(MAX_PAGE_NUMBER, Number(url.searchParams.get('page')) || 1))
+    const pageSize = Math.max(
+      1,
+      Math.min(EMPLOYER_PAGE_SIZE_MAX, Number(url.searchParams.get('pageSize')) || EMPLOYER_PAGE_SIZE_DEFAULT),
+    )
+
+    const scopeWhere = { employerOrganizationId: parsed.data.organizationId }
+    if (statusRaw && statusRaw !== 'ALL' && !LISTING_STATUSES.includes(statusRaw as (typeof OPPORTUNITY_STATUS)[keyof typeof OPPORTUNITY_STATUS])) {
+      return NextResponse.json({ error: 'Invalid status filter.' }, { status: 400 })
+    }
+    const where = statusRaw && statusRaw !== 'ALL' ? { ...scopeWhere, status: statusRaw } : scopeWhere
+
+    // The status breakdown always covers EVERY own listing (never the filtered
+    // slice) so management tabs keep their totals while filtering.
+    const [allRows, rows, total] = await Promise.all([
+      db.careerOpportunity.findMany({ where: scopeWhere, select: { status: true } }),
+      db.careerOpportunity.findMany({
+        where,
+        include: { organization: true },
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      db.careerOpportunity.count({ where }),
+    ])
     const counts = {
-      draft: opportunities.filter(o => o.status === 'DRAFT').length,
-      pending: opportunities.filter(o => o.status === 'PENDING_REVIEW').length,
-      published: opportunities.filter(o => o.status === 'PUBLISHED').length,
-      closed: opportunities.filter(o => ['CLOSED', 'REJECTED', 'PAUSED'].includes(o.status)).length,
+      draft: allRows.filter(o => o.status === 'DRAFT').length,
+      pending: allRows.filter(o => o.status === 'PENDING_REVIEW').length,
+      published: allRows.filter(o => o.status === 'PUBLISHED').length,
+      closed: allRows.filter(o => ['CLOSED', 'REJECTED', 'PAUSED'].includes(o.status)).length,
     }
     return NextResponse.json(
-      { opportunities: opportunities.map(toPublicOpportunityDTO), counts },
+      { opportunities: rows.map(toPublicOpportunityDTO), counts, total, page, pageSize },
       { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch (err) {

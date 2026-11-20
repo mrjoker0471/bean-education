@@ -42,6 +42,7 @@ export type Route =
   // Phase 7 — Institution & Career (additive; every existing route unchanged)
   | { view: 'institution' }
   | { view: 'institution-org'; orgId: string; section?: 'overview' | 'members' | 'groups' | 'classes' | 'assignments' | 'resources' | 'reports' }
+  | { view: 'institution-group'; orgId: string; groupId: string; tab?: InstitutionGroupTab }
   | { view: 'career' }
   | { view: 'career-profile' }
   | { view: 'career-portfolio' }
@@ -49,9 +50,29 @@ export type Route =
   | { view: 'career-opportunity'; opportunityId: string }
   | { view: 'career-applications' }
   | { view: 'career-employer' }
+  | { view: 'career-employer-org'; orgId: string; tab?: EmployerWorkspaceTab }
   | { view: 'admin-organizations' }
   | { view: 'admin-career' }
   | { view: 'not-found' }
+
+/** Tabs of the group workspace (#/institution/:orgId/groups/:groupId[/:tab]).
+ *  Unknown tab segments parse to `undefined` so the view falls back to overview. */
+export type InstitutionGroupTab = 'overview' | 'roster' | 'classes' | 'assignments' | 'resources' | 'announcements'
+
+/** Tabs of the employer workspace (#/career/employer/:orgId[/:tab]).
+ *  Unknown tab segments parse to `undefined` so the view falls back to listings. */
+export type EmployerWorkspaceTab = 'listings' | 'candidates'
+
+export const EMPLOYER_WORKSPACE_TABS: readonly EmployerWorkspaceTab[] = ['listings', 'candidates']
+
+export const INSTITUTION_GROUP_TABS: readonly InstitutionGroupTab[] = [
+  'overview',
+  'roster',
+  'classes',
+  'assignments',
+  'resources',
+  'announcements',
+]
 
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#/, '')
@@ -131,6 +152,19 @@ export function parseHash(hash: string): Route {
     // Phase 7 — Institution & Career
     case 'institution':
       if (!parts[1]) return { view: 'institution' }
+      // #/institution/:orgId/groups/:groupId[/:tab] — one group's workspace.
+      // `#/institution/:orgId/groups` (no groupId) stays the org groups section.
+      if (parts[2] === 'groups' && parts[3]) {
+        const groupTab = INSTITUTION_GROUP_TABS.includes(parts[4] as InstitutionGroupTab)
+          ? (parts[4] as InstitutionGroupTab)
+          : undefined
+        return {
+          view: 'institution-group',
+          orgId: decodeURIComponent(parts[1]),
+          groupId: decodeURIComponent(parts[3]),
+          tab: groupTab,
+        }
+      }
       return {
         view: 'institution-org',
         orgId: decodeURIComponent(parts[1]),
@@ -149,7 +183,19 @@ export function parseHash(hash: string): Route {
           : { view: 'career-opportunities' }
       }
       if (section === 'applications') return { view: 'career-applications' }
-      if (section === 'employer') return { view: 'career-employer' }
+      // #/career/employer            — employer hub (auto-redirects to the first org)
+      // #/career/employer/:orgId[/:tab] — one employer organization's workspace.
+      // Unknown tab segments parse to `undefined` (view falls back to listings).
+      if (section === 'employer') {
+        if (!parts[2]) return { view: 'career-employer' }
+        return {
+          view: 'career-employer-org',
+          orgId: decodeURIComponent(parts[2]),
+          tab: EMPLOYER_WORKSPACE_TABS.includes(parts[3] as EmployerWorkspaceTab)
+            ? (parts[3] as EmployerWorkspaceTab)
+            : undefined,
+        }
+      }
       return { view: 'not-found' }
     }
     default:
@@ -217,6 +263,10 @@ export function routeToHash(route: Route): string {
       const base = `#/institution/${encodeURIComponent(route.orgId)}`
       return route.section ? `${base}/${route.section}` : base
     }
+    case 'institution-group': {
+      const groupBase = `#/institution/${encodeURIComponent(route.orgId)}/groups/${encodeURIComponent(route.groupId)}`
+      return route.tab ? `${groupBase}/${route.tab}` : groupBase
+    }
     case 'career': return '#/career'
     case 'career-profile': return '#/career/profile'
     case 'career-portfolio': return '#/career/portfolio'
@@ -224,6 +274,10 @@ export function routeToHash(route: Route): string {
     case 'career-opportunity': return `#/career/opportunities/${encodeURIComponent(route.opportunityId)}`
     case 'career-applications': return '#/career/applications'
     case 'career-employer': return '#/career/employer'
+    case 'career-employer-org': {
+      const base = `#/career/employer/${encodeURIComponent(route.orgId)}`
+      return route.tab ? `${base}/${route.tab}` : base
+    }
     case 'admin-organizations': return '#/admin/organizations'
     case 'admin-career': return '#/admin/career'
     default: return '#/'

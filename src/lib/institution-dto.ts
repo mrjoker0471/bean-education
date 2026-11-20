@@ -13,6 +13,7 @@ import type {
   OrganizationAnnouncement,
   OrganizationAssignment,
   OrganizationGroup,
+  OrganizationGroupMembership,
   OrganizationInvitation,
   OrganizationMembership,
   OrganizationResource,
@@ -150,6 +151,52 @@ export function toGroupDTO(g: OrganizationGroup & { _count?: { enrollments: numb
   }
 }
 
+/** One roster row of a group — ACTIVE and LEFT enrollments both listed
+ *  (history is never hidden); display names only, NEVER emails. */
+export interface GroupRosterEntryDTO {
+  id: string
+  membershipId: string
+  enrollmentState: string
+  joinedAt: string
+  leftAt: string | null
+  member: { displayName: string | null }
+}
+
+export function toGroupRosterEntry(
+  e: OrganizationGroupMembership & { membership: OrganizationMembership & { student: { displayName: string | null } } },
+): GroupRosterEntryDTO {
+  return {
+    id: e.id,
+    membershipId: e.membershipId,
+    enrollmentState: e.enrollmentState,
+    joinedAt: e.joinedAt.toISOString(),
+    leftAt: e.leftAt?.toISOString() ?? null,
+    member: { displayName: e.membership.student.displayName },
+  }
+}
+
+/** GET /organizations/[id]/groups/[groupId] response. */
+export interface GroupDetailDTO {
+  group: GroupDTO
+  roster: GroupRosterEntryDTO[]
+  counts: { activeCount: number; capacity: number | null; totalEnrolled: number }
+}
+
+/** PATCH /organizations/[id]/groups/[groupId] request body — all fields
+ *  optional; capacity may never drop below the active enrollment count. */
+export interface OrgGroupUpdateInput {
+  name?: string
+  academicYear?: string | null
+  programmeLabel?: string | null
+  batchLabel?: string | null
+  sectionLabel?: string | null
+  trackLabel?: string | null
+  startsAt?: string | null
+  endsAt?: string | null
+  capacity?: number | null
+  status?: 'ACTIVE' | 'ARCHIVED'
+}
+
 export interface AssignmentDTO {
   id: string
   groupId: string
@@ -189,9 +236,13 @@ export interface AnnouncementDTO {
   publishedAt: string | null
   expiresAt: string | null
   createdAt: string
+  /** Row identity of the authoring membership — lets the UI gate author-only actions. */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
-export function toAnnouncementDTO(a: OrganizationAnnouncement): AnnouncementDTO {
+export function toAnnouncementDTO(a: OrganizationAnnouncement, authorName: string | null = null): AnnouncementDTO {
   return {
     id: a.id,
     groupId: a.groupId,
@@ -201,6 +252,8 @@ export function toAnnouncementDTO(a: OrganizationAnnouncement): AnnouncementDTO 
     publishedAt: a.publishedAt?.toISOString() ?? null,
     expiresAt: a.expiresAt?.toISOString() ?? null,
     createdAt: a.createdAt.toISOString(),
+    authorMembershipId: a.authorMembershipId,
+    authorName,
   }
 }
 
@@ -211,9 +264,13 @@ export interface OrgResourceDTO {
   description: string | null
   url: string
   createdAt: string
+  /** Row identity of the authoring membership — lets the UI gate author-or-admin actions. */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
-export function toResourceDTO(r: OrganizationResource): OrgResourceDTO {
+export function toResourceDTO(r: OrganizationResource, authorName: string | null = null): OrgResourceDTO {
   return {
     id: r.id,
     groupId: r.groupId,
@@ -221,5 +278,62 @@ export function toResourceDTO(r: OrganizationResource): OrgResourceDTO {
     description: r.description,
     url: r.url,
     createdAt: r.createdAt.toISOString(),
+    authorMembershipId: r.authorMembershipId,
+    authorName,
   }
+}
+
+// ─── Lifecycle management inputs (Phase 7 UI completion) ─────────────────────
+
+/** PATCH /organizations/assignments/[assignmentId] request body — all fields
+ *  optional; content edits are DRAFT-only (route-enforced), and status 'ACTIVE'
+ *  is a recovery verb that restores an ARCHIVED assignment to DRAFT. */
+export interface OrgAssignmentUpdateInput {
+  title?: string
+  instructions?: string | null
+  subjectLabel?: string | null
+  submissionType?: 'TEXT' | 'EXTERNAL_LINK' | 'TEXT_AND_LINK'
+  dueAt?: string | null
+  maxScore?: number | null
+  status?: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED' | 'ACTIVE'
+}
+
+/** PATCH /organizations/[id]/resources/[resourceId] request body — author or
+ *  org admins only; url must stay HTTPS, groupId must belong to the org. */
+export interface OrgResourceUpdateInput {
+  title?: string
+  description?: string | null
+  url?: string
+  groupId?: string | null
+}
+
+/** PATCH /organizations/[id]/announcements/[announcementId] request body —
+ *  content edits are instructor-only while not archived; 'ARCHIVED' archives
+ *  (author or admins), 'ACTIVE' restores an archived item to PUBLISHED. */
+export interface OrgAnnouncementUpdateInput {
+  title?: string
+  body?: string
+  groupId?: string | null
+  expiresAt?: string | null
+  status?: 'PUBLISHED' | 'ARCHIVED' | 'ACTIVE'
+}
+
+/** One row of GET /admin/organizations/[orgId]/audit. */
+export interface AdminOrganizationAuditEntryDTO {
+  id: string
+  entityType: string
+  entityId: string
+  action: string
+  actorId: string | null
+  actorRole: string | null
+  /** Resolved via the org's memberships — null when the actor never was one. */
+  actorDisplayName: string | null
+  detail: string | null
+  createdAt: string
+}
+
+/** GET /admin/organizations/[orgId]/audit response (last 50 events, newest first). */
+export interface AdminOrganizationAuditResponse {
+  organization: { id: string; name: string; verificationStatus: string }
+  audit: AdminOrganizationAuditEntryDTO[]
 }

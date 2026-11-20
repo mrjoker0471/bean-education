@@ -1435,19 +1435,44 @@ export interface OrgGroupsResponse {
   groups: GroupDTO[]
 }
 
+/** One recent audit activity row on the institution dashboard. `summary` is
+ *  the audit event's detail string; actor names are display names only. */
+export interface OrgRecentActivityItemDTO {
+  id: string
+  action: string
+  entityType: string
+  entityId: string
+  summary: string | null
+  actorRole: string | null
+  createdAt: string
+  actorDisplayName: string | null
+}
+
 export interface OrgDashboardResponse {
   organization: PublicOrganizationDTO
   membership: MyMembershipDTO
+  /** Role echo of the caller's organization membership. */
+  role: string
   isAdmin: boolean
+  /** OWNER | ADMIN | INSTRUCTOR — mirrors ORG_INSTRUCTOR_ROLES server-side. */
+  isStaff: boolean
   verification: { status: string; operational: boolean }
   overview: {
     activeMembers: number
     pendingMembers: number
     activeGroups: number
+    archivedGroups: number
     upcomingClasses: number
     publishedAssignments: number
+    closedAssignments: number
+    draftAssignments: number
     openSubmissions: number
+    submissionsAwaitingGrading: number
+    submissionsGraded: number
     activeAnnouncements: number
+    announcementsActive: number
+    resourcesTotal: number
+    recentActivity: OrgRecentActivityItemDTO[]
   }
 }
 
@@ -1501,10 +1526,16 @@ export interface AnnouncementDTO {
   publishedAt: string | null
   expiresAt: string | null
   createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
 export interface OrgAnnouncementsResponse {
   announcements: AnnouncementDTO[]
+  /** True when the viewer is org staff — DRAFT + ARCHIVED items are included. */
+  includeAll: boolean
 }
 
 export interface OrgResourceDTO {
@@ -1514,6 +1545,10 @@ export interface OrgResourceDTO {
   description: string | null
   url: string
   createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
 export interface OrgResourcesResponse {
@@ -1604,6 +1639,8 @@ export interface CareerCredentialClientDTO {
   credentialReference: string | null
   status: string
   portfolioShared: boolean
+  /** Flattened issuer name for portfolio display (displayName, else official name). */
+  issuerName: string
   issuer: { id: string; name: string; displayName: string | null; verificationStatus: string }
 }
 
@@ -1645,6 +1682,29 @@ export interface MyApplicationsResponse {
   applications: OwnApplicationClientDTO[]
 }
 
+export interface ApplicationDetailClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  contactSharingConsent: boolean
+  snapshot: Record<string, unknown>
+  opportunity: {
+    id: string
+    title: string
+    opportunityType: string
+    location: string | null
+    workMode: string | null
+    applicationDeadline: string | null
+  }
+  organization: { id: string; name: string; verificationStatus: string }
+}
+
+export interface ApplicationDetailResponse {
+  application: ApplicationDetailClientDTO
+}
+
 export interface EmployerApplicationClientDTO {
   id: string
   status: string
@@ -1664,12 +1724,18 @@ export interface EmployerApplicationClientDTO {
 export interface EmployerOpportunitiesResponse {
   opportunities: PublicOpportunityClientDTO[]
   counts: { draft: number; pending: number; published: number; closed: number }
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface EmployerApplicantsResponse {
   opportunity: { id: string; title: string }
   applications: EmployerApplicationClientDTO[]
   counts: Record<string, number>
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface DiscoverableCandidateClientDTO {

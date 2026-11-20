@@ -56,13 +56,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           employerNotes: employerNotes ?? undefined,
         },
       })
+      // The note update travels with the audited transition — the detail marks
+      // which private fields were written (never their contents).
+      const notesUpdated = candidateVisibleStatusNote !== undefined || employerNotes !== undefined
       await appendCareerAudit(tx, {
         entityType: 'APPLICATION',
         entityId: application.id,
         actorId: student.id,
         actorRole: `ORG_MEMBER:${guard.membership.role}`,
         action: 'APPLICATION_STATUS_CHANGED',
-        detail: `${application.status}->${status}`,
+        detail: `${application.status}->${status}${notesUpdated ? ';notes-updated' : ''}`,
       })
       return row
     })

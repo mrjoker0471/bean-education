@@ -17,6 +17,18 @@ export const runtime = 'nodejs'
 
 type Params = { params: Promise<{ id: string }> }
 
+/** Resolve authoring members' display names (id → membership → student) — display
+ *  names only, never emails. Kept additive: guards and visibility filters untouched. */
+async function authorNamesByMembershipId(organizationId: string, membershipIds: string[]): Promise<Map<string, string | null>> {
+  const ids = [...new Set(membershipIds)]
+  if (ids.length === 0) return new Map()
+  const rows = await db.organizationMembership.findMany({
+    where: { organizationId, id: { in: ids } },
+    select: { id: true, student: { select: { displayName: true } } },
+  })
+  return new Map(rows.map((m) => [m.id, m.student.displayName]))
+}
+
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const { id } = await params
@@ -36,7 +48,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
       },
       orderBy: { createdAt: 'desc' },
     })
-    return NextResponse.json({ resources: resources.map(toResourceDTO) }, { headers: { 'Cache-Control': 'no-store' } })
+    const authorNames = await authorNamesByMembershipId(id, resources.map((r) => r.authorMembershipId))
+    return NextResponse.json(
+      { resources: resources.map((r) => toResourceDTO(r, authorNames.get(r.authorMembershipId) ?? null)) },
+      { headers: { 'Cache-Control': 'no-store' } },
+    )
   } catch (err) {
     console.error('[api/organizations/[id]/resources GET]', err)
     return NextResponse.json({ error: 'Could not load resources.' }, { status: 500 })
@@ -88,7 +104,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       })
       return created
     })
-    return NextResponse.json({ resource: toResourceDTO(resource) }, { status: 201 })
+    const authorNames = await authorNamesByMembershipId(id, [guard.membership.id])
+    return NextResponse.json(
+      { resource: toResourceDTO(resource, authorNames.get(guard.membership.id) ?? null) },
+      { status: 201 },
+    )
   } catch (err) {
     console.error('[api/organizations/[id]/resources POST]', err)
     return NextResponse.json({ error: 'Could not share the resource.' }, { status: 500 })
