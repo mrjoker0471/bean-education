@@ -48,6 +48,9 @@ const fakeDb = {
       return data
     },
   },
+  // Phase 3A: review decisions + audit rows are written in ONE transaction.
+  // The fake runs the callback against the same fake client (single-writer).
+  $transaction: async (fn: (tx: typeof fakeDb) => Promise<unknown>) => fn(fakeDb),
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))

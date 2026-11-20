@@ -46,13 +46,19 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 - Verified reviews, teacher quality indicators, complaints, teacher responses, admin investigations, appeals, published refund policies, safeguarding.
 - A negative review never automatically triggers a refund.
 
-## Phase 7 — Institution and career features (delivered on `feat/bean-institution-career-phase-7`, pending PR review)
+## Phase 7 — Institution and career features
+
+**Phase 7 (COMPLETE 2026-11-20):** institution & career shipped on `feat/bean-institution-career-phase-7` and **merged via PR #6 (merge `129ab09`)**; the full website-UI completion followed on `feat/bean-phase7-ui-completion`, **merged via PR #7 (merge `26dd3b8`)**.
 
 - Institution workspace: multi-organization registration + human verification, scoped memberships, secure copy-link invitations, groups/batches/cohorts, private institution classes inside BEAN Teach + Live Classroom (audience-gated discovery/booking/live tokens), assignments with private grading, in-app announcements + HTTPS resources, institution dashboard with privacy-bounded analytics.
 - Student career portfolio: private-by-default profiles, truthful skill labels, per-project sharing, institution-issued credentials with student-controlled sharing.
 - Employer exchange: verified-employer listings with admin moderation, candidate-controlled application snapshots (explicit consent for contact), one-application-per-opportunity, withdrawal, consent-gated + rate-limited candidate discovery (no AI scoring).
 - Safeguarding: server-enforced adult-eligibility review blocks discovery/applications until APPROVED; no identity documents collected; DPDP questions flagged for professional review (docs/PHASE7_PRIVACY_AND_SAFEGUARDING.md).
 - Still no payments — free-pilot protection tests extended to Phase 7.
+
+## Phase 3A — Riishe Deep Research & verified PYQ discovery
+
+**Phase 3A (IN PROGRESS — not complete until implementation + verification finish):** a genuine research capability inside the existing Riishe workspace — planned searches over the configured `web_search` integration (quotas respected, honest unavailability), SSRF-guarded source retrieval, evidence-aware source classification (domain hint AND content check — never one alone), findings organised by topic with verbatim-contained evidence excerpts, conflicting-source warnings, explicit missing-evidence states, a cited research summary, follow-up chat grounded in the session dossier, and exam-aware historical-question discovery. Discovered questions become `ResearchPyqCandidate` rows that only an authorised PYQ_CURATOR/ADMIN can promote into the existing review queue (as UNVERIFIED); only the existing curator review can ever verify. Rights policy: verbatim storage only with a detected licence signal; otherwise locator + minimal evidence excerpts. Deferred: Phase 8 payments.
 
 ## Phase 8 — Final monetisation (ONLY after product validation)
 

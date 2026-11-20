@@ -14,6 +14,7 @@ import { BeanView } from '@/components/bean/views/bean-view'
 import { ProgressView } from '@/components/bean/views/progress-view'
 import { MaterialsView } from '@/components/bean/views/materials-view'
 import { RiisheView } from '@/components/bean/views/riishe-view'
+import { RiisheResearchView } from '@/components/bean/views/riishe-research-view'
 import { PracticeView } from '@/components/bean/views/practice-view'
 import { TopicsView } from '@/components/bean/views/topics-view'
 import { SettingsView } from '@/components/bean/views/settings-view'
@@ -77,6 +78,8 @@ export default function Page() {
             {route.view === 'pdf' && route.resourceId && <PdfViewerPage resourceId={route.resourceId} />}
             {route.view === 'materials' && <MaterialsView />}
             {route.view === 'riishe' && <RiisheView docId={route.docId} page={route.page} topic={route.topic} />}
+            {route.view === 'riishe-research' && <RiisheResearchView />}
+            {route.view === 'riishe-research-session' && <RiisheResearchView sessionId={route.sessionId} />}
             {route.view === 'practice' && <PracticeView doc={route.doc} topics={route.topics} />}
             {route.view === 'topics' && <TopicsView />}
             {route.view === 'settings' && <SettingsView />}

@@ -1813,3 +1813,205 @@ export interface AdminCareerReportsResponse {
   reports: AdminCareerReportRow[]
   total: number
 }
+
+// ─── Riishe Deep Research (Phase 3A) ─────────────────────────────────────────
+
+export type ResearchKind = 'EXAM_PYQ' | 'TOPIC' | 'QUESTION' | 'CONCEPT'
+export type ResearchSessionStatus = 'QUEUED' | 'RESEARCHING' | 'COMPLETE' | 'FAILED'
+export type ResearchStageState = 'PENDING' | 'RUNNING' | 'DONE' | 'SKIPPED' | 'FAILED'
+export type ResearchSourceClass =
+  | 'OFFICIAL_AUTHORITY'
+  | 'GOV_INSTITUTIONAL'
+  | 'OPEN_LICENSED'
+  | 'REPUTABLE_SECONDARY'
+  | 'UNVERIFIED'
+export type ResearchSourceStatus = 'DISCOVERED' | 'RETRIEVED' | 'CHECKED' | 'UNAVAILABLE'
+export type ResearchCandidateStatus = 'DISCOVERED' | 'SOURCE_CHECKED' | 'PROMOTED' | 'DISCARDED'
+export type ResearchRightsStatus = 'REFERENCE_ONLY' | 'VERBATIM_PERMITTED'
+
+export interface ResearchProgressStageDTO {
+  stage: string
+  state: ResearchStageState
+  detail?: string
+}
+
+export interface ResearchProgressDTO {
+  stages: ResearchProgressStageDTO[]
+  sourcesDiscovered: number
+  sourcesChecked: number
+  sourcesUnavailable: number
+  searchesUsed: number
+  fetchesUsed: number
+  llmCallsUsed: number
+  candidatesFound: number
+  updatedAt: string
+}
+
+export interface ResearchEvidenceDTO {
+  excerpt: string
+  pageRef?: string
+  subtopic?: string
+  sourceUrl?: string
+}
+
+export interface ResearchFindingDTO {
+  topic: string
+  summary: string
+  citationIds: number[]
+  conflict?: string
+}
+
+export interface ResearchSummaryDTO {
+  text: string
+  citationIds: number[]
+  generatedAt: string
+}
+
+export interface ResearchInputDTO {
+  kind: ResearchKind
+  examSlug?: string
+  examLabel?: string
+  subjectLabel?: string
+  topicLabel?: string
+  yearFrom?: number
+  yearTo?: number
+  question?: string
+  focusNote?: string
+  documentIds?: string[]
+}
+
+export interface ResearchSessionListItemDTO {
+  id: string
+  title: string
+  kind: string
+  status: ResearchSessionStatus
+  statusDetail: string | null
+  createdAt: string
+  finishedAt: string | null
+  sourcesCount: number
+  candidatesCount: number
+  progress: { stages: ResearchProgressStageDTO[]; searchesUsed: number; fetchesUsed: number; llmCallsUsed: number } | null
+}
+
+export interface ResearchSessionListResponse {
+  sessions: ResearchSessionListItemDTO[]
+}
+
+export interface ResearchSourceDTO {
+  id: string
+  url: string
+  title: string | null
+  host: string
+  kind: string
+  documentId: string | null
+  sourceClass: ResearchSourceClass
+  classReason: string | null
+  status: ResearchSourceStatus
+  reachable: boolean | null
+  httpStatus: number | null
+  contentKind: string | null
+  publishedDate: string | null
+  retrievedAt: string | null
+  snippet: string | null
+  evidence: ResearchEvidenceDTO[]
+  conflictFlag: boolean
+  rightsNote: string | null
+  notes: Record<string, unknown> | null
+}
+
+export interface ResearchCandidateDTO {
+  id: string
+  status: ResearchCandidateStatus
+  examLabel: string | null
+  examSlug: string | null
+  subjectLabel: string | null
+  year: number | null
+  sessionLabel: string | null
+  questionNumber: string | null
+  paperTitle: string | null
+  sourceUrl: string
+  sourceTitle: string | null
+  sourcePublisher: string | null
+  sourceClass: string | null
+  retrievedAt: string | null
+  locator: string | null
+  proposedCorrectIndex: number | null
+  hasVerbatim: boolean
+  rightsStatus: ResearchRightsStatus
+  rightsNote: string | null
+  verificationNote: string | null
+  conflictNote: string | null
+  evidence: ResearchEvidenceDTO[]
+  promotedQuestionId: string | null
+}
+
+export interface ResearchSessionDetailDTO {
+  session: {
+    id: string
+    title: string
+    kind: string
+    status: ResearchSessionStatus
+    statusDetail: string | null
+    input: ResearchInputDTO & Record<string, unknown>
+    progress: ResearchProgressDTO | null
+    findings: ResearchFindingDTO[]
+    summary: ResearchSummaryDTO | null
+    followUps: string[]
+    searchesUsed: number
+    fetchesUsed: number
+    llmCallsUsed: number
+    createdAt: string
+    finishedAt: string | null
+    sourcesCount: number
+  }
+  sources: ResearchSourceDTO[]
+  candidates: ResearchCandidateDTO[]
+}
+
+export interface ResearchFollowUpTurnDTO {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  grounding: string | null
+  sources: RiisheChatSourceDTO[]
+  createdAt: string
+}
+
+/** Curator-facing candidate queue row (rights-respecting DTO). */
+export interface PyqCandidateRowDTO {
+  id: string
+  status: ResearchCandidateStatus
+  examLabel: string | null
+  examSlug: string | null
+  subjectLabel: string | null
+  topicLabel: string | null
+  year: number | null
+  sessionLabel: string | null
+  questionNumber: string | null
+  paperTitle: string | null
+  sourceUrl: string
+  sourceTitle: string | null
+  sourcePublisher: string | null
+  sourceClass: string | null
+  retrievedAt: string | null
+  locator: string | null
+  answerKeyUrl: string | null
+  answerKeyRef: string | null
+  proposedCorrectIndex: number | null
+  hasOptions: boolean
+  verbatimText: string | null
+  evidence: ResearchEvidenceDTO[]
+  rightsStatus: ResearchRightsStatus
+  rightsNote: string | null
+  verificationNote: string | null
+  conflictNote: string | null
+  promotedQuestionId: string | null
+  createdAt: string
+}
+
+export interface PyqCandidatesResponse {
+  candidates: PyqCandidateRowDTO[]
+  counts: { DISCOVERED: number; SOURCE_CHECKED: number; PROMOTED: number; DISCARDED: number }
+  limit: number
+  offset: number
+}

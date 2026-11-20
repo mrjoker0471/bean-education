@@ -78,7 +78,7 @@ export function Header() {
       ]
     : GUEST_NAV
 
-  const riisheItem: NavItem = { key: 'riishe', label: 'Riishe AI', icon: Sparkles, hash: '#/riishe', activeFor: ['riishe', 'materials'] }
+  const riisheItem: NavItem = { key: 'riishe', label: 'Riishe AI', icon: Sparkles, hash: '#/riishe', activeFor: ['riishe', 'riishe-research', 'riishe-research-session', 'materials'] }
 
   const isActive = (item: NavItem) => item.activeFor.includes(route.view)
 

@@ -185,6 +185,14 @@ model Question {
   reviewedAt         DateTime?
   reviewNote         String? // reviewer's verification note
 
+  // ── Web-discovery provenance (Phase 3A, additive; imports leave these null) ──
+  sessionLabel      String? // exam session/shift when verifiable (e.g. "July shift 1")
+  questionNumber    String? // question number / exact locator on the source paper ("Q.47")
+  sourceUrl         String? // URL of the source the question was discovered in
+  sourcePublisher   String? // publishing authority of the source
+  retrievedAt       DateTime? // when the source was retrieved by the research pipeline
+  answerKeyRef      String? // answer-key citation (URL and/or locator) that supports the answer
+
   @@index([examId])
   @@index([topicId])
   @@index([canonicalSlug])
@@ -354,6 +362,7 @@ model RiisheChatTurn {
   documentId      String?
   attemptId       String?
   questionId      String?
+  researchSessionId String? // Phase 3A: set when this turn belongs to a research follow-up thread
   role            String // user | assistant
   content         String
   pagesCitedJson  String? // JSON number[]
@@ -365,6 +374,7 @@ model RiisheChatTurn {
   @@index([studentId, createdAt])
   @@index([documentId])
   @@index([attemptId, questionId])
+  @@index([researchSessionId, createdAt])
 }
 
 // ─── Student identity (Phase 2A) ────────────────────────────────────────────
@@ -1367,4 +1377,121 @@ model CareerAuditEvent {
 
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+// ─── Riishe Deep Research (Phase 3A) ─────────────────────────────────────────
+// A persistent, owner-scoped research workspace run. The pipeline plans
+// searches, retrieves guarded sources, classifies and checks them, then
+// synthesizes findings. Every stage persists honest progress; nothing is
+// fabricated when a stage fails.
+model ResearchSession {
+  id              String    @id @default(cuid())
+  guestId         String
+  studentId       String?
+  title           String
+  kind            String // EXAM_PYQ | TOPIC | QUESTION | CONCEPT
+  status          String    @default("QUEUED") // QUEUED | RESEARCHING | COMPLETE | FAILED
+  statusDetail    String? // honest failure / unavailability detail
+  inputJson       String // JSON ResearchInputDTO (exam, years, question, scope)
+  progressJson    String? // JSON ResearchProgressDTO (per-stage states, counts)
+  findingsJson    String? // JSON ResearchFindingDTO[] (topic, summary, citations)
+  summaryJson     String? // JSON ResearchSummaryDTO (summary text + citation ids)
+  followUpsJson   String? // JSON string[] — suggested follow-up questions
+  documentIdsJson String? // JSON string[] — owner's uploaded materials used as context
+  searchesUsed    Int       @default(0) // real web_search call count (cost honesty)
+  fetchesUsed     Int       @default(0) // real guarded page-fetch count
+  llmCallsUsed    Int       @default(0) // real model call count
+  error           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  finishedAt      DateTime?
+
+  sources   ResearchSource[]
+
+  @@index([guestId, createdAt])
+  @@index([studentId, createdAt])
+  @@index([guestId, status])
+}
+
+// One external (or attached-document) evidence source of a research session.
+// The lifecycle distinguishes discovered → retrieved → content-checked →
+// unavailable. Classification is evidence-aware: a domain hint alone never
+// makes a source official, and AI output alone never makes it trusted.
+model ResearchSource {
+  id             String    @id @default(cuid())
+  sessionId      String
+  session        ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  url            String
+  title          String?
+  host           String
+  kind           String    @default("web") // web | document (student's uploaded material)
+  documentId     String?   // set when kind = document (owner's uploaded material)
+  sourceClass    String    @default("UNVERIFIED") // OFFICIAL_AUTHORITY | GOV_INSTITUTIONAL | OPEN_LICENSED | REPUTABLE_SECONDARY | UNVERIFIED
+  classReason    String?
+  status         String    @default("DISCOVERED") // DISCOVERED | RETRIEVED | CHECKED | UNAVAILABLE
+  reachable      Boolean?
+  httpStatus     Int?
+  contentKind    String?   // html | text | pdf | other
+  publishedDate  String?   // raw published date when verifiable on the source
+  retrievedAt    DateTime?
+  snippet        String?   // search-result snippet (≤500 chars)
+  evidenceJson   String?   // JSON ResearchEvidenceDTO[] (excerpt ≤300, pageRef, subtopic)
+  conflictFlag   Boolean   @default(false) // evidence conflicts with another source
+  rightsNote     String?   // licence / reuse signal detected on the source
+  notesJson      String?   // JSON { unavailableReason?, checkNotes? }
+  createdAt      DateTime  @default(now())
+
+  @@index([sessionId])
+  @@index([sessionId, status])
+}
+
+// A historical-question candidate discovered by research. The candidate is
+// NOT a Question: it enters the curator queue only through the promote flow
+// (curator-only) which mirrors the existing PYQ import contract, and only the
+// existing review endpoint can ever verify it. Verbatim storage follows the
+// rights policy: REFERENCE_ONLY keeps locator + short evidence excerpts.
+model ResearchPyqCandidate {
+  id                  String    @id @default(cuid())
+  guestId             String
+  studentId           String?
+  sessionId           String?   // plain reference (no FK) — curation record survives session deletion
+  status              String    @default("DISCOVERED") // DISCOVERED | SOURCE_CHECKED | PROMOTED | DISCARDED
+  examSlug            String?
+  examLabel           String?
+  stageLabel          String?
+  subjectLabel        String?
+  topicLabel          String?
+  year                Int?
+  sessionLabel        String?
+  questionNumber      String?
+  paperTitle          String?
+  sourceUrl           String
+  sourceTitle         String?
+  sourcePublisher     String?
+  sourceClass         String?
+  retrievedAt         DateTime?
+  publishedDate       String?
+  locator             String?   // page number / exact locator on the source
+  answerKeyUrl        String?
+  answerKeyRef        String?
+  proposedCorrectIndex Int?     // set ONLY when an answer key actually supports it
+  optionsJson         String?   // JSON string[] — only when verbatim storage is permitted
+  verbatimText        String?   // full question text ONLY when rights permit (VERBATIM_PERMITTED)
+  evidenceJson        String    // JSON ResearchEvidenceDTO[] — minimum excerpts necessary
+  rightsStatus        String    @default("REFERENCE_ONLY") // REFERENCE_ONLY | VERBATIM_PERMITTED
+  rightsNote          String?
+  pyqHash             String?   // set when verbatim text + options exist (duplicate detection)
+  promotedQuestionId  String?   // Question.id after curator promotion (plain reference)
+  promotedAt          DateTime?
+  verificationNote    String?   // what the source-check actually confirmed
+  conflictNote        String?
+  provenanceJson      String?   // full machine-readable provenance record
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([guestId, status])
+  @@index([studentId, status])
+  @@index([status])
+  @@index([sessionId])
+  @@index([promotedQuestionId])
 }

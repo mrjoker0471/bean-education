@@ -22,23 +22,26 @@
 // catalogue exam entry. College/university semester papers and generic course
 // assessments cannot be represented yet — documented in docs/PHASE2B_PYQ_CURATOR.md.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { EmptyState } from '@/components/bean/empty-state'
 import { useAppStore } from '@/lib/store'
 import { api } from '@/lib/api'
 import { formatDate } from '@/components/bean/format'
 import { cn } from '@/lib/utils'
+import { useToast } from '@/hooks/use-toast'
 import { optionLetter } from '@/components/bean/format'
 import {
   AlertTriangle,
   CheckCircle2,
   FileJson,
   History,
+  Landmark,
   Loader2,
   ShieldAlert,
   ShieldCheck,
@@ -48,8 +51,10 @@ import {
 import type {
   ExamListItem,
   PyqBatchDTO,
+  PyqCandidateRowDTO,
   PyqImportResult,
   PyqQuestionDTO,
+  PyqCandidatesResponse,
   PyqVerificationStatus,
 } from '@/lib/types'
 
@@ -156,7 +161,7 @@ export function PyqStudioView() {
 // ─── The studio itself ─────────────────────────────────────────────────────────
 
 function StudioPanel({ role }: { role: string }) {
-  const [tab, setTab] = useState<'import' | 'review' | 'history'>('import')
+  const [tab, setTab] = useState<'import' | 'review' | 'candidates' | 'history'>('import')
   const [reloadKey, setReloadKey] = useState(0)
 
   return (
@@ -180,16 +185,18 @@ function StudioPanel({ role }: { role: string }) {
         </Alert>
       </header>
 
-      <Tabs value={tab} onValueChange={v => setTab(v === 'review' ? 'review' : v === 'history' ? 'history' : 'import')} className="mt-6">
-        <TabsList className="grid w-full max-w-md grid-cols-3">
+      <Tabs value={tab} onValueChange={v => setTab(v === 'review' ? 'review' : v === 'candidates' ? 'candidates' : v === 'history' ? 'history' : 'import')} className="mt-6">
+        <TabsList className="grid w-full max-w-2xl grid-cols-4">
           <TabsTrigger value="import">Import</TabsTrigger>
           <TabsTrigger value="review">Review queue</TabsTrigger>
+          <TabsTrigger value="candidates">Candidates</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
       </Tabs>
 
       {tab === 'import' && <ImportTab onImported={() => setReloadKey(k => k + 1)} />}
       {tab === 'review' && <ReviewTab key={reloadKey} onChanged={() => setReloadKey(k => k + 1)} />}
+      {tab === 'candidates' && <CandidatesTab key={reloadKey} onChanged={() => setReloadKey(k => k + 1)} />}
       {tab === 'history' && <HistoryTab />}
     </div>
   )
@@ -954,5 +961,392 @@ function HistoryTab() {
         </article>
       ))}
     </section>
+  )
+}
+
+// ─── Candidates tab (Phase 3A) ────────────────────────────────────────────────
+// The discovery queue: research-discovered historical-question candidates.
+// Promotion here only ever creates PYQ_UNVERIFIED rows — the review queue
+// (and its mandatory justification + audit trail) remains the sole authority.
+
+const CAND_STATUS_META: Record<string, { label: string; cls: string }> = {
+  DISCOVERED: { label: 'Discovered', cls: 'border-border bg-elevated text-muted-foreground' },
+  SOURCE_CHECKED: { label: 'Source checked', cls: 'border-gold/40 bg-gold/10 text-gold' },
+  PROMOTED: { label: 'Promoted to review', cls: 'border-success/40 bg-success/10 text-success' },
+  DISCARDED: { label: 'Discarded', cls: 'border-border bg-muted text-muted-foreground' },
+}
+
+function CandidatesTab({ onChanged }: { onChanged: () => void }) {
+  const { toast } = useToast()
+  const [status, setStatus] = useState<'SOURCE_CHECKED' | 'PROMOTED' | 'DISCARDED' | undefined>('SOURCE_CHECKED')
+  const [data, setData] = useState<PyqCandidatesResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [promoting, setPromoting] = useState<PyqCandidateRowDTO | null>(null)
+  const [exams, setExams] = useState<ExamListItem[]>([])
+
+  useEffect(() => {
+    let alive = true
+    api.exams().then(d => alive && setExams(d.exams)).catch(() => alive && setExams([]))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const load = useCallback(() => {
+    let alive = true
+    api
+      .pyqCandidates(status ? { status } : {})
+      .then(d => {
+        if (alive) {
+          setData(d)
+          setError(null)
+        }
+      })
+      .catch((e: unknown) => {
+        if (!alive) return
+        setError(e instanceof Error ? e.message : 'Could not load the candidate queue.')
+        setData(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [status])
+
+  useEffect(load, [load])
+
+  const discard = (c: PyqCandidateRowDTO) => {
+    setBusyId(c.id)
+    api
+      .pyqCandidateDiscard(c.id)
+      .then(() => {
+        toast({ title: 'Candidate discarded' })
+        load()
+        onChanged()
+      })
+      .catch((e: unknown) => toast({ title: 'Could not discard', description: e instanceof Error ? e.message : undefined, variant: 'destructive' }))
+      .finally(() => setBusyId(null))
+  }
+
+  const counts = data?.counts
+
+  return (
+    <div className="mt-6">
+      <Alert className="border-gold/30 bg-gold/5">
+        <AlertDescription className="text-xs leading-relaxed text-muted-foreground">
+          Candidates come from Riishe&apos;s web research — they are pointers with provenance, NOT verified questions. Promoting one
+          creates an <strong className="text-foreground">UNVERIFIED</strong> row in the review queue (never a verified one). Rights:
+          reference-only candidates require you to paste the verbatim text from the source you verified.
+        </AlertDescription>
+      </Alert>
+
+      <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="Candidate status filter">
+        {([
+          ['SOURCE_CHECKED', 'Source checked'],
+          ['PROMOTED', 'Promoted'],
+          ['DISCARDED', 'Discarded'],
+          [undefined, 'All active'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={label}
+            type="button"
+            role="radio"
+            aria-checked={status === value}
+            onClick={() => setStatus(value)}
+            className={cn(
+              'rounded-full border px-3 py-1.5 text-xs font-semibold',
+              status === value ? 'border-gold/50 bg-gold/10 text-gold' : 'border-border bg-elevated text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {label}
+            {value && counts ? ` (${counts[value]})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {error ? (
+        <div role="alert" className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <div className="mt-2">
+            <Button variant="outline" size="sm" className="border-border bg-card text-muted-foreground" onClick={load}>
+              Try again
+            </Button>
+          </div>
+        </div>
+      ) : data === null ? (
+        <div className="mt-4 space-y-2" aria-hidden>
+          <div className="h-24 animate-pulse rounded-xl bg-elevated" />
+          <div className="h-24 animate-pulse rounded-xl bg-elevated" />
+        </div>
+      ) : data.candidates.length === 0 ? (
+        <p className="mt-4 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          No candidates in this queue yet. They appear here when students run exam-oriented Deep Research and a source passes the
+          content check.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {data.candidates.map(c => (
+            <CandidateRow key={c.id} candidate={c} exams={exams} busy={busyId === c.id} onDiscard={() => discard(c)} onPromote={() => setPromoting(c)} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
+
+      {promoting && <PromoteDialog candidate={promoting} exams={exams} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); load(); onChanged() }} />}
+    </div>
+  )
+}
+
+function CandidateRow({
+  candidate: c,
+  exams,
+  busy,
+  onDiscard,
+  onPromote,
+  onChanged,
+}: {
+  candidate: PyqCandidateRowDTO
+  exams: ExamListItem[]
+  busy: boolean
+  onDiscard: () => void
+  onPromote: () => void
+  onChanged: () => void
+}) {
+  const meta = CAND_STATUS_META[c.status] ?? CAND_STATUS_META.DISCOVERED
+  const evidence = c.evidence[0]
+  return (
+    <article className={cn('rounded-xl border bg-card p-4 sm:p-5', c.status === 'PROMOTED' ? 'border-success/40' : 'border-border')}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', meta.cls)}>{meta.label}</span>
+        {c.sourceClass && <span className="rounded-full border border-border bg-elevated px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{c.sourceClass}</span>}
+        <span
+          className={cn(
+            'rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+            c.rightsStatus === 'VERBATIM_PERMITTED' ? 'border-success/40 bg-success/10 text-success' : 'border-border bg-elevated text-muted-foreground',
+          )}
+        >
+          {c.rightsStatus === 'VERBATIM_PERMITTED' ? 'verbatim stored' : 'reference-only'}
+        </span>
+        {c.proposedCorrectIndex !== null && <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 text-[10px] text-foreground">key → option {c.proposedCorrectIndex + 1}</span>}
+      </div>
+
+      <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+        <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">Exam:</dt>
+          <dd className="text-foreground">{c.examLabel ?? 'unknown'}</dd>
+        </div>
+        <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">Year / session:</dt>
+          <dd className="text-foreground">{c.year ?? 'unknown'}{c.sessionLabel ? ` · ${c.sessionLabel}` : ''}</dd>
+        </div>
+        <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">Locator:</dt>
+          <dd className="text-foreground">{[c.questionNumber, c.locator].filter(Boolean).join(' · ') || 'not captured'}</dd>
+        </div>
+        <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">Retrieved:</dt>
+          <dd className="text-foreground">{c.retrievedAt ? new Date(c.retrievedAt).toLocaleString() : 'unknown'}</dd>
+        </div>
+        <div className="flex gap-1.5 sm:col-span-2">
+          <dt className="text-muted-foreground">Source:</dt>
+          <dd className="min-w-0">
+            <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex max-w-full items-center gap-1 truncate text-gold underline-offset-2 hover:underline">
+              <Landmark className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{c.sourceTitle ?? c.sourceUrl}</span>
+            </a>
+          </dd>
+        </div>
+        {c.paperTitle && (
+          <div className="flex gap-1.5 sm:col-span-2">
+            <dt className="text-muted-foreground">Paper:</dt>
+            <dd className="text-foreground">{c.paperTitle}</dd>
+          </div>
+        )}
+      </dl>
+
+      {evidence && (
+        <blockquote className="mt-3 rounded-lg border border-border bg-elevated px-3 py-2 text-xs leading-relaxed text-foreground">
+          &ldquo;{evidence.excerpt}&rdquo;
+          {evidence.pageRef && <span className="mt-1 block text-[10px] uppercase tracking-wide text-muted-foreground">{evidence.pageRef}</span>}
+        </blockquote>
+      )}
+      {c.verificationNote && <p className="mt-2 text-xs italic text-muted-foreground">{c.verificationNote}</p>}
+
+      {c.status === 'PROMOTED' ? (
+        <p className="mt-3 text-xs text-success">Promoted to the review queue — verification continues there with the full contract.</p>
+      ) : c.status === 'DISCARDED' ? (
+        <p className="mt-3 text-xs text-muted-foreground">Discarded.</p>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={onPromote} disabled={busy}>
+            Promote to review queue
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-foreground"
+            onClick={onDiscard}
+            disabled={busy}
+          >
+            Discard
+          </Button>
+        </div>
+      )}
+      {void exams}
+      {void onChanged}
+    </article>
+  )
+}
+
+function PromoteDialog({ candidate: c, exams, onClose, onDone }: { candidate: PyqCandidateRowDTO; exams: ExamListItem[]; onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast()
+  const [examSlug, setExamSlug] = useState(c.examSlug ?? '')
+  const [year, setYear] = useState(c.year ? String(c.year) : '')
+  const [text, setText] = useState(c.verbatimText ?? '')
+  const [optionsText, setOptionsText] = useState('')
+  const [correctIndex, setCorrectIndex] = useState(c.proposedCorrectIndex !== null ? String(c.proposedCorrectIndex) : '')
+  const [explanation, setExplanation] = useState('')
+  const [difficulty, setDifficulty] = useState('MEDIUM')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = () => {
+    setError(null)
+    const options = optionsText
+      .split('\n')
+      .map(o => o.trim())
+      .filter(Boolean)
+    const payload = {
+      examSlug: examSlug || undefined,
+      year: year ? Number(year) : undefined,
+      text: text.trim() || undefined,
+      options: options.length ? options : undefined,
+      correctIndex: correctIndex !== '' ? Number(correctIndex) : undefined,
+      explanation: explanation.trim() || undefined,
+      difficulty: difficulty as 'EASY' | 'MEDIUM' | 'HARD',
+    }
+    setBusy(true)
+    api
+      .pyqCandidatePromote(c.id, payload)
+      .then(r => {
+        toast({ title: 'Candidate promoted', description: `Question ${r.questionId} is now UNVERIFIED in the review queue — verify it there.` })
+        onDone()
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Could not promote the candidate.'))
+      .finally(() => setBusy(false))
+  }
+
+  const needsVerbatim = c.rightsStatus !== 'VERBATIM_PERMITTED' || !c.verbatimText
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Promote candidate">
+      <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card p-5 sm:p-6">
+        <h3 className="font-display text-lg font-semibold text-foreground">Promote candidate to review queue</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          The created question is <strong className="text-foreground">UNVERIFIED</strong> — verification happens only in the review
+          queue with a written justification. {needsVerbatim ? 'This candidate is reference-only: paste the question text and options verbatim from the source (you are accountable for the rights).' : 'The stored verbatim text (licenced source) is pre-filled.'}
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="promote-exam" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Examination
+            </Label>
+            <select
+              id="promote-exam"
+              value={examSlug}
+              onChange={e => setExamSlug(e.target.value)}
+              className="mt-1.5 h-10 w-full rounded-md border border-input bg-elevated px-3 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            >
+              <option value="">Choose…</option>
+              {exams.map(ex => (
+                <option key={ex.slug} value={ex.slug}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="promote-year" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Year
+            </Label>
+            <Input id="promote-year" type="number" min={1990} max={2035} value={year} onChange={e => setYear(e.target.value)} className="mt-1.5 bg-elevated" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label htmlFor="promote-text" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Question text (verbatim)
+            </Label>
+            <Textarea id="promote-text" value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={2000} className="mt-1.5 bg-elevated" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label htmlFor="promote-options" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Options — one per line, verbatim
+            </Label>
+            <Textarea
+              id="promote-options"
+              value={optionsText}
+              onChange={e => setOptionsText(e.target.value)}
+              rows={4}
+              placeholder={'Option A\nOption B\nOption C\nOption D'}
+              className="mt-1.5 bg-elevated"
+            />
+          </div>
+          <div>
+            <Label htmlFor="promote-answer" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Correct option
+            </Label>
+            <select
+              id="promote-answer"
+              value={correctIndex}
+              onChange={e => setCorrectIndex(e.target.value)}
+              className="mt-1.5 h-10 w-full rounded-md border border-input bg-elevated px-3 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            >
+              <option value="">Choose…</option>
+              {[0, 1, 2, 3, 4, 5].map(i => (
+                <option key={i} value={String(i)}>
+                  Option {optionLetter(i)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="promote-difficulty" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Difficulty
+            </Label>
+            <select
+              id="promote-difficulty"
+              value={difficulty}
+              onChange={e => setDifficulty(e.target.value)}
+              className="mt-1.5 h-10 w-full rounded-md border border-input bg-elevated px-3 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+            >
+              <option value="EASY">EASY</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="HARD">HARD</option>
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <Label htmlFor="promote-explanation" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Explanation (optional)
+            </Label>
+            <Textarea id="promote-explanation" value={explanation} onChange={e => setExplanation(e.target.value)} rows={2} maxLength={4000} className="mt-1.5 bg-elevated" />
+          </div>
+        </div>
+
+        {error && (
+          <p role="alert" className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <Button variant="outline" className="border-border bg-card text-muted-foreground" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={submit} disabled={busy}>
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+            Promote as UNVERIFIED
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

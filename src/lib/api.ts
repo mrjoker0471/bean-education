@@ -104,6 +104,12 @@ import type {
   AdminTrustComplaintsResponse,
   AdminTrustTeachersResponse,
   AdminTrustAppealsResponse,
+  ResearchInputDTO,
+  ResearchSessionListResponse,
+  ResearchSessionDetailDTO,
+  ResearchFollowUpTurnDTO,
+  PyqCandidatesResponse,
+  RiisheChatSourceDTO
 } from './types'
 import type {
   AdminOrganizationAuditResponse,
@@ -958,4 +964,34 @@ export const api = {
     jsonFetch<AdminEligibilityResponse>(`/api/admin/career/eligibility${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
   adminEligibilityDecision: (id: string, body: { decision: 'APPROVE' | 'DENY'; reason?: string }) =>
     jsonFetch<{ eligibility: { status: string } }>(`/api/admin/career/eligibility/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // ─── Riishe Deep Research (Phase 3A) ──────────────────────────────────────
+  researchStart: (body: ResearchInputDTO & { guestId: string }) =>
+    jsonFetch<{ sessionId: string }>('/api/riishe/research', { method: 'POST', body: JSON.stringify(body) }),
+  researchSessions: (guestId: string) => jsonFetch<ResearchSessionListResponse>(`/api/riishe/research?guestId=${encodeURIComponent(guestId)}`),
+  researchSession: (id: string, guestId: string) =>
+    jsonFetch<ResearchSessionDetailDTO>(`/api/riishe/research/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`),
+  researchDelete: (id: string, guestId: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/riishe/research/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`, { method: 'DELETE' }),
+  researchFollowUps: (id: string, guestId: string) =>
+    jsonFetch<{ turns: ResearchFollowUpTurnDTO[] }>(`/api/riishe/research/${encodeURIComponent(id)}/followup?guestId=${encodeURIComponent(guestId)}`),
+  researchFollowUp: (id: string, body: { guestId: string; content: string }) =>
+    jsonFetch<{ reply: string; turnId: string; grounding: string; sources: RiisheChatSourceDTO[] }>(`/api/riishe/research/${encodeURIComponent(id)}/followup`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  pyqCandidates: (params: { status?: string; year?: number; q?: string; limit?: number; offset?: number } = {}) => {
+    const p = new URLSearchParams()
+    if (params.status) p.set('status', params.status)
+    if (params.year) p.set('year', String(params.year))
+    if (params.q) p.set('q', params.q)
+    if (params.limit) p.set('limit', String(params.limit))
+    if (params.offset) p.set('offset', String(params.offset))
+    const qs = p.toString()
+    return jsonFetch<PyqCandidatesResponse>(`/api/pyq/candidates${qs ? `?${qs}` : ''}`)
+  },
+  pyqCandidatePromote: (id: string, body: { text?: string; options?: string[]; correctIndex?: number; explanation?: string; difficulty?: string; language?: string; year?: number; examSlug?: string; stageId?: string; subjectId?: string; topicId?: string }) =>
+    jsonFetch<{ questionId: string; batchId: string }>(`/api/pyq/candidates/${encodeURIComponent(id)}/promote`, { method: 'POST', body: JSON.stringify(body) }),
+  pyqCandidateDiscard: (id: string, body: { guestId?: string } = {}) =>
+    jsonFetch<{ ok: boolean }>(`/api/pyq/candidates/${encodeURIComponent(id)}/discard`, { method: 'POST', body: JSON.stringify(body) }),
 }

@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { sameOrigin } from '@/lib/auth'
 import { requirePyqCurator } from '@/lib/roles'
 import { z } from 'zod'
 
@@ -38,6 +39,11 @@ const bodySchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // CSRF-lite guard — Phase 3A hardening: the same origin check every other
+    // mutating BEAN route applies (session-cookie authenticity).
+    if (!sameOrigin(req)) {
+      return NextResponse.json({ error: 'Invalid origin' }, { status: 403 })
+    }
     const parsed = bodySchema.safeParse(await req.json())
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
@@ -77,25 +83,29 @@ export async function POST(req: NextRequest) {
       if (note.length > REVIEW_NOTE_MAX) {
         return NextResponse.json({ error: `Review note must be at most ${REVIEW_NOTE_MAX} characters.` }, { status: 400 })
       }
-      const updated = await db.question.update({
-        where: { id: question.id },
-        data: {
-          sourceType: 'PYQ_VERIFIED',
-          verificationStatus: 'VERIFIED',
-          reviewedBy: student.id,
-          reviewedAt: new Date(),
-          reviewNote: note,
-        },
-      })
-      // Append-only audit: who verified, with which role, why, when.
-      await db.pyqReviewEvent.create({
-        data: {
-          questionId: updated.id,
-          reviewerId: student.id,
-          reviewerRole: student.role,
-          action: 'APPROVE',
-          note,
-        },
+      const updated = await db.$transaction(async tx => {
+        const u = await tx.question.update({
+          where: { id: question.id },
+          data: {
+            sourceType: 'PYQ_VERIFIED',
+            verificationStatus: 'VERIFIED',
+            reviewedBy: student.id,
+            reviewedAt: new Date(),
+            reviewNote: note,
+          },
+        })
+        // Append-only audit: who verified, with which role, why, when — written
+        // in the SAME transaction as the decision so the trail cannot lose it.
+        await tx.pyqReviewEvent.create({
+          data: {
+            questionId: u.id,
+            reviewerId: student.id,
+            reviewerRole: student.role,
+            action: 'APPROVE',
+            note,
+          },
+        })
+        return u
       })
       return NextResponse.json({
         id: updated.id,
@@ -111,24 +121,27 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       )
     }
-    const updated = await db.question.update({
-      where: { id: question.id },
-      data: {
-        verificationStatus: 'REJECTED',
-        reviewedBy: student.id,
-        reviewedAt: new Date(),
-        reviewNote: note || null,
-      },
-    })
-    // Append-only audit for the rejection as well (note optional here).
-    await db.pyqReviewEvent.create({
-      data: {
-        questionId: updated.id,
-        reviewerId: student.id,
-        reviewerRole: student.role,
-        action: 'REJECT',
-        note: note || null,
-      },
+    const updated = await db.$transaction(async tx => {
+      const u = await tx.question.update({
+        where: { id: question.id },
+        data: {
+          verificationStatus: 'REJECTED',
+          reviewedBy: student.id,
+          reviewedAt: new Date(),
+          reviewNote: note || null,
+        },
+      })
+      // Append-only audit for the rejection as well (note optional here).
+      await tx.pyqReviewEvent.create({
+        data: {
+          questionId: u.id,
+          reviewerId: student.id,
+          reviewerRole: student.role,
+          action: 'REJECT',
+          note: note || null,
+        },
+      })
+      return u
     })
     return NextResponse.json({
       id: updated.id,
