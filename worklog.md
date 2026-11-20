@@ -445,3 +445,15 @@ Work Log:
 - Docs: docs/PHASE7_UI_COMPLETION_RESULTS.md (commit-level results incl. test/verification numbers and git-hygiene statement); local evidence hub agent-ctx/e2e/REPORT.md (screenshots index + server-state confirmations; agent-ctx is gitignored by design).
 Stage Summary:
 - All Phase 7 workflows are now demonstrably usable through the website with real API data and no fabricated metrics; the branch carries 13 commits (11 functional/test + results doc + worklog) and is ready for the user to open the PR — nothing merged by the agent, main untouched.
+
+Agent: Z.ai Code
+Task: PHASE 7 UI COMPLETION — post-reset re-verification pass.
+
+Work Log:
+- Sandbox was reset between sessions (SSH material + phase7-wt worktree lost). Re-verified the entire §16 suite on the final tree from scratch: bun test 705 pass / 0 fail (44 files, 4134 assertions), bunx tsc --noEmit clean, bun run lint clean, db:status unchanged (8 migrations listed; sandbox DB provisioned via db push — pre-existing condition, no reset).
+- Secrets scan re-run on the tracked diff: no token/key/password patterns, no .env/.db/key files.
+- Browser smoke re-run end-to-end on next dev -p 3100 with the worktree DB and API-registered fixtures: signed-out admin gate, admin sign-in → Career trust & moderation (3 queues) + Organization verification (honest empty state), employer sign-in → Beanworks UI Verify workspace, candidate sign-in → career hub + opportunity discovery filters. 4 fresh screenshots (agent-ctx/e2e/smoke-0*.png, local-only). Console/page errors: 0.
+- Diagnosed and documented a dev-access artifact (not a code bug): page served at 127.0.0.1:<port> → browser Origin host ≠ Next-dev normalized req.url host (localhost) → sameOrigin CSRF-lite correctly rejects with 403. Accessing via http://localhost:<port> works. CSRF check left unchanged.
+- Push re-attempted via the ssh2 transport to ssh.github.com:443 — transport still reaches GitHub and fails exactly at public-key auth: the regenerated deploy key (bean-phase7-ui-completion-push@2026-11-20) still needs registration on GitHub. Stopped before PR creation per spec §17.
+Stage Summary:
+- Delivery re-verified end-to-end post-reset: 14 commits on feat/bean-phase7-ui-completion (13 prior + this re-verification record). Nothing merged, main untouched, branch ready for the user to push/open the PR once the deploy key is registered.
