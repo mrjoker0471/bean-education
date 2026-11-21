@@ -13,7 +13,9 @@ import {
   responseLanguagePrompt,
   learnerAdaptationPrompt,
   type RiisheTutorMode,
+  type RiisheResponseLanguage,
 } from '@/lib/riishe/tutor'
+import { disclosureLine } from '@/lib/riishe/disclosures'
 import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
 import { SectionIndex } from '@/lib/riishe/index'
 import type { RiisheChatSourceDTO } from '@/lib/types'
@@ -76,7 +78,22 @@ interface ChatTurnDTO {
   pagesCited: number[]
   grounding: 'document' | 'mixed' | 'general' | null
   sources: RiisheChatSourceDTO[]
+  /** Phase 3D: teaching preference in force for this assistant turn
+   *  (null = user turn or legacy row → the client falls back to EXPLAIN). */
+  tutorMode: RiisheTutorMode | null
+  /** Phase 3D: response language in force for this assistant turn
+   *  (null = user turn or legacy row → the client falls back to 'auto'). */
+  responseLanguage: RiisheResponseLanguage | null
   createdAt: string
+}
+
+/** Legacy rows may carry unknown or missing preference values — both display
+ *  honestly as the documented defaults (EXPLAIN / auto) on the client. */
+function normalizeTutorMode(raw: string | null | undefined): RiisheTutorMode | null {
+  return (RIISHE_TUTOR_MODES as readonly string[]).includes(raw ?? '') ? (raw as RiisheTutorMode) : null
+}
+function normalizeResponseLanguage(raw: string | null | undefined): RiisheResponseLanguage | null {
+  return (RIISHE_RESPONSE_LANGUAGES as readonly string[]).includes(raw ?? '') ? (raw as RiisheResponseLanguage) : null
 }
 
 // GET — load the persisted conversation (owner only, newest last)
@@ -118,6 +135,10 @@ export async function GET(req: NextRequest) {
       pagesCited: safeParse<number[]>(t.pagesCitedJson ?? '[]', []),
       grounding: t.role === 'assistant' ? normalizeGrounding(t.grounding) : null,
       sources: t.role === 'assistant' ? safeParse<RiisheChatSourceDTO[]>(t.sourcesJson ?? '[]', []) : [],
+      // Phase 3D: preference metadata rides only on assistant turns; anything
+      // unknown or missing normalises to null (client default EXPLAIN / auto).
+      tutorMode: t.role === 'assistant' ? normalizeTutorMode(t.tutorMode) : null,
+      responseLanguage: t.role === 'assistant' ? normalizeResponseLanguage(t.responseLanguage) : null,
       createdAt: t.createdAt.toISOString(),
     }))
     return NextResponse.json({ turns: list })
@@ -479,6 +500,12 @@ export async function POST(req: NextRequest) {
     //   2. answers with nothing from the uploads get the outside-material line,
     //   3. time-sensitive answers whose live lookup failed get an explicit
     //      "not verified as current" note instead of silent stale facts.
+    // Phase 3D: when the student explicitly selected a response language, the
+    // disclosure line is written in THAT language (same meaning, same
+    // uncertainty); 'auto'/omitted keeps the pre-existing English behaviour.
+    // The grounding computation above is untouched — only the visible prefix
+    // is localized.
+    const disclosureLang = responseLanguage && responseLanguage !== 'auto' ? responseLanguage : undefined
     const saysOutside =
       flagsOutsideMaterial(replyBody) ||
       /general knowledge|not verified|cannot verif|can't verif|not covered|your (?:uploaded )?(?:material|notes?|documents?) (?:do|does) not|doesn't cover|does not cover|no live data|official source/i.test(replyBody)
@@ -487,13 +514,13 @@ export async function POST(req: NextRequest) {
       /not verified|cannot verif|can't verif|unable to verif|no live|live (?:data|lookup|results|web)|not be current|may (?:be|have) (?:changed|outdated)|outdated|official source|up.to.date|real.?time/i.test(replyBody)
     if (grounding === 'general' && !isPerQuestion && !webUsed) {
       if (wantsLive && !saysUnverified) {
-        replyBody = `(Not verified as current — the live lookup was unavailable just now; confirm time-sensitive facts with an official source.) ${replyBody}`
+        replyBody = `${disclosureLine('notVerifiedCurrent', disclosureLang)}${replyBody}`
       }
       if (!saysOutside && groundingDocIds.length > 0) {
-        replyBody = `Outside your uploaded material (general knowledge — not verified against your documents): ${replyBody}`
+        replyBody = `${disclosureLine('outsideMaterial', disclosureLang)}${replyBody}`
       }
     } else if (grounding === 'general' && !isPerQuestion && webUsed && !saysWeb) {
-      replyBody = `From live web results (external — not from your uploaded material): ${replyBody}`
+      replyBody = `${disclosureLine('liveWeb', disclosureLang)}${replyBody}`
     }
 
     // ── Sources actually behind this answer (for the truthful context panel) ──
@@ -557,6 +584,11 @@ export async function POST(req: NextRequest) {
         pagesCitedJson: JSON.stringify([...pagesByDoc.values()].flatMap(s => [...s]).sort((a, b) => a - b).slice(0, 12)),
         grounding,
         sourcesJson: JSON.stringify(sources),
+        // Phase 3D: the preference in force for THIS answer rides on the
+        // assistant turn (conversation-scoped persistence). The user turn
+        // carries no preference metadata by design.
+        tutorMode: effectiveTutorMode,
+        responseLanguage: responseLanguage ?? 'auto',
       },
     })
 
@@ -566,6 +598,9 @@ export async function POST(req: NextRequest) {
       grounding,
       sources,
       turnId: saved.id,
+      // Phase 3D: the effective settings used for this reply (server truth).
+      tutorMode: effectiveTutorMode,
+      responseLanguage: responseLanguage ?? 'auto',
     })
   } catch (err) {
     console.error('[api/riishe/chat POST]', err)
