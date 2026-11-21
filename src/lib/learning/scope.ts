@@ -176,20 +176,40 @@ export async function claimedStudentIdFor(guestId: string): Promise<string | nul
 //
 // No client-supplied studentId exists in any learning request schema — the
 // account side of the check always comes from the server-side session.
+//
+// FAIL-CLOSED (Phase 3B.1): a session lookup that throws or cannot complete is
+// NOT proof that the request is unauthenticated, and a claimed-account lookup
+// failure is NOT proof that an identity is unclaimed. Both return an explicit
+// 503 with a generic message (no internal details leak); only a resolution
+// that COMPLETES with no session grants the guest-bearer contract.
 export type LearningOwnerCheck = { ok: true } | { ok: false; status: number; error: string }
 
+/** Generic, non-leaking message for every "cannot verify" outcome. */
+export const OWNERSHIP_UNVERIFIED_MESSAGE = 'Account ownership could not be verified. Please retry.'
+
 export async function assertLearningOwner(guestId: string): Promise<LearningOwnerCheck> {
-  let sessionStudentId: string | null = null
+  // 1. Session resolution must COMPLETE. A thrown error (session-store or
+  //    database failure, request scope unavailable) is NOT evidence that the
+  //    request is unauthenticated — failing open here would let a signed-in
+  //    visitor pass as a guest. Fail closed with an explicit, generic 503.
+  let sessionStudentId: string | null
   try {
     const student = await getSessionStudent()
     sessionStudentId = student?.id ?? null
   } catch {
-    // No request scope (direct handler invocation outside Next's context, e.g.
-    // route tests without an auth mock) → behave as the pure guest context.
-    sessionStudentId = null
+    return { ok: false, status: 503, error: OWNERSHIP_UNVERIFIED_MESSAGE }
   }
-  if (!sessionStudentId) return { ok: true } // guest bearer mode (no session to check against)
-  const claimedBy = await claimedStudentIdFor(guestId)
+  // 2. Resolution completed with NO session → documented guest-bearer mode.
+  if (!sessionStudentId) return { ok: true }
+  // 3. A session exists: resolve the claim state. A lookup failure must never
+  //    be interpreted as "unclaimed" (that would hand a claimed identity to
+  //    whichever session asked) — fail closed, never a guest fallback.
+  let claimedBy: string | null
+  try {
+    claimedBy = await claimedStudentIdFor(guestId)
+  } catch {
+    return { ok: false, status: 503, error: OWNERSHIP_UNVERIFIED_MESSAGE }
+  }
   if (claimedBy && claimedBy !== sessionStudentId) {
     return { ok: false, status: 403, error: 'This learning history belongs to a different account.' }
   }
