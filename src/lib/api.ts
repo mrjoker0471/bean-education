@@ -111,6 +111,7 @@ import type {
   PyqCandidatesResponse,
   RiisheChatSourceDTO
 } from './types'
+import type { RiisheTutorMode, RiisheResponseLanguage } from '@/lib/riishe/tutor'
 import type {
   LearningOverviewDTO,
   DiagnosticScopeType,
@@ -356,6 +357,10 @@ export const api = {
     questionId?: string
     topic?: string
     style?: 'exam-focused' | 'simple' | 'detailed'
+    /** Phase 3C — optional teaching mode; omitted = EXPLAIN default. */
+    tutorMode?: RiisheTutorMode
+    /** Phase 3C — optional response language; omitted/'auto' = existing default. */
+    responseLanguage?: RiisheResponseLanguage
   }) =>
     jsonFetch<RiisheChatResponseDTO>('/api/riishe/chat', {
       method: 'POST',

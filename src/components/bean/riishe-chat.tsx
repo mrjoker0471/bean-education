@@ -17,18 +17,36 @@
 //
 // Response styles (Exam-focused / Simple / Detailed) change presentation and
 // depth only — never the sources or factual correctness.
+//
+// Phase 3C adds two per-chat controls (component state, not persisted prefs):
+//   Teaching mode  — how Riishe teaches (Explain/Socratic/Worked example/…)
+//   Response language — which language the reply is written in
+// Both change teaching/presentation only; retrieval scope, citation
+// verification and source disclosure are computed server-side and unaffected.
+// They are hidden in research follow-up scope — that pathway (Phase 3A) has
+// its own dossier-grounded pipeline that intentionally stays unchanged.
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { RiisheChatTurnDTO } from '@/lib/types'
+import {
+  RIISHE_TUTOR_MODES,
+  RIISHE_RESPONSE_LANGUAGES,
+  DEFAULT_TUTOR_MODE,
+  RIISHE_TUTOR_MODE_LABELS,
+  RIISHE_LANGUAGE_LABELS,
+  type RiisheTutorMode,
+  type RiisheResponseLanguage,
+} from '@/lib/riishe/tutor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Toggle } from '@/components/ui/toggle'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageRefChips } from '@/components/bean/riishe-bits'
 import { cn } from '@/lib/utils'
-import { BookOpen, Globe, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { BookOpen, Globe, GraduationCap, Languages, Loader2, Send, Sparkles, X } from 'lucide-react'
 
 export interface RiisheChatScope {
   documentId?: string
@@ -194,6 +212,10 @@ export function RiisheChatPanel({
   const [error, setError] = useState<string | null>(null)
   const [focus, setFocus] = useState<string | undefined>(topicFocus)
   const [scopeDocs, setScopeDocs] = useState<string[]>([])
+  // Phase 3C — per-chat teaching controls (temporary by design: they apply to
+  // subsequent messages in this chat component and are not stored anywhere).
+  const [tutorMode, setTutorMode] = useState<RiisheTutorMode>(DEFAULT_TUTOR_MODE)
+  const [responseLanguage, setResponseLanguage] = useState<RiisheResponseLanguage>('auto')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const scopeKey = `${scope.documentId ?? ''}|${scope.attemptId ?? ''}|${scope.questionId ?? ''}|${scope.researchSessionId ?? ''}`
@@ -260,6 +282,8 @@ export function RiisheChatPanel({
             questionId: scope.questionId,
             topic: focus,
             style: beanSettings.style,
+            tutorMode,
+            responseLanguage,
           })
           .then(r => ({ reply: r.reply, turnId: r.turnId, pagesCited: r.pagesCited, grounding: r.grounding, sources: r.sources ?? [] }))
     sendPromise
@@ -319,6 +343,62 @@ export function RiisheChatPanel({
             </Toggle>
           ))}
         </div>
+        {/* Phase 3C — teaching mode + response language. Per-chat controls:
+            they change how Riishe teaches and which language it answers in;
+            retrieval scope, citations and source labels stay server-verified.
+            Hidden in research follow-up scope (separate pathway, unchanged). */}
+        {!researchMode && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={cn('mr-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground', compact && 'sr-only')}>
+              <GraduationCap className="h-3 w-3" aria-hidden />
+              Teach
+            </span>
+            <Select value={tutorMode} onValueChange={v => setTutorMode(v as RiisheTutorMode)}>
+              <SelectTrigger
+                aria-label="Teaching mode"
+                className={cn(
+                  'h-7 w-auto min-w-0 gap-1 border-border bg-transparent px-2 text-[11px]',
+                  tutorMode !== DEFAULT_TUTOR_MODE
+                    ? 'border-gold/50 bg-gold/10 text-gold'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {RIISHE_TUTOR_MODES.map(m => (
+                  <SelectItem key={m} value={m} className="text-[12px]">
+                    {RIISHE_TUTOR_MODE_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className={cn('mr-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground', compact && 'sr-only')}>
+              <Languages className="h-3 w-3" aria-hidden />
+              Language
+            </span>
+            <Select value={responseLanguage} onValueChange={v => setResponseLanguage(v as RiisheResponseLanguage)}>
+              <SelectTrigger
+                aria-label="Response language"
+                className={cn(
+                  'h-7 w-auto min-w-0 gap-1 border-border bg-transparent px-2 text-[11px]',
+                  responseLanguage !== 'auto'
+                    ? 'border-gold/50 bg-gold/10 text-gold'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {RIISHE_RESPONSE_LANGUAGES.map(l => (
+                  <SelectItem key={l} value={l} className="text-[12px]">
+                    {RIISHE_LANGUAGE_LABELS[l]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Switch
             checked={showSources}
