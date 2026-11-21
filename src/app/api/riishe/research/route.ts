@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
-import { enqueueJob, recoverStaleResearch, reserveQuota } from '@/lib/riishe/jobs'
+import { enqueueJob, recoverStaleResearch, reserveQuota, releaseQuota } from '@/lib/riishe/jobs'
 import type { ResearchProgressDTO } from '@/lib/riishe/research'
 
 export const dynamic = 'force-dynamic'
@@ -42,6 +42,10 @@ function sessionTitle(input: z.infer<typeof postSchema>): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Phase 3B fix: track the reservation so a failed start (e.g. session
+  // creation throws) releases the slot instead of silently burning one of
+  // the 6 hourly research runs.
+  let reservedResearchFor: string | null = null
   try {
     const parsed = postSchema.safeParse(await req.json())
     if (!parsed.success) {
@@ -86,6 +90,7 @@ export async function POST(req: NextRequest) {
         { status: 429 },
       )
     }
+    reservedResearchFor = input.guestId
 
     const session = await db.researchSession.create({
       data: {
@@ -109,9 +114,14 @@ export async function POST(req: NextRequest) {
     })
 
     void enqueueJob({ kind: 'DEEP_RESEARCH', refId: session.id, ownerId: input.guestId })
+    // The durable job now owns the run — the reservation stays consumed.
+    reservedResearchFor = null
 
     return NextResponse.json({ sessionId: session.id }, { status: 201 })
   } catch (err) {
+    if (reservedResearchFor) {
+      await releaseQuota(reservedResearchFor, 'research').catch(() => undefined)
+    }
     console.error('[api/riishe/research POST]', err)
     return NextResponse.json({ error: 'Could not start the research run.' }, { status: 500 })
   }

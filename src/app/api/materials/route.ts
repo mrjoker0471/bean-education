@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, writeFile, unlink, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from '@/lib/riishe/types'
-import { enqueueJob, recoverStaleDocuments, recoverStaleTests } from '@/lib/riishe/jobs'
+import { enqueueJob, recoverStaleDocuments, recoverStaleTests, reserveQuota, releaseQuota } from '@/lib/riishe/jobs'
 import { processDocument } from '@/lib/riishe/pipeline'
 
 export const dynamic = 'force-dynamic'
@@ -129,6 +129,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ documentId: existing.id, duplicate: true })
     }
 
+    // Phase 3B fix: the documented 'analyse' quota (30/hour) was never
+    // enforced — new uploads now reserve it. User-initiated retries are
+    // charged on the retry route; the stale-job self-heal path is system
+    // recovery, not new demand, and stays governed by the per-owner job caps
+    // (MAX_OWNER_RUNNING/PENDING). Honest 429 before any file is written.
+    const analysisReserved = await reserveQuota(meta.guestId, 'analyse')
+    if (!analysisReserved) {
+      return NextResponse.json(
+        { error: 'Hourly analysis limit reached (30/hour) — please try again later.' },
+        { status: 429 },
+      )
+    }
+
     // ── Phase 2A lifecycle integrity: file FIRST, then the row ──
     // The row is created only after its file exists on disk with the final
     // storedPath already set — the old empty-storedPath window (a row that
@@ -140,6 +153,7 @@ export async function POST(req: NextRequest) {
     try {
       await writeFile(storedPath, buffer, { mode: 0o600 }) // never web-served directly; owner rw only
     } catch {
+      await releaseQuota(meta.guestId, 'analyse').catch(() => undefined)
       return NextResponse.json({ error: 'The upload failed while storing the file. Please try again.' }, { status: 500 })
     }
 
@@ -163,8 +177,10 @@ export async function POST(req: NextRequest) {
         },
       })
     } catch (rowErr) {
-      // Compensating cleanup: never leave a file with no row behind it
+      // Compensating cleanup: never leave a file with no row behind it,
+      // and never leave a quota reservation without a job behind it.
       await unlink(storedPath).catch(() => undefined)
+      await releaseQuota(meta.guestId, 'analyse').catch(() => undefined)
       throw rowErr
     }
 
