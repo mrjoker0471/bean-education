@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { z } from 'zod'
 import { safeParse } from '@/lib/serialize'
 import { chat, fenceDocumentText, parseSourceTag, flagsOutsideMaterial, stylePrompt, webSearch, TIME_SENSITIVE_RE, type WebResult, type SourceState } from '@/lib/riishe/ai'
+import { buildLearningDigest } from '@/lib/learning/insights'
 import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
 import { SectionIndex } from '@/lib/riishe/index'
 import type { RiisheChatSourceDTO } from '@/lib/types'
@@ -312,12 +313,18 @@ export async function POST(req: NextRequest) {
       : ''
 
     // ── System prompt: honest, grounded, style-separated, injection-fenced ──
+    // Phase 3B: a server-computed digest of the learner's real records is
+    // injected so explanations lean on actual gaps. Built only from DB rows —
+    // client-supplied progress values are never trusted. Empty when there is
+    // no data (the prompt is unchanged).
+    const learningContext = await buildLearningDigest(guestId)
     const topicLine = topic
       ? `The student is focusing on the topic "${topic}" from their uploaded material — prioritise excerpts that discuss it.`
       : ''
     const system = [
       'You are Riishe, the AI study tutor inside BEAN EXAMS. The student practises from their own uploaded documents.',
       questionContext ? `CONTEXT — the student is asking about a specific question from their practice attempt:\n${questionContext}` : '',
+      learningContext,
       topicLine,
       retrievalText
         ? `GROUNDING: factual explanations about the material MUST come from the excerpts below. When you state a fact from an excerpt, cite it as (DocumentName, page N) using the [page N] markers. If the excerpts do not contain what the student asks about, say plainly that your uploaded-material text does not cover it — then, if you use general knowledge, introduce it with "Outside your uploaded material:" so the student can tell the difference. Never invent page numbers or quotes.`

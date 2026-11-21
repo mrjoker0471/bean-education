@@ -11,6 +11,7 @@ import {
   Briefcase,
   Building2,
   ClipboardCheck,
+  Compass,
   FlaskConical,
   FolderOpen,
   GraduationCap,
@@ -40,6 +41,7 @@ interface NavItem {
 // marketplace browsing is public); Teacher Review is admin-only.
 const SIGNED_IN_NAV: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, hash: '#/dashboard', activeFor: ['dashboard'] },
+  { key: 'learning', label: 'Learning', icon: Compass, hash: '#/learning', activeFor: ['learning'] },
   { key: 'workspace', label: 'My Learning', icon: FolderOpen, hash: '#/workspace', activeFor: ['workspace', 'materials', 'riishe'] },
   { key: 'goals', label: 'Goals', icon: Target, hash: '#/goals', activeFor: ['goals'] },
   { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class', 'teach-apply', 'teach-dashboard'] },
@@ -52,6 +54,7 @@ const SIGNED_IN_NAV: NavItem[] = [
 
 const GUEST_NAV: NavItem[] = [
   { key: 'catalog', label: 'Exams', icon: BookOpen, hash: '#/catalog', activeFor: ['catalog', 'exam', 'topic', 'test', 'result'] },
+  { key: 'learning', label: 'Learning', icon: Compass, hash: '#/learning', activeFor: ['learning'] },
   { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class'] },
   { key: 'materials', label: 'My Materials', icon: FolderOpen, hash: '#/materials', activeFor: ['materials', 'riishe'] },
   { key: 'progress', label: 'My Progress', icon: TrendingUp, hash: '#/progress', activeFor: ['progress'] },

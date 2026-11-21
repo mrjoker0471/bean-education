@@ -18,28 +18,33 @@ export async function GET(req: NextRequest) {
 
     const submitted = attempts.filter(a => a.status === 'SUBMITTED' || a.status === 'TIMED_OUT')
 
-    // Aggregate weak topics from real per-topic scoring
-    const topicAgg = new Map<string, { name: string; correct: number; total: number; examId: string | null; examName: string; examSlug: string | null }>()
+    // Aggregate weak topics from real per-topic scoring. attemptCount tracks
+    // how many submitted attempts actually covered each topic (Phase 3B fix:
+    // this used to be a hard-coded 1).
+    const topicAgg = new Map<string, { name: string; correct: number; total: number; examId: string | null; examName: string; examSlug: string | null; attemptCount: number }>()
     for (const a of submitted) {
       const perTopic = safeParse<Record<string, { name: string; correct: number; total: number }>>(a.perTopicJson, {})
       for (const [topicId, v] of Object.entries(perTopic)) {
         const entry = topicAgg.get(topicId) ?? {
           name: v.name, correct: 0, total: 0,
           examId: a.examId, examName: a.examLabel, examSlug: null,
+          attemptCount: 0,
         }
         entry.correct += v.correct
         entry.total += v.total
+        entry.attemptCount += 1
         topicAgg.set(topicId, entry)
       }
     }
-    for (const a of submitted) {
-      if (!a.examId) continue
-      const exam = await db.exam.findUnique({ where: { id: a.examId }, select: { slug: true } })
-      if (exam) {
-        for (const entry of topicAgg.values()) {
-          if (entry.examId === a.examId) entry.examSlug = exam.slug
-        }
-      }
+    // Phase 3B fix: ONE batched exam lookup instead of one query per attempt
+    // (the old loop was an N+1 that only populated examSlug).
+    const examIds = [...new Set(submitted.map(a => a.examId).filter((v): v is string => !!v))]
+    const examRows = examIds.length > 0
+      ? await db.exam.findMany({ where: { id: { in: examIds } }, select: { id: true, slug: true } })
+      : []
+    const slugByExam = new Map(examRows.map(e => [e.id, e.slug]))
+    for (const entry of topicAgg.values()) {
+      if (entry.examId) entry.examSlug = slugByExam.get(entry.examId) ?? null
     }
 
     const weakTopics = [...topicAgg.entries()]
@@ -48,7 +53,7 @@ export async function GET(req: NextRequest) {
         name: v.name,
         examSlug: v.examSlug,
         examName: v.examName,
-        attempts: 1,
+        attempts: v.attemptCount,
         total: v.total,
         accuracy: v.total > 0 ? Math.round((v.correct / v.total) * 100) : 0,
       }))

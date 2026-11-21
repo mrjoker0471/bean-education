@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest) {
   }
 
   try {
-    const [profile, goals, attempts, documents, tests, chatTurns] = await Promise.all([
+    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows] = await Promise.all([
       db.student.findUnique({
         where: { id: student.id },
         select: {
@@ -73,6 +73,32 @@ export async function GET(_req: NextRequest) {
         where: { studentId: student.id },
         orderBy: { createdAt: 'asc' },
         select: { role: true, content: true, createdAt: true, documentId: true },
+      }),
+      // Phase 3B: personal learning intelligence state exports with everything else.
+      db.topicMastery.findMany({
+        where: { studentId: student.id },
+        orderBy: { computedAt: 'desc' },
+        select: { topicName: true, examLabel: true, status: true, accuracy: true, evidenceQuestions: true, attemptCount: true, statusReason: true, lastActivityAt: true, computedAt: true },
+      }),
+      db.studyPlanTask.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: { planDate: true, kind: true, title: true, topicName: true, estimatedMinutes: true, priority: true, rationale: true, status: true, completedAt: true, createdAt: true },
+      }),
+      db.revisionScheduleItem.findMany({
+        where: { studentId: student.id },
+        orderBy: { nextDueAt: 'asc' },
+        select: { topicName: true, examLabel: true, intervalDays: true, repetitions: true, lapses: true, lastOutcome: true, lastReviewedAt: true, nextDueAt: true, misconceptionFlag: true },
+      }),
+      db.mistakeRecord.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: { source: true, topicName: true, chosenIndex: true, correctIndex: true, snapshotJson: true, category: true, categoryReason: true, studentTag: true, note: true, createdAt: true },
+      }),
+      db.learningAction.findMany({
+        where: { studentId: student.id },
+        orderBy: { updatedAt: 'desc' },
+        select: { actionKey: true, type: true, title: true, reason: true, status: true, snoozedUntil: true, resolvedAt: true, outcomeJson: true, updatedAt: true },
       }),
     ])
 
@@ -145,6 +171,65 @@ export async function GET(_req: NextRequest) {
         createdAt: c.createdAt.toISOString(),
         documentId: c.documentId,
       })),
+      learning: {
+        mastery: masteryRows.map(m => ({
+          topicName: m.topicName,
+          examLabel: m.examLabel,
+          status: m.status,
+          accuracy: m.accuracy,
+          evidenceQuestions: m.evidenceQuestions,
+          attemptCount: m.attemptCount,
+          statusReason: m.statusReason,
+          lastActivityAt: m.lastActivityAt ? m.lastActivityAt.toISOString() : null,
+          computedAt: m.computedAt.toISOString(),
+        })),
+        planTasks: planTasks.map(p => ({
+          planDate: p.planDate,
+          kind: p.kind,
+          title: p.title,
+          topicName: p.topicName,
+          estimatedMinutes: p.estimatedMinutes,
+          priority: p.priority,
+          rationale: p.rationale,
+          status: p.status,
+          completedAt: p.completedAt ? p.completedAt.toISOString() : null,
+          createdAt: p.createdAt.toISOString(),
+        })),
+        revisionSchedule: revisionItems.map(r => ({
+          topicName: r.topicName,
+          examLabel: r.examLabel,
+          intervalDays: r.intervalDays,
+          repetitions: r.repetitions,
+          lapses: r.lapses,
+          lastOutcome: r.lastOutcome,
+          lastReviewedAt: r.lastReviewedAt ? r.lastReviewedAt.toISOString() : null,
+          nextDueAt: r.nextDueAt.toISOString(),
+          misconceptionFlag: r.misconceptionFlag,
+        })),
+        mistakes: mistakeRows.map(m => ({
+          source: m.source,
+          topicName: m.topicName,
+          chosenIndex: m.chosenIndex,
+          correctIndex: m.correctIndex,
+          snapshot: jsonish(m.snapshotJson),
+          category: m.category,
+          categoryReason: m.categoryReason,
+          studentTag: m.studentTag,
+          note: m.note,
+          createdAt: m.createdAt.toISOString(),
+        })),
+        actions: actionRows.map(a => ({
+          actionKey: a.actionKey,
+          type: a.type,
+          title: a.title,
+          reason: a.reason,
+          status: a.status,
+          snoozedUntil: a.snoozedUntil ? a.snoozedUntil.toISOString() : null,
+          resolvedAt: a.resolvedAt ? a.resolvedAt.toISOString() : null,
+          outcome: jsonish(a.outcomeJson),
+          updatedAt: a.updatedAt.toISOString(),
+        })),
+      },
     }
 
     const filename = `bean-export-${new Date().toISOString().slice(0, 10)}.json`

@@ -178,6 +178,37 @@ function RiisheHub({ initialTopic }: { initialTopic?: string }) {
   const weakTopics = weakLoaded && weakLoaded.key === loadKey ? weakLoaded.data : null
   const firstWeakWithDoc = weakTopics?.find(t => !!t.documentId) ?? null
 
+  // Phase 3B — closes the weakFocus gap: the render sites existed, but nothing
+  // ever SENT weakFocus. This producer generates a real weak-area-focused
+  // test (focus topics = the weak labels for that document, weakFocus: true
+  // marks it) and opens the workspace where the in-flight test is visible.
+  const [weakFocusBusy, setWeakFocusBusy] = useState(false)
+  const [weakFocusError, setWeakFocusError] = useState<string | null>(null)
+
+  const startWeakFocusPractice = () => {
+    const docId = firstWeakWithDoc?.documentId
+    if (!guestId || !docId || weakFocusBusy) return
+    setWeakFocusBusy(true)
+    setWeakFocusError(null)
+    const focusTopics = (weakTopics ?? []).filter(t => t.documentId === docId).map(t => t.topic)
+    api
+      .generateRiisheTest({
+        guestId,
+        documentId: docId,
+        focusTopics: focusTopics.length > 0 ? focusTopics : undefined,
+        weakFocus: true,
+        timed: false,
+        count: 8,
+      })
+      .then(() => {
+        navigate({ view: 'riishe', docId })
+      })
+      .catch((e: unknown) => {
+        setWeakFocusError(e instanceof Error ? e.message : 'Could not start the weak-area test.')
+      })
+      .finally(() => setWeakFocusBusy(false))
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
       <header>
@@ -332,10 +363,19 @@ function RiisheHub({ initialTopic }: { initialTopic?: string }) {
                 {firstWeakWithDoc?.documentId && (
                   <Button
                     className="mt-4 w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto"
-                    onClick={() => navigate({ view: 'riishe', docId: firstWeakWithDoc.documentId as string })}
+                    disabled={weakFocusBusy}
+                    onClick={startWeakFocusPractice}
                   >
-                    <Play className="mr-2 h-4 w-4" aria-hidden /> Practice weak areas
+                    {weakFocusBusy ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Play className="mr-2 h-4 w-4" aria-hidden />
+                    )}
+                    Practice weak areas
                   </Button>
+                )}
+                {weakFocusError && (
+                  <p className="mt-2 text-xs text-destructive" role="alert">{weakFocusError}</p>
                 )}
               </>
             )}
