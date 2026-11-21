@@ -15,6 +15,7 @@
 //   • GET returns only the caller's own appeals (privacy-safe DTO).
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -458,7 +459,7 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   // The session identity: state.student for student routes; the admin action
   // route flows through the SAME requireStudent via the REAL requireAdmin
   // (role-driven) — setAdminActor(ACTOR) simply repoints this identity.

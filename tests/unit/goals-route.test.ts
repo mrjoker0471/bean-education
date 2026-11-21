@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 
 // ─── Route-level proofs for student data isolation & goal ownership (2B) ───────
@@ -77,9 +78,10 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.student,
   sameOrigin: () => true,
+  destroyCurrentSession: async () => undefined,
 }))
 
 const goalsRoute = await import('@/app/api/student/goals/route')

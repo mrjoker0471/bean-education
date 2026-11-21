@@ -113,6 +113,7 @@ import type {
 } from './types'
 import type {
   LearningOverviewDTO,
+  DiagnosticScopeType,
   TopicMasteryDTO,
   DayPlanDTO,
   PlanTaskDTO,
@@ -147,6 +148,17 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 // ─── Catalogue ───
+/** The browser's IANA timezone — sent as the explicit learner timezone for
+ *  day-keyed surfaces (daily plan, revision due state). Undefined when the
+ *  runtime cannot resolve one; the server then uses its documented default. */
+export function learnerTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const api = {
   catalog: () => jsonFetch<CatalogResponse>('/api/catalog'),
 
@@ -1006,23 +1018,30 @@ export const api = {
     jsonFetch<{ ok: boolean }>(`/api/pyq/candidates/${encodeURIComponent(id)}/discard`, { method: 'POST', body: JSON.stringify(body) }),
 
   // ─── Personal Learning Intelligence (Phase 3B) ──────────────────────────
-  learningOverview: (guestId: string) =>
-    jsonFetch<LearningOverviewDTO>(`/api/learning/overview?guestId=${encodeURIComponent(guestId)}`),
+  learningOverview: (guestId: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<LearningOverviewDTO>(`/api/learning/overview?${qs.toString()}`)
+  },
   learningMastery: (guestId: string) =>
     jsonFetch<{ topics: TopicMasteryDTO[]; legend: Record<string, string> }>(`/api/learning/mastery?guestId=${encodeURIComponent(guestId)}`),
-  learningPlan: (guestId: string, date?: string) => {
+  learningPlan: (guestId: string, date?: string, tz?: string) => {
     const qs = new URLSearchParams({ guestId })
     if (date) qs.set('date', date)
+    if (tz) qs.set('tz', tz)
     return jsonFetch<DayPlanDTO>(`/api/learning/plan?${qs.toString()}`)
   },
-  regenerateLearningPlan: (guestId: string) =>
-    jsonFetch<DayPlanDTO>('/api/learning/plan', { method: 'POST', body: JSON.stringify({ guestId }) }),
+  regenerateLearningPlan: (guestId: string, tz?: string) =>
+    jsonFetch<DayPlanDTO>('/api/learning/plan', { method: 'POST', body: JSON.stringify(tz ? { guestId, tz } : { guestId }) }),
   updatePlanTask: (
     id: string,
     body: { guestId: string; action: 'COMPLETE' | 'SKIP' | 'DEFER' | 'RESCHEDULE' | 'RESIZE'; date?: string; minutes?: number },
   ) => jsonFetch<{ task: PlanTaskDTO }>(`/api/learning/plan/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  learningRevision: (guestId: string) =>
-    jsonFetch<RevisionResponseDTO>(`/api/learning/revision?guestId=${encodeURIComponent(guestId)}`),
+  learningRevision: (guestId: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<RevisionResponseDTO>(`/api/learning/revision?${qs.toString()}`)
+  },
   learningMistakes: (guestId: string, opts: { topicId?: string; limit?: number } = {}) => {
     const p = new URLSearchParams({ guestId })
     if (opts.topicId) p.set('topicId', opts.topicId)
@@ -1033,13 +1052,16 @@ export const api = {
     id: string,
     body: { guestId: string; studentTag?: 'CONCEPT' | 'FACT' | 'FORMULA' | 'MISREAD' | null; note?: string | null },
   ) => jsonFetch<{ mistake: MistakeItemDTO }>(`/api/learning/mistakes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  learningActions: (guestId: string) =>
-    jsonFetch<ActionsResponseDTO>(`/api/learning/actions?guestId=${encodeURIComponent(guestId)}`),
+  learningActions: (guestId: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<ActionsResponseDTO>(`/api/learning/actions?${qs.toString()}`)
+  },
   decideLearningAction: (body: { guestId: string; actionKey: string; decision: 'DISMISS' | 'SNOOZE' | 'COMPLETE'; snoozeDays?: number }) =>
     jsonFetch<{ ok: true }>('/api/learning/actions', { method: 'POST', body: JSON.stringify(body) }),
-  startDiagnostic: (guestId: string, topicId: string) =>
+  startDiagnostic: (guestId: string, scope: { scopeType: DiagnosticScopeType; scopeId: string }) =>
     jsonFetch<{ attemptId: string; resumed: boolean; count: number }>('/api/learning/diagnostic', {
       method: 'POST',
-      body: JSON.stringify({ guestId, topicId }),
+      body: JSON.stringify({ guestId, scopeType: scope.scopeType, scopeId: scope.scopeId }),
     }),
 }

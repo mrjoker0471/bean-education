@@ -14,7 +14,7 @@ import {
   type PlanCandidate,
 } from './planner'
 import { dueStateOf } from './revision'
-import { claimedStudentIdFor, dateKeyEnd, dateKeyStart, todayKey } from './scope'
+import { claimedStudentIdFor, dateKeyEnd, dateKeyStart, todayKey, PRODUCT_TIMEZONE } from './scope'
 import type { DayPlanDTO, PlanTaskDTO, PlanTaskStatus } from './dto'
 
 function taskToDTO(row: {
@@ -72,9 +72,9 @@ async function availableMinutesFor(guestId: string): Promise<number> {
   return clampAvailableMinutes(raw ?? 30)
 }
 
-async function gatherCandidates(guestId: string, dateKey: string): Promise<PlanCandidate[]> {
-  const dayStart = dateKeyStart(dateKey)
-  const dayEnd = dateKeyEnd(dateKey)
+async function gatherCandidates(guestId: string, dateKey: string, tz: string): Promise<PlanCandidate[]> {
+  const dayStart = dateKeyStart(dateKey, tz)
+  const dayEnd = dateKeyEnd(dateKey, tz)
   const now = new Date()
 
   const [dueItems, masteryRows, repeatGapCount, inProgressDocs, plannedTasks] = await Promise.all([
@@ -100,7 +100,7 @@ async function gatherCandidates(guestId: string, dateKey: string): Promise<PlanC
   const dueRevisions = dueItems
     .filter(i => i.nextDueAt.getTime() < (dayEnd?.getTime() ?? now.getTime()))
     .map(i => {
-      const { dueState } = dueStateOf(i, new Date(dayStartMs))
+      const { dueState } = dueStateOf(i, new Date(dayStartMs), tz)
       return {
         topicId: i.topicId,
         topicName: i.topicName,
@@ -155,7 +155,12 @@ async function gatherCandidates(guestId: string, dateKey: string): Promise<PlanC
   })
 }
 
-export async function getOrCreateDayPlan(guestId: string, dateKey: string, opts?: { regenerate?: boolean }): Promise<DayPlanDTO> {
+export async function getOrCreateDayPlan(
+  guestId: string,
+  dateKey: string,
+  opts?: { regenerate?: boolean; tz?: string },
+): Promise<DayPlanDTO> {
+  const tz = opts?.tz ?? PRODUCT_TIMEZONE
   const availableMinutes = await availableMinutesFor(guestId)
   const existing = await db.studyPlanTask.findMany({ where: { guestId, planDate: dateKey } })
 
@@ -170,7 +175,7 @@ export async function getOrCreateDayPlan(guestId: string, dateKey: string, opts?
     return dayPlanDTO(dateKey, availableMinutes, existing, false)
   }
 
-  const candidates = await gatherCandidates(guestId, dateKey)
+  const candidates = await gatherCandidates(guestId, dateKey, tz)
   const picked = fillPlan(candidates, availableMinutes)
   if (picked.length > 0) {
     await db.studyPlanTask.createMany({
@@ -275,6 +280,7 @@ export async function applyTaskAction(
   return { ok: true, task: taskToDTO(updated) }
 }
 
-export function currentPlanDate(): string {
-  return todayKey()
+/** "Today" for planning surfaces, in the learner's explicit timezone. */
+export function currentPlanDate(tz: string = PRODUCT_TIMEZONE): string {
+  return todayKey(tz)
 }

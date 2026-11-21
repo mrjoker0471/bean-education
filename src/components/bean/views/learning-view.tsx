@@ -17,7 +17,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/bean/empty-state'
 import { useAppStore } from '@/lib/store'
-import { api } from '@/lib/api'
+import { api, learnerTimezone } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/components/bean/format'
 import type {
@@ -47,6 +47,9 @@ import {
   Stethoscope,
   Target,
 } from 'lucide-react'
+
+// The browser's IANA timezone — sent once with every day-keyed learning request.
+const LEARNER_TZ = learnerTimezone()
 
 const STATUS_META: Record<MasteryStatus, { label: string; className: string }> = {
   NOT_ASSESSED: { label: 'Not assessed', className: 'border-border text-muted-foreground bg-muted' },
@@ -130,9 +133,9 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
     if (!guestId) return
     let cancelled = false
     Promise.all([
-      api.learningOverview(guestId),
+      api.learningOverview(guestId, LEARNER_TZ),
       api.learningMastery(guestId),
-      api.learningRevision(guestId),
+      api.learningRevision(guestId, LEARNER_TZ),
       api.learningMistakes(guestId, { limit: 30 }),
     ])
       .then(([o, m, r, mk]) => {
@@ -150,7 +153,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
 
   const refreshPlanAndOverview = async () => {
     if (!guestId) return
-    const [o, p] = await Promise.all([api.learningOverview(guestId), api.learningPlan(guestId)])
+    const [o, p] = await Promise.all([api.learningOverview(guestId, LEARNER_TZ), api.learningPlan(guestId, undefined, LEARNER_TZ)])
     setOverview(o)
     setPlan(p)
   }
@@ -197,9 +200,9 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
     )
   }
 
-  const runDiagnostic = (topicId: string) =>
-    withBusy(`diag:${topicId}`, async () => {
-      const r = await api.startDiagnostic(guestId, topicId)
+  const runDiagnostic = (scope: { scopeType: 'TOPIC' | 'UNIT' | 'SUBJECT' | 'EXAM'; scopeId: string }) =>
+    withBusy(`diag:${scope.scopeId}`, async () => {
+      const r = await api.startDiagnostic(guestId, scope)
       navigate({ view: 'test', attemptId: r.attemptId })
     })
 
@@ -212,7 +215,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
   const regenerate = () =>
     withBusy('plan-regen', async () => {
       await refreshPlanAndOverview()
-      const p = await api.regenerateLearningPlan(guestId)
+      const p = await api.regenerateLearningPlan(guestId, LEARNER_TZ)
       setPlan(p)
       setNotice('Plan regenerated — only open tasks were replaced; your completed history is untouched.')
     })
@@ -220,7 +223,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
   const decideAction = (actionKey: string, decision: 'DISMISS' | 'SNOOZE' | 'COMPLETE') =>
     withBusy(`act:${actionKey}:${decision}`, async () => {
       await api.decideLearningAction({ guestId, actionKey, decision })
-      const [o, a] = await Promise.all([api.learningOverview(guestId), api.learningActions(guestId)])
+      const [o, a] = await Promise.all([api.learningOverview(guestId, LEARNER_TZ), api.learningActions(guestId, LEARNER_TZ)])
       setOverview(o)
       setPlan(null) // overview carries the plan slice; clear stale full plan
       void a
@@ -319,7 +322,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
                             size="sm"
                             variant="outline"
                             className="border-gold/40 text-gold hover:bg-gold/10"
-                            onClick={() => (t.kind === 'DIAGNOSTIC' ? runDiagnostic(t.topicId as string) : navigate({ view: 'topic', topicId: t.topicId as string }))}
+                            onClick={() => (t.kind === 'DIAGNOSTIC' ? runDiagnostic({ scopeType: 'TOPIC', scopeId: t.topicId as string }) : navigate({ view: 'topic', topicId: t.topicId as string }))}
                           >
                             {t.kind === 'DIAGNOSTIC' ? 'Start diagnostic' : 'Open topic'}
                             <ChevronRight className="ml-1 h-3.5 w-3.5" aria-hidden />
@@ -414,7 +417,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
                     </p>
                     {(t.status === 'INSUFFICIENT_EVIDENCE' || t.status === 'LEARNING' || t.status === 'NEEDS_REVISION') && (
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" className="h-7 border-gold/40 text-gold hover:bg-gold/10" disabled={busy === `diag:${t.topicId}`} onClick={() => runDiagnostic(t.topicId)}>
+                        <Button size="sm" variant="outline" className="h-7 border-gold/40 text-gold hover:bg-gold/10" disabled={busy === `diag:${t.topicId}`} onClick={() => runDiagnostic({ scopeType: 'TOPIC', scopeId: t.topicId })}>
                           {busy === `diag:${t.topicId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Diagnose'}
                         </Button>
                         <Button size="sm" variant="outline" className="h-7 border-border text-muted-foreground hover:bg-muted" onClick={() => navigate({ view: 'topic', topicId: t.topicId })}>
@@ -597,7 +600,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
 
           {/* Diagnostics */}
           <SectionCard icon={Stethoscope} title="Diagnostics" ariaLabel="Diagnostic assessments">
-            {overview.diagnostics.availableTopics.length === 0 ? (
+            {overview.diagnostics.availableTopics.length === 0 && overview.diagnostics.broaderScopes.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No topic needs a baseline right now — diagnostics appear when a topic has questions available but too
                 little evidence.
@@ -606,7 +609,7 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
               <ul className="space-y-2">
                 {overview.diagnostics.availableTopics.map(d => (
                   <li key={d.topicId} className="rounded-lg border border-border bg-elevated px-3 py-2">
-                    <button type="button" className="w-full text-left" onClick={() => runDiagnostic(d.topicId)} disabled={busy === `diag:${d.topicId}`}>
+                    <button type="button" className="w-full text-left" onClick={() => runDiagnostic({ scopeType: 'TOPIC', scopeId: d.topicId })} disabled={busy === `diag:${d.topicId}`}>
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-medium text-foreground">{d.topicName}</span>
                         {busy === `diag:${d.topicId}` ? (
@@ -616,6 +619,21 @@ function LearningData({ onRetry }: { onRetry: () => void }) {
                         )}
                       </span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">{d.examLabel ?? ''} · short diagnostic, results feed your mastery map</span>
+                    </button>
+                  </li>
+                ))}
+                {overview.diagnostics.broaderScopes.map(d => (
+                  <li key={d.scopeId} className="rounded-lg border border-border bg-elevated px-3 py-2">
+                    <button type="button" className="w-full text-left" onClick={() => runDiagnostic({ scopeType: d.scopeType, scopeId: d.scopeId })} disabled={busy === `diag:${d.scopeId}`}>
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">{d.label}</span>
+                        {busy === `diag:${d.scopeId}` ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gold" />
+                        ) : (
+                          <Badge variant="outline" className="shrink-0 border-gold/40 text-gold">{d.questionBank} verified Qs</Badge>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{d.examLabel ?? ''} · wider baseline across the whole {d.scopeType.toLowerCase()}, results feed your mastery map</span>
                     </button>
                   </li>
                 ))}

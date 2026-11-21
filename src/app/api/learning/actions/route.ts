@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { sameOrigin } from '@/lib/auth'
-import { guestIdFromQuery, guestIdSchema, rateLimited, pruneRateLimits } from '@/lib/learning/scope'
+import { guestIdFromQuery, guestIdSchema, rateLimited, pruneRateLimits, resolveLearnerTimezone, assertLearningOwner } from '@/lib/learning/scope'
 import { buildVisibleActions, applyActionDecision } from '@/lib/learning/actions-service'
 
 export const dynamic = 'force-dynamic'
@@ -26,8 +26,11 @@ export async function GET(req: NextRequest) {
   try {
     const guestId = guestIdFromQuery(req)
     if (!guestId) return NextResponse.json({ error: 'guestId required' }, { status: 400 })
+    const owner = await assertLearningOwner(guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
 
-    const result = await buildVisibleActions(guestId)
+    const tz = resolveLearnerTimezone(new URL(req.url).searchParams.get('tz'))
+    const result = await buildVisibleActions(guestId, new Date(), tz)
     return NextResponse.json({ actions: result.actions.map(a => ({
       actionKey: a.actionKey,
       type: a.type,
@@ -51,6 +54,8 @@ export async function POST(req: NextRequest) {
     const parsed = bodySchema.safeParse(await req.json().catch(() => null))
     if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     const { guestId, actionKey, decision, snoozeDays } = parsed.data
+    const owner = await assertLearningOwner(guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
     if (rateLimited(`action-decision:${guestId}`, 30, 60_000)) {
       return NextResponse.json({ error: 'Too many updates — slow down for a moment.' }, { status: 429 })
     }

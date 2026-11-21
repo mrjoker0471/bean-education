@@ -5,7 +5,7 @@
 
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
-import { dateKeyOf, claimedStudentIdFor } from './scope'
+import { dateKeyOf, claimedStudentIdFor, PRODUCT_TIMEZONE } from './scope'
 import {
   actionKeys,
   computeOutcomeBoost,
@@ -25,7 +25,7 @@ export interface VisibleActions {
 const ACTIONS_NOTE =
   'Every suggestion is computed from your own records with a fixed, documented priority rule — no randomness, no urgency theatre, and nothing here is a paid API decision.'
 
-export async function buildVisibleActions(guestId: string, now = new Date()): Promise<VisibleActions> {
+export async function buildVisibleActions(guestId: string, now = new Date(), tz: string = PRODUCT_TIMEZONE): Promise<VisibleActions> {
   // Goals are account-scoped (studentId) — they participate only after claim.
   const actionGoalStudentId = await claimedStudentIdFor(guestId)
   const [dueItems, masteryRows, repeatMistakes, inProgressDocs, planToday, lifecycleRows, outcomeRows, attempts, goals] =
@@ -39,7 +39,7 @@ export async function buildVisibleActions(guestId: string, now = new Date()): Pr
         take: 3,
         select: { id: true, title: true },
       }),
-      db.studyPlanTask.findFirst({ where: { guestId, planDate: dateKeyOf(now) }, select: { id: true } }),
+      db.studyPlanTask.findFirst({ where: { guestId, planDate: dateKeyOf(now, tz) }, select: { id: true } }),
       db.learningAction.findMany({ where: { guestId } }),
       db.learningAction.findMany({ where: { guestId, status: 'COMPLETED' }, orderBy: { resolvedAt: 'desc' }, take: 50 }),
       db.attempt.findMany({
@@ -66,7 +66,7 @@ export async function buildVisibleActions(guestId: string, now = new Date()): Pr
   const candidates: ActionCandidate[] = []
 
   for (const item of dueItems) {
-    const { dueState, daysUntilDue } = dueStateOf(item, now)
+    const { dueState, daysUntilDue } = dueStateOf(item, now, tz)
     if (dueState === 'UPCOMING') continue
     const overdueDays = dueState === 'OVERDUE' ? Math.max(1, -daysUntilDue) : 0
     candidates.push({

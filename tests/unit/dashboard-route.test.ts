@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 
 // ─── Route-level proofs for GET /api/student/dashboard (Phase 2B Milestone C) ──
 // The critical property: EVERY aggregate query is scoped to studentId — a
@@ -87,7 +88,7 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.student,
   sameOrigin: () => true,
 }))

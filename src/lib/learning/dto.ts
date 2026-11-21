@@ -11,6 +11,8 @@ export type MasteryStatus =
   | 'STRONG'
   | 'NEEDS_REVISION'
 
+export type DiagnosticScopeType = 'TOPIC' | 'UNIT' | 'SUBJECT' | 'EXAM'
+
 export interface TopicMasteryDTO {
   topicId: string
   topicName: string
@@ -201,6 +203,12 @@ export interface LearningOverviewDTO {
   diagnostics: {
     /** Insufficient-evidence topics that actually have a question bank to probe. */
     availableTopics: { topicId: string; topicName: string; examLabel: string | null; questionBank: number }[]
+    /**
+     * Broader baseline diagnostics (unit / subject / exam) derived from the
+     * learner's thin-evidence topics — offered only where the verified bank
+     * really supports them. Empty when no broader scope is warranted.
+     */
+    broaderScopes: { scopeType: DiagnosticScopeType; scopeId: string; label: string; examLabel: string | null; questionBank: number }[]
   }
   insights: LearningInsightsDTO
   generatedAt: string

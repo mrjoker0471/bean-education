@@ -20,6 +20,7 @@
 //                         one schedule row per (owner, topic) prevents duplicates
 
 import { db } from '@/lib/db'
+import { PRODUCT_TIMEZONE, dateKeyOf, dateKeyEnd, dateKeyStart } from './scope'
 
 export const REVISION_LADDER = [1, 3, 7, 14, 30, 60] as const
 export const MISCONCEPTION_PULL_DAYS = 1
@@ -155,12 +156,20 @@ export interface RevisionItemLike {
   misconceptionFlag: boolean
 }
 
-/** Pure due-state classification (shared by the API and the planner). */
-export function dueStateOf(item: RevisionItemLike, now: Date): { dueState: 'OVERDUE' | 'DUE_TODAY' | 'UPCOMING'; daysUntilDue: number } {
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+/** Pure due-state classification (shared by the API and the planner).
+ *  `now`'s "today" is computed in the learner's explicit timezone (product
+ *  default when the caller does not pass one) — overdue status flips at LOCAL
+ *  midnight, never at the server container's midnight. */
+export function dueStateOf(
+  item: RevisionItemLike,
+  now: Date,
+  tz: string = PRODUCT_TIMEZONE,
+): { dueState: 'OVERDUE' | 'DUE_TODAY' | 'UPCOMING'; daysUntilDue: number } {
+  const startOfToday = dateKeyStart(dateKeyOf(now, tz), tz)!.getTime()
+  const startOfTomorrow = dateKeyEnd(dateKeyOf(now, tz), tz)!.getTime()
   const due = item.nextDueAt.getTime()
   const days = Math.ceil((due - startOfToday) / (24 * 3600_000))
   if (due < startOfToday) return { dueState: 'OVERDUE', daysUntilDue: days }
-  if (due < startOfToday + 24 * 3600_000) return { dueState: 'DUE_TODAY', daysUntilDue: 0 }
+  if (due < startOfTomorrow) return { dueState: 'DUE_TODAY', daysUntilDue: 0 }
   return { dueState: 'UPCOMING', daysUntilDue: days }
 }

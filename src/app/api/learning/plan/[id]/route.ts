@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sameOrigin } from '@/lib/auth'
-import { guestIdSchema, rateLimited, pruneRateLimits } from '@/lib/learning/scope'
+import { guestIdSchema, rateLimited, pruneRateLimits, assertLearningOwner } from '@/lib/learning/scope'
 import { applyTaskAction } from '@/lib/learning/plan-service'
 
 export const dynamic = 'force-dynamic'
@@ -27,6 +27,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params
     const parsed = bodySchema.safeParse(await req.json().catch(() => null))
     if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    const owner = await assertLearningOwner(parsed.data.guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
     if (rateLimited(`plan-task:${parsed.data.guestId}`, 60, 60_000)) {
       return NextResponse.json({ error: 'Too many plan updates — slow down for a moment.' }, { status: 429 })
     }

@@ -7,6 +7,7 @@
 // SQL itself against an actual SQLite engine.
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 import { SEAT_CLAIM_SQL, SEAT_RELEASE_SQL } from '@/lib/teach-booking'
 
@@ -160,7 +161,7 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.student,
   sameOrigin: () => true,
   getSessionStudent: async () => state.student,

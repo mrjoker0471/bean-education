@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { guestIdFromQuery } from '@/lib/learning/scope'
+import { guestIdFromQuery, assertLearningOwner } from '@/lib/learning/scope'
 import { mistakeRowToDTO } from '@/lib/learning/mistakes'
 import type { MistakesResponseDTO } from '@/lib/learning/dto'
 
@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
   try {
     const guestId = guestIdFromQuery(req)
     if (!guestId) return NextResponse.json({ error: 'guestId required' }, { status: 400 })
+    const owner = await assertLearningOwner(guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
 
     const url = new URL(req.url)
     const topicId = url.searchParams.get('topicId')
