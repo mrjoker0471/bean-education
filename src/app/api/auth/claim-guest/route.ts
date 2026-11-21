@@ -47,6 +47,9 @@ export async function POST(req: NextRequest) {
       db.studyDocument.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.riisheTest.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.riisheChatTurn.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      // Phase 3A: research sessions + discovery candidates join the claim too.
+      db.researchSession.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      db.researchPyqCandidate.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
     ])
 
     return NextResponse.json({

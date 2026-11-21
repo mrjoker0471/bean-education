@@ -22,12 +22,13 @@ The app is a hash-routed SPA: a single `src/app/page.tsx` renders views from `#/
 - **Guest + shared**: catalogue, exam, topic, test runner, result, progress, PDF reader, materials, Riishe workspace, practice, topics, BEAN Intelligence, settings, auth.
 - **Student (Phase 2B)**: `#/onboarding` (5-step skippable wizard, re-openable as `?edit=1` profile editor), `#/dashboard` (personal home: continue-learning, progress, goals, deterministic recommendations), `#/workspace` (My Learning: library/subjects/search/organise over the existing materials + Riishe pipeline), `#/goals` (CRUD + deterministic plan hints).
 - **Curator (Phase 2B)**: `#/pyq-studio` (Import / Review queue / History) — role-gated in UI, enforced server-side.
+- **Marketplace (Phase 4A)**: `#/classes` + `#/classes/:id` (guest AND student class discovery/detail), `#/teach/apply` (application), `#/teach/dashboard` (approved-teacher workspace), `#/teach/review` (admin application review).
 
-Auth routing: sign-up → onboarding; sign-in → onboarding when `onboardedAt` is null, else dashboard. The header switches nav sets by role (guests keep the original nav; PYQ Studio appears for curators).
+Auth routing: sign-up → onboarding; sign-in → onboarding when `onboardedAt` is null, else dashboard. The header switches nav sets by role (guests keep their original nav plus the Classes entry; PYQ Studio appears for curators, Teacher Review for admins — hiding in the UI is never the enforcement).
 
 ## Backend architecture
 
-33 route handlers under `src/app/api/**`. Conventions:
+54 route files (68 handler functions) under `src/app/api/**` — 14 of those files (19 handlers) are the Phase 4A teach/admin-teach endpoints. Conventions:
 
 - Ownership scoping is dual-identity: rows carry BOTH `guestId` and (since 2A) optional `studentId`; `resolveOwnerScope()` + `ownedBy()` build the OR-scope. Signed-in students claim device data via `POST /api/auth/claim-guest` (never rewriting guest identity).
 - **Identity & sessions** (`src/lib/auth.ts`, ADR-010/014): scrypt password hashing; random 256-bit tokens live only in an httpOnly SameSite=Lax cookie; the DB stores SHA-256 hashes; 30-day sliding expiry. `AuthStudent` carries `role` + `onboardedAt`.
@@ -36,11 +37,20 @@ Auth routing: sign-up → onboarding; sign-in → onboarding when `onboardedAt` 
 - Test engine is server-authoritative: questions served without `correctIndex`; scoring, negative marking, TIMED_OUT auto-submit and idempotent submission server-side.
 - Files never touch `public/`: uploads live in `db/uploads/` (mode 0600), streamed owner-only with Range support. `/api/pdf` proxies external PDFs strictly against a DB whitelist.
 
+## BEAN Teach (Phase 4A)
+
+The teacher marketplace is a free pilot: no orders, payments, wallets or commission exist anywhere; `plannedPricePaise` is stored as metadata for a future milestone (Phase 8) and never charged.
+
+- **Teacher capability is an APPROVED `TeacherProfile`, not a role** — the single `Student.role` field (STUDENT | PYQ_CURATOR | ADMIN) is untouched, and the profile is resolved server-side by the `requireApprovedTeacher()` guard in `src/lib/teach.ts`. Identity always comes from the httpOnly session cookie; client-supplied ids are never trusted for ownership. Guards: `requireSignedIn` / `requireAdmin` / `requireApprovedTeacher`.
+- **Four endpoint groups**: application lifecycle (`/api/teach/application` GET/POST/PATCH), public discovery (`/api/teach/classes`, `/api/teach/teachers` + detail), classes & booking (`/api/teach/classes/:id` GET/PATCH, publish/unpublish/cancel/book/attendance, `/api/teach/my-classes`, `/api/teach/my-bookings`), admin review (`/api/admin/teach/applications` + `/:id/review`).
+- **Transactional seat-claim engine** (`src/lib/teach-booking.ts`): `bookedCount` is incremented/decremented by ONE conditional SQL `UPDATE … WHERE bookedCount < capacity` inside the booking transaction. Prisma cannot compare two columns in a WHERE clause on SQLite; SQLite serialises writes, so a losing racer's predicate matches zero rows and no booking is created. The `startsAt`/time guards bind **epoch-millisecond integers** because Prisma 6 stores SQLite DateTime columns as INTEGER — an ISO string would silently never match. The SQL constants are exported and executed verbatim by tests against a real in-memory SQLite engine.
+- **Unified append-only `TeachAuditEvent`** — one audit table for the whole domain (teacher review, class cancellation, attendance marking), polymorphic `entityType`/`entityId` BY DESIGN (`entityId` is a plain string, no FK on purpose). Rows are never updated or deleted; a re-review appends, so earlier decisions remain provable.
+
 ## Riishe engine (`src/lib/riishe/`)
 
 Pipeline stages (honest-failure aware): upload validation → **durable job runner** (`jobs.ts` on RiisheJob/JobQuota tables: atomic CAS claims, lease recovery, bounded retries, durable hourly quotas — replaced the in-process Maps of Phase 1) → PDF extraction (per-page text, scanned-page detection, 400-page cap) → **OCR** (`ocr.ts`: Tesseract + pdftoppm for scanned pages, English/Tamil, per-page provenance, honest OCR_FAILED) → deterministic structure detection → AI section analysis (JSON-tolerant chat, injection fencing, 429 backoff, sub-chunking, deterministic fallback) → origin-aware topic canonicalisation → question generation (only VALIDATED questions publish) → grounded explanations → chat (TF-IDF retrieval, server-verified citations, persisted turns).
 
-## Data model (19 models, Prisma/SQLite, migration-managed)
+## Data model (28 models, Prisma/SQLite, migration-managed)
 
 - Catalogue: `Category → Exam → Stage → Subject → Unit → Topic` (cascade), `Note`, `Resource` per topic.
 - Bank: `Question` (sourceType ORIGINAL | PYQ_VERIFIED | PYQ_UNVERIFIED; provenance: `pyqHash`, `sourceRef`, `importedBatchId`, `reviewedBy/At/Note`), `TestTemplate`.
@@ -48,13 +58,55 @@ Pipeline stages (honest-failure aware): upload validation → **durable job runn
 - Riishe: `StudyDocument`, `RiisheTest`, `RiisheQuestion`, `RiisheExplanation`, `RiisheChatTurn` (all dual-owner), `RiisheJob`, `JobQuota`.
 - Student identity (2A) + roles (2B): `Student` (scrypt hash, `role` default STUDENT, `onboardedAt`), `Session` (hashed tokens), `StudyGoal`.
 - PYQ curation: `PyqImportBatch` (audit trail, curator `importedBy`), `PyqReviewEvent` (2B, append-only: reviewer, role held, action, justification, timestamp).
+- BEAN Teach (4A): `TeacherProfile` (one per Student; PENDING → APPROVED | REJECTED; re-review on verification-relevant edits), `ClassSession` (DRAFT → PUBLISHED → CANCELLED | COMPLETED; `bookedCount` maintained only transactionally), `ClassBooking` (one per student per class — rebooking re-activates the same row), `TeachAuditEvent` (append-only, polymorphic). `Student` gains back-relations `teacherProfile` + `classBookings`.
+- Live classroom (5): `LiveClassSession` (one per ClassSession; READY/LIVE/ENDED/INTERRUPTED/FAILED; single-use `usageFinalisedAt`), `LiveClassParticipant` (webhook-verified connection intervals, unique identity per session), `LiveKitWebhookEvent` (idempotency ledger, unique provider event id), `LiveUsageMonth` (monthly budget accounting, unique monthKey), `LiveWhiteboardState` (one snapshot per live session).
+- Trust & quality (6): `ClassReview` (one per booking — `bookingId` UNIQUE; PUBLISHED/FLAGGED/HIDDEN; consent-gated `showDisplayName`; private `moderationReason`), `TeacherReviewResponse` (one per review, unique FK), `TeachComplaint` (private; server-derived severity; `isSensitive` restricted categories; NO FK to ClassSession so history survives class deletion) + append-only `ComplaintEvent`, `TrustAction` (admin-issued restrictions, optional `endsAt`, REINSTATE rows are decisions), `TeachAppeal` (server-captured `originalDecisionById`) + append-only `AppealEvent`.
 
 Schema changes go through additive migrations only: `bun run db:backup` → edit schema → `bun run db:migrate` → `bun run db:status`. Never edit applied migrations; never reset the live DB (docs/PHASE2A_DATABASE_MIGRATIONS.md).
 
 ## Known architectural constraints
 
-- Single-node SQLite: job claims and quotas are correct for one writer; multi-process soft limits are documented in PHASE2A docs.
+- Single-node SQLite: job claims, quotas AND class-seat accounting are correct for one writer; transactions serialise and the conditional seat-claim UPDATE is the correctness mechanism; multi-process soft limits are documented in PHASE2A docs.
+- BEAN Teach is a free pilot: the planned price is metadata only and nothing in the schema or code can create a charge (ADR-019); the live classroom is live-only — no recording/egress exists in schema or code (ADR-020), and classrooms require LiveKit Cloud credentials (honest NOT_CONFIGURED state otherwise).
+- No email service: password reset / email verification remain unavailable (guest mode and scrypt auth unaffected); BEAN Teach has no notifications either — students discover cancellations via My bookings.
 - PYQ imports require a catalogue `examSlug` (hard FK) — college/university semester papers are not representable yet; surfaced honestly in the studio (docs/PHASE2B_PYQ_CURATOR.md).
-- No email service: password reset / email verification remain unavailable (guest mode and scrypt auth unaffected).
 - On-device AI is foundation-scoped: capability detection + consent-gated adapter; the optional runtime is not shipped (docs/PHASE2A_AI_RUNTIME.md).
 - Production build should be re-verified in CI/staging (docs/PHASE2B_RESULTS.md § Static checks).
+
+## BEAN Live Classroom (Phase 5)
+
+Realtime class delivery on LiveKit Cloud, additive on top of Phase 4A. BEAN owns identity, authorisation, scheduling, usage budgeting, attendance evidence and audit; LiveKit carries media (WebRTC to its edge — media never transits BEAN).
+
+- **Server-only config** (`src/lib/livekit/config.ts`): credentials read from env at call time; `LIVEKIT_API_SECRET` never reaches the browser or logs; honest `NOT_CONFIGURED` status when absent (the rest of BEAN is unaffected).
+- **One `LiveClassSession` per `ClassSession`** (unique FK) with states READY → LIVE → ENDED | INTERRUPTED | FAILED. Start validates ownership, PUBLISHED status, the scheduled window (opens 15 min before `startsAt`) and ≥1 confirmed booking, then **atomically reserves `(confirmed + 1) × duration` participant-minutes** against `LiveUsageMonth` with ONE conditional SQL UPDATE (same pattern as the seat engine — SQLite serialises writes, concurrent starts cannot oversubscribe). Room names are server-generated opaque ids. Duplicate start returns the existing LIVE session; failed room creation releases the reservation; a FAILED session reuses the row on retry; ENDED never restarts. Bookings freeze once a live row exists (checked inside the booking transaction).
+- **Tokens** (`POST live/token`): role re-derived from DB state per request; JWT minted server-side with grants scoped by role (`canPublishSources` camera+microphone[+screen_share for teachers]; `roomAdmin`/`roomCreate`/`roomRecord` explicitly false). Identity is the opaque `bean:<studentId>`.
+- **Webhook** (`POST /api/webhooks/livekit`): raw body read before parsing; signature verified via `TokenVerifier` + SHA-256 body binding (`src/lib/livekit/webhook-verify.ts` — the same checks as `WebhookReceiver.receive`, with a tolerant JSON parse because `@livekit/protocol`'s generated decoder rejects every real-world `createdAt` shape); idempotent by unique `providerEventId`; interval accounting clamps out-of-order events so negative durations are impossible; `room_finished` finalises usage exactly once (INTERRUPTED).
+- **End** (`POST live/end`): transactional single-use finalisation guarded by `usageFinalisedAt` — intervals closed conservatively, verified actual minutes recorded once, reservation released once; `deleteRoom` best-effort afterwards.
+- **Whiteboard** (`src/lib/livekit/whiteboard.ts`): versioned zod protocol (fixed palette, normalised coords 0..1, ≤1000 points/stroke, ≤500 strokes, ≤200 KB) over LiveKit reliable data messages; mutations accepted only from TEACHER-metadata participants; persisted snapshots teacher-only via API with server re-validation; late joiners restore from snapshot + `request-sync`.
+- **Attendance evidence**: `LiveClassParticipant` rows are written ONLY by signed webhook processing; the owner-facing evidence endpoint adds a documented advisory suggestion (≥60% connected → ATTENDED, 30 s–60% → NO_SHOW) — the teacher always confirms or overrides via the unchanged Phase 4A endpoints.
+- **Free-pilot caps** (BEAN product decisions, not provider quotas): `BEAN_LIVEKIT_MONTHLY_BUDGET_MINUTES=4000`, `BEAN_LIVEKIT_MAX_CONCURRENT_PARTICIPANTS=80`, `BEAN_LIVEKIT_MAX_ROOM_PARTICIPANTS=51` — all env-configurable; availability is always `budget − reserved − used`; overtime overruns reduce availability honestly (ADR-021).
+
+## BEAN Trust & Quality (Phase 6)
+
+Trust and quality for BEAN Teach, additive on top of Phase 4A/5 (full guide: docs/PHASE6_TRUST_QUALITY.md). Migration `20261119050000_phase6_trust_quality` adds 7 tables; no existing table changes. There are still no payments/wallets/refunds — the pilot stays free.
+
+- **Server-only domain module** (`src/lib/trust.ts`): statuses/enums, tunable policy constants (edit windows 7 days, text bounds, `QUALITY_MIN_SAMPLE=3`, `RATE_LIMITS` reviews 10 / complaints 10 / appeals 5 / flags 20 per rolling 24 h), pure decision functions (`evaluateReviewEligibility`, `computeTeacherQuality`, `evaluateTrustState`, `deriveComplaintSeverity`) and the shared guards. All eligibility/authorisation decisions run against the session identity; client-supplied ids only NAME targets.
+- **Reviews are booking-verified by construction**: one review per real ATTENDED booking after class end (`ClassReview.bookingId` UNIQUE — racing duplicates hit P2002 → 409); aggregates recompute from authoritative rows (`teacherQualityFor`/`teacherQualityBatch` — FLAGGED/HIDDEN excluded, complaint data structurally not an input, no fabricated zero-star scores below the 3-review sample).
+- **Moderation is human-only with a documented state machine**: PUBLISHED ⇄ FLAGGED (flagging never auto-hides; FLAGGED excluded from aggregates) → HIDDEN (admin only, documented reason) → RESTORE. Complaints never touch review status.
+- **Complaints are private support records**: severity/sensitivity server-derived, append-only `ComplaintEvent` history (duplicate transitions are no-ops), admin notes redacted for the complainant, teachers see an anonymous open count only; RESOLVED/DISMISSED/ESCALATED mirror into `TeachAuditEvent` (`entityType: COMPLAINT`).
+- **Trust enforcement layer** (`trustStateFor` + `evaluateTrustState` — expiry-aware at enforcement time): `PAUSE_LISTINGS` hides browse listings (a `trustActions: { none: … }` filter) and class detail from non-seat-holders (owners/seat-holders keep access) and blocks NEW bookings inside the booking transaction; `SUSPEND_PUBLISHING` blocks class creation and publishing; `EMERGENCY_STOP` blocks live start AND join tokens (the immediate-safeguarding procedure — never automatic, admin-issued). NOTICE/WARNING are record-only; REINSTATE deactivates enforcing rows (individually audited) and records itself inactive. `verificationStatus` stays SEPARATE from trust state.
+- **Appeals close the loop**: `originalDecisionById` is captured server-side from the audit trail, the self-review ban (deciding admin ≠ original decision maker, 403) and assigned-reviewer-only decisions are enforced server-side, and OVERTURNED applies documented restorations (review → PUBLISHED, trust action → deactivated, complaint → re-opened) without ever rewriting history.
+- **Free-pilot protection** (`tests/unit/free-pilot-protection.test.ts`): static scans prove no payment code, no payment env vars, no payment routes, and that adverse decisions never mutate bookings/classes — a negative review alone suspends nobody.
+
+## BEAN Institution & Career (Phase 7)
+
+Institution-to-career ecosystem, additive on top of Phases 2A–6 (full guides: docs/PHASE7_INSTITUTIONS.md, PHASE7_ORGANIZATION_SECURITY.md, PHASE7_ASSIGNMENTS.md, PHASE7_CAREER_PORTFOLIO.md, PHASE7_EMPLOYER_EXCHANGE.md, PHASE7_PRIVACY_AND_SAFEGUARDING.md). Migration `20261119114819_phase7_institution_career` adds 19 tables + 3 nullable `ClassSession` columns (audience/organizationId/organizationGroupId with PUBLIC defaults — the ClassSession change is a table-rebuild that copies every existing row). Still no payments anywhere.
+
+- **Organization-scoped power, never new global roles**: every institution/employer permission derives from `OrganizationMembership` (unique org+student pair, INVITED/ACTIVE/SUSPENDED/LEFT history-preserving states) checked server-side by `requireActiveMembership/requireOrgRole` guards. `Student.role` semantics untouched.
+- **Domain modules**: `src/lib/institution.ts` (org types/verification state machine/membership rules/invitation tokens/private-class evaluator/last-owner protection/org audit helper/rate limits), `src/lib/career.ts` (visibility/eligibility gates/snapshot validation/employer status rules/career audit/rate limits) — pure functions unit-tested, DB access in routes, mirroring the trust-module quartet (`institution-schema.ts`, `institution-dto.ts`, `career-schema.ts`, `career-dto.ts`).
+- **Private classes reuse BEAN Teach + Live Classroom**: discovery filters `audience='PUBLIC'`; detail 404s ineligible callers (seat-holders keep access); booking checks `evaluatePrivateClassAccess` INSIDE the seat-claim transaction; `live/token` re-checks membership per request. Phase 6 trust enforcement continues to apply to institution classes unchanged.
+- **Assignments**: `OrganizationAssignment` + `AssignmentSubmission` (unique pair per student/assignment; resubmission updates the same row; RETURNED rework path; grades private to author + permitted staff; HTTPS-only links).
+- **Career portfolio**: `CareerProfile` (PRIVATE default), `StudentCareerSkill` (server-forced SELF_DECLARED), `CareerProject` (per-project sharing), `CareerCredential` (verified-issuer issuance, audited revocation, student-controlled sharing).
+- **Employer exchange**: `CareerOpportunity` (admin-moderated publication), `CareerApplication` (unique pair; candidate-controlled bounded snapshot frozen at submission; consent-gated contact), consent-gated discovery (DISCOVERABLE + APPROVED eligibility, rate-limited, audited without query strings, opaque candidate refs).
+- **Safeguarding**: `CareerEligibilityReview` — server-side adult-eligibility gate blocking discovery and applications until APPROVED; no identity documents collected; school-age learners are unreachable by employers by construction.
+- **Append-only audit**: `OrganizationAuditEvent` + `CareerAuditEvent` written inside state-change transactions; no cascade deletion of audit history.

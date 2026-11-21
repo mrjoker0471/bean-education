@@ -858,3 +858,1160 @@ export interface PyqImportResult {
   failedCount: number
   errors: { row: number; error: string }[]
 }
+
+// ─── BEAN Teach (Phase 4A): teacher marketplace — free pilot foundation ──────
+
+export type TeachVerificationStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type TeachClassStatus = 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'COMPLETED'
+export type TeachBookingStatus = 'CONFIRMED' | 'CANCELLED' | 'ATTENDED' | 'NO_SHOW'
+
+/** Append-only review/audit trail entry (teacher review, class cancel, attendance). */
+export interface TeachAuditEventDTO {
+  id: string
+  action: string // SUBMIT | RESUBMIT | EDIT_REVIEW | APPROVE | REJECT | PUBLISH_TOGGLE | CLASS_CANCELLED | ATTENDANCE_MARKED
+  detail: string | null
+  actorRole: string
+  createdAt: string
+}
+
+/** The applicant's own view of their teacher application (NOT_APPLIED = null). */
+export interface TeachApplicationDTO {
+  id: string
+  status: TeachVerificationStatus
+  isPublished: boolean
+  teachingName: string
+  headline: string
+  bio: string
+  subjects: string[]
+  levels: string[]
+  languages: string[]
+  qualificationsText: string
+  experienceYears: number
+  portfolioUrl: string | null
+  reviewNote: string | null
+  reviewedAt: string | null
+  history: TeachAuditEventDTO[]
+  canCreateClasses: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TeachApplicationResponse {
+  application: TeachApplicationDTO | null
+}
+
+/** Public teacher profile — approved fields only, never email/contact details. */
+export interface PublicTeacherDTO {
+  id: string
+  teachingName: string
+  headline: string
+  bio: string
+  subjects: string[]
+  levels: string[]
+  languages: string[]
+  experienceYears: number
+  portfolioUrl: string | null
+  classCount: number
+  memberSince: string
+  /** Phase 6 verified quality metrics (server-computed; absent fields = insufficient sample). */
+  quality?: PublicQualityDTO
+}
+
+export interface PublicTeacherDetailDTO extends PublicTeacherDTO {
+  qualificationsText: string
+}
+
+export interface PublicClassDTO {
+  id: string
+  title: string
+  description: string
+  subject: string
+  targetLevel: string
+  language: string
+  durationMinutes: number
+  startsAt: string
+  timeZone: string
+  capacity: number
+  bookedCount: number
+  availableSeats: number
+  minimumStudents: number
+  /** Planned future price in paise — metadata only, never charged in the pilot. */
+  plannedPricePaise: number
+  status: TeachClassStatus
+  /** Phase 7: PUBLIC | ORGANIZATION | GROUP — private institution classes. */
+  audience: string
+  teacher: { id: string; teachingName: string; headline: string }
+  createdAt: string
+}
+
+export interface TeachClassDetailDTO extends PublicClassDTO {
+  teacherQualifications: string
+  teacherExperienceYears: number
+  teacherVerified: boolean
+  /** Phase 6: server-computed verified quality metrics for the teacher. */
+  teacherQuality: PublicQualityDTO
+  isOwner: boolean
+  myBooking: MyBookingDTO | null
+  /** Owner-only: enrolled students (display names — never emails). */
+  ownerBookings: TeachOwnerBookingDTO[]
+}
+
+export interface TeachOwnerBookingDTO {
+  id: string
+  /** Internal student id — owner-only, used to match verified live evidence. */
+  studentId: string
+  status: TeachBookingStatus
+  bookedAt: string
+  cancelledAt: string | null
+  attendanceMarkedAt: string | null
+  studentName: string | null
+}
+
+export interface MyBookingDTO {
+  id: string
+  status: TeachBookingStatus
+  bookedAt: string
+  cancelledAt: string | null
+  attendanceMarkedAt: string | null
+  classSession: {
+    id: string
+    title: string
+    subject: string
+    startsAt: string
+    durationMinutes: number
+    timeZone: string
+    language: string
+    targetLevel: string
+    status: TeachClassStatus
+    teacherName: string
+  }
+}
+
+export interface TeachClassesResponse {
+  classes: PublicClassDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface TeachTeachersResponse {
+  teachers: PublicTeacherDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface TeacherDetailResponse {
+  teacher: PublicTeacherDetailDTO
+  classes: PublicClassDTO[]
+}
+
+export interface MyBookingsResponse {
+  bookings: MyBookingDTO[]
+}
+
+export interface MyClassDTO extends PublicClassDTO {
+  /** Owner-only: enrolled students (display names — never emails). */
+  bookings: TeachOwnerBookingDTO[]
+}
+
+export interface MyClassesResponse {
+  classes: MyClassDTO[]
+}
+
+/** Admin view of an application — full details + applicant account basics. */
+export interface AdminTeachApplicationDTO {
+  id: string
+  verificationStatus: TeachVerificationStatus
+  isPublished: boolean
+  teachingName: string
+  headline: string
+  bio: string
+  subjects: string[]
+  levels: string[]
+  languages: string[]
+  qualificationsText: string
+  experienceYears: number
+  portfolioUrl: string | null
+  reviewNote: string | null
+  reviewedAt: string | null
+  createdAt: string
+  updatedAt: string
+  applicant: { displayName: string | null; email: string; learningLevel: string | null }
+  history: TeachAuditEventDTO[]
+}
+
+export interface AdminTeachApplicationsResponse {
+  applications: AdminTeachApplicationDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+// ─── BEAN Live Classroom (Phase 5): client-safe DTOs ─────────────────────────
+// No LiveKit types are imported here — the browser speaks only these shapes.
+
+export type LiveSessionState = 'NOT_STARTED' | 'LIVE' | 'ENDED' | 'FAILED' | 'INTERRUPTED' | 'READY'
+export type LiveConfigStatus = 'NOT_CONFIGURED' | 'CONFIGURED' | 'CONNECTION_ERROR' | 'AVAILABLE'
+
+export interface LiveStatusDTO {
+  classId: string
+  liveState: LiveSessionState
+  scheduledStart: string
+  scheduledEnd: string
+  windowOpens: string
+  windowCloses: string
+  /** Present only while LIVE — a count, never identities. */
+  participantCount: number | null
+  mayJoin: boolean
+  joinBlockReason: string | null
+  configurationStatus: LiveConfigStatus
+}
+
+export interface LiveStatusResponse {
+  status: LiveStatusDTO
+}
+
+export interface LiveStartResponse {
+  live: {
+    id: string
+    status: string
+    startedAt: string | null
+    reservedParticipantMinutes?: number
+  }
+  alreadyLive?: boolean
+  room?: { maxParticipants: number; emptyTimeoutSeconds: number }
+}
+
+export interface LiveTokenResponse {
+  token: string
+  wsUrl: string
+  room: { name: string; classTitle: string }
+  participant: { identity: string; displayName: string; role: 'TEACHER' | 'STUDENT' }
+  expiresInSeconds: number
+}
+
+export interface LiveEndResponse {
+  live: {
+    id: string
+    status: string
+    endedAt: string | null
+    actualParticipantMinutes: number | null
+  }
+  alreadyEnded?: boolean
+}
+
+/** Verified live attendance evidence shown to the owner teacher. */
+export interface LiveEvidenceDTO {
+  studentId: string
+  displayName: string | null
+  bookingStatus: string
+  firstJoinedAt: string | null
+  lastLeftAt: string | null
+  totalConnectedSeconds: number
+  reconnectCount: number
+  currentlyConnected: boolean
+  suggestedAttendance: 'ATTENDED' | 'NO_SHOW' | null
+}
+
+export interface LiveAttendanceResponse {
+  attendance: LiveEvidenceDTO[]
+  liveSession: { status: string; startedAt: string | null; endedAt: string | null } | null
+  note: string
+}
+
+/** Whiteboard snapshot shapes (mirrors the WB protocol, client-safe). */
+export interface WBStrokeDTO {
+  id: string
+  mode: 'pen' | 'eraser'
+  color: string
+  size: number
+  points: [number, number][]
+}
+
+export interface WBSnapshotDTO {
+  v: 1
+  strokes: WBStrokeDTO[]
+}
+
+export interface LiveWhiteboardResponse {
+  snapshot: WBSnapshotDTO | null
+  version: number
+  updatedAt?: string
+}
+
+// ─── BEAN Trust & Quality (Phase 6): verified reviews, complaints, appeals ───
+
+export interface PublicReviewDTO {
+  id: string
+  rating: number
+  title: string | null
+  reviewText: string
+  createdAt: string
+  editedAt: string | null
+  reviewer: { label: string; displayName: string | null }
+  response: { responseText: string; createdAt: string; editedAt: string | null } | null
+  ownStatus?: 'PUBLISHED' | 'FLAGGED' | 'HIDDEN'
+  ownModerationReason?: string | null
+  canEdit?: boolean
+}
+
+export interface PublicQualityDTO {
+  averageRating: number | null
+  reviewCount: number
+  completedClasses: number
+  completionRate: number | null
+  publishedClasses: number
+  sampleSufficient: boolean
+}
+
+export interface ClassReviewsResponse {
+  reviews: PublicReviewDTO[]
+  /** The requesting student's own eligible booking for this class (to render the composer). */
+  myEligibility: { canReview: boolean; bookingId?: string; reason?: string }
+}
+
+export interface ReviewCreateResponse {
+  review: PublicReviewDTO
+}
+
+export interface TeacherResponseDTO {
+  id: string
+  reviewId: string
+  responseText: string
+  createdAt: string
+  editedAt: string | null
+}
+
+export interface ComplaintEventDTO {
+  id: string
+  action: string
+  detail: string | null
+  actorRole: string
+  createdAt: string
+}
+
+export interface OwnComplaintDTO {
+  id: string
+  category: string
+  severity: string
+  isSensitive: boolean
+  subject: string
+  description: string
+  status: string
+  classSessionId: string | null
+  classTitle: string | null
+  createdAt: string
+  resolvedAt: string | null
+  events: ComplaintEventDTO[]
+}
+
+export interface MyReportsResponse {
+  complaints: OwnComplaintDTO[]
+  appeals: OwnAppealDTO[]
+}
+
+export interface OwnAppealDTO {
+  id: string
+  targetType: string
+  targetId: string
+  reason: string
+  status: string
+  decision: string | null
+  decisionNote: string | null
+  decidedAt: string | null
+  createdAt: string
+  events: ComplaintEventDTO[]
+}
+
+export interface TeacherTrustSummaryResponse {
+  quality: PublicQualityDTO
+  recentReviews: PublicReviewDTO[]
+  responses: TeacherResponseDTO[]
+  /** Anonymous open-complaint count — never complaint content. */
+  openComplaintCount: number
+  restrictions: { id: string; action: string; reason: string; startsAt: string; endsAt: string | null; isActive: boolean; currentlyEnforced: boolean }[]
+  appealStatus: 'NONE' | 'SUBMITTED' | 'UNDER_REVIEW' | 'UPHELD' | 'OVERTURNED' | 'CLOSED'
+}
+
+export interface AdminTrustOverviewResponse {
+  newComplaints: number
+  openInvestigations: number
+  sensitiveOpen: number
+  flaggedReviews: number
+  hiddenReviews: number
+  pendingAppeals: number
+  activeRestrictions: number
+}
+
+export interface AdminReviewModerationItem {
+  id: string
+  rating: number
+  title: string | null
+  reviewText: string
+  status: 'PUBLISHED' | 'FLAGGED' | 'HIDDEN'
+  createdAt: string
+  moderatedAt: string | null
+  moderationReason: string | null
+  classSession: { id: string; title: string } | null
+  teacher: { id: string; teachingName: string } | null
+  reviewer: { id: string; displayName: string | null; email: string }
+  response: { responseText: string } | null
+}
+
+export interface AdminTrustReviewsResponse {
+  reviews: AdminReviewModerationItem[]
+}
+
+export interface AdminComplaintDTO {
+  id: string
+  category: string
+  severity: string
+  isSensitive: boolean
+  subject: string
+  description: string
+  status: string
+  classSessionId: string | null
+  classTitle: string | null
+  createdAt: string
+  resolvedAt: string | null
+  complainant: { id: string; displayName: string | null; email: string }
+  assignedAdminId: string | null
+  teacherProfileId: string | null
+  classBookingId: string | null
+  events: (ComplaintEventDTO & { detailFull: string | null })[]
+}
+
+export interface AdminTrustComplaintsResponse {
+  complaints: AdminComplaintDTO[]
+}
+
+export interface AdminTrustTeacherRow {
+  teacherProfileId: string
+  teachingName: string
+  studentId: string
+  verificationStatus: string
+  isPublished: boolean
+  reviewCount: number
+  averageRating: number | null
+  openComplaints: number
+  totalComplaints: number
+  activeRestrictions: string[]
+  restrictions: { id: string; action: string; reason: string; startsAt: string; endsAt: string | null; isActive: boolean; currentlyEnforced: boolean }[]
+}
+
+export interface AdminTrustTeachersResponse {
+  teachers: AdminTrustTeacherRow[]
+}
+
+export interface AdminAppealDTO {
+  id: string
+  targetType: string
+  targetId: string
+  reason: string
+  status: string
+  decision: string | null
+  decisionNote: string | null
+  decidedAt: string | null
+  createdAt: string
+  appellant: { id: string; displayName: string | null; email: string }
+  originalDecisionById: string | null
+  assignedReviewerId: string | null
+  events: ComplaintEventDTO[]
+}
+
+export interface AdminTrustAppealsResponse {
+  appeals: AdminAppealDTO[]
+}
+
+// ─── Phase 7 — Institution & Career Ecosystem: client DTOs ───────────────────
+// Mirrors the server DTOs (src/lib/institution-dto.ts, src/lib/career-dto.ts).
+// Privacy: member lists carry displayName only; verification admin notes are
+// never sent to clients; snapshots and employer notes never appear in student
+// DTOs.
+
+export type OrgRole =
+  | 'OWNER'
+  | 'ADMIN'
+  | 'INSTRUCTOR'
+  | 'STAFF'
+  | 'LEARNER'
+  | 'CAREER_COORDINATOR'
+  | 'RECRUITER'
+
+export type OrgMembershipStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'LEFT'
+
+export type OrgVerificationStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'SUSPENDED'
+
+export interface PublicOrganizationDTO {
+  id: string
+  name: string
+  displayName: string | null
+  orgType: string
+  description: string | null
+  website: string | null
+  publicContact: string | null
+  country: string | null
+  state: string | null
+  city: string | null
+  slug: string
+  logoText: string | null
+  verificationStatus: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OwnOrganizationDTO extends PublicOrganizationDTO {
+  rejectionReason: string | null
+}
+
+export interface MyMembershipDTO {
+  id: string
+  role: string
+  status: string
+}
+
+export interface MyOrganizationsResponse {
+  organizations: { organization: PublicOrganizationDTO; membership: MyMembershipDTO }[]
+}
+
+export interface OrganizationDetailResponse {
+  organization: OwnOrganizationDTO
+  membership: MyMembershipDTO | null
+}
+
+export interface MemberDTO {
+  id: string
+  role: string
+  status: string
+  student: { displayName: string | null }
+  joinedAt: string | null
+  activatedAt: string | null
+  suspendedAt: string | null
+  leftAt: string | null
+}
+
+export interface OrgMembersResponse {
+  members: MemberDTO[]
+  counts: { total: number; active: number; pending: number; suspended: number }
+}
+
+export interface InvitationDTO {
+  id: string
+  email: string | null
+  intendedRole: string
+  expiresAt: string
+  maxUses: number | null
+  useCount: number
+  acceptedAt: string | null
+  revokedAt: string | null
+  createdAt: string
+  /** Present only in the POST create response — copy-link shown exactly once. */
+  rawToken?: string
+}
+
+export interface OrgInvitationsResponse {
+  invitations: InvitationDTO[]
+}
+
+export interface GroupDTO {
+  id: string
+  name: string
+  academicYear: string | null
+  programmeLabel: string | null
+  batchLabel: string | null
+  sectionLabel: string | null
+  trackLabel: string | null
+  startsAt: string | null
+  endsAt: string | null
+  capacity: number | null
+  status: string
+  activeEnrollmentCount: number
+  createdAt: string
+}
+
+export interface OrgGroupsResponse {
+  groups: GroupDTO[]
+}
+
+/** One recent audit activity row on the institution dashboard. `summary` is
+ *  the audit event's detail string; actor names are display names only. */
+export interface OrgRecentActivityItemDTO {
+  id: string
+  action: string
+  entityType: string
+  entityId: string
+  summary: string | null
+  actorRole: string | null
+  createdAt: string
+  actorDisplayName: string | null
+}
+
+export interface OrgDashboardResponse {
+  organization: PublicOrganizationDTO
+  membership: MyMembershipDTO
+  /** Role echo of the caller's organization membership. */
+  role: string
+  isAdmin: boolean
+  /** OWNER | ADMIN | INSTRUCTOR — mirrors ORG_INSTRUCTOR_ROLES server-side. */
+  isStaff: boolean
+  verification: { status: string; operational: boolean }
+  overview: {
+    activeMembers: number
+    pendingMembers: number
+    activeGroups: number
+    archivedGroups: number
+    upcomingClasses: number
+    publishedAssignments: number
+    closedAssignments: number
+    draftAssignments: number
+    openSubmissions: number
+    submissionsAwaitingGrading: number
+    submissionsGraded: number
+    activeAnnouncements: number
+    announcementsActive: number
+    resourcesTotal: number
+    recentActivity: OrgRecentActivityItemDTO[]
+  }
+}
+
+export interface AssignmentDTO {
+  id: string
+  groupId: string
+  title: string
+  instructions: string | null
+  subjectLabel: string | null
+  submissionType: string
+  status: string
+  dueAt: string | null
+  maxScore: number | null
+  publishedAt: string | null
+  createdAt: string
+}
+
+export interface OrgAssignmentsResponse {
+  assignments: AssignmentDTO[]
+  viewerRole: string
+}
+
+export interface OwnSubmissionDTO {
+  id: string
+  status: string
+  responseText: string | null
+  externalLink: string | null
+  submittedAt: string | null
+  gradeValue: string | null
+  teacherFeedback: string | null
+  gradedAt: string | null
+}
+
+export interface StaffSubmissionDTO extends OwnSubmissionDTO {
+  student: { displayName: string | null }
+}
+
+export interface AssignmentDetailResponse {
+  assignment: AssignmentDTO
+  viewerRole: string
+  mySubmission?: OwnSubmissionDTO | null
+  submissions?: StaffSubmissionDTO[]
+}
+
+export interface AnnouncementDTO {
+  id: string
+  groupId: string | null
+  title: string
+  body: string
+  status: string
+  publishedAt: string | null
+  expiresAt: string | null
+  createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
+}
+
+export interface OrgAnnouncementsResponse {
+  announcements: AnnouncementDTO[]
+  /** True when the viewer is org staff — DRAFT + ARCHIVED items are included. */
+  includeAll: boolean
+}
+
+export interface OrgResourceDTO {
+  id: string
+  groupId: string | null
+  title: string
+  description: string | null
+  url: string
+  createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
+}
+
+export interface OrgResourcesResponse {
+  resources: OrgResourceDTO[]
+}
+
+export interface OrgClassRowDTO {
+  id: string
+  title: string
+  subject: string
+  startsAt: string
+  durationMinutes: number
+  audience: string
+  organizationGroupId: string | null
+  teacherName: string
+  status: string
+}
+
+export interface OrgClassesResponse {
+  classes: OrgClassRowDTO[]
+}
+
+export interface InvitationAcceptResponse {
+  ok: boolean
+  membershipId: string
+  organizationName: string
+  role: string
+  status: string
+}
+
+// ─── Phase 7 — Career portfolio & employer exchange (client DTOs) ────────────
+
+export interface CareerProfileClientDTO {
+  id: string
+  headline: string | null
+  summary: string | null
+  preferredRoleTypes: string[]
+  preferredSkills: string[]
+  preferredLocations: string[]
+  workModes: string[]
+  visibility: string
+  publicSlug: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CareerEligibilityClientDTO {
+  status: string
+  requestedAt: string | null
+  reviewedAt: string | null
+  decisionReason: string | null
+}
+
+export interface CareerProfileResponse {
+  profile: CareerProfileClientDTO
+  eligibility: CareerEligibilityClientDTO
+}
+
+export interface CareerSkillClientDTO {
+  id: string
+  skillName: string
+  proficiency: string | null
+  description: string | null
+  verificationLabel: string
+  sourceRef: string | null
+  position: number
+}
+
+export interface CareerProjectClientDTO {
+  id: string
+  title: string
+  description: string | null
+  category: string | null
+  skillsUsed: string[]
+  projectUrl: string | null
+  startsAt: string | null
+  endsAt: string | null
+  visibility: string
+  status: string
+}
+
+export interface CareerCredentialClientDTO {
+  id: string
+  credentialName: string
+  credentialDescription: string | null
+  issuedDate: string
+  expiryDate: string | null
+  credentialReference: string | null
+  status: string
+  portfolioShared: boolean
+  /** Flattened issuer name for portfolio display (displayName, else official name). */
+  issuerName: string
+  issuer: { id: string; name: string; displayName: string | null; verificationStatus: string }
+}
+
+export interface PublicOpportunityClientDTO {
+  id: string
+  title: string
+  description: string
+  responsibilities: string | null
+  requiredSkills: string[]
+  preferredSkills: string[]
+  location: string | null
+  workMode: string | null
+  opportunityType: string
+  compensationDescription: string | null
+  applicationDeadline: string | null
+  eligibilityDescription: string | null
+  status: string
+  organization: { id: string; name: string; displayName: string | null; verificationStatus: string; logoText: string | null }
+  publishedAt: string | null
+}
+
+export interface OpportunitiesBrowseResponse {
+  opportunities: PublicOpportunityClientDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface OwnApplicationClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  opportunity: { id: string; title: string; opportunityType: string; organizationName: string; applicationDeadline: string | null }
+}
+
+export interface MyApplicationsResponse {
+  applications: OwnApplicationClientDTO[]
+}
+
+export interface ApplicationDetailClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  contactSharingConsent: boolean
+  snapshot: Record<string, unknown>
+  opportunity: {
+    id: string
+    title: string
+    opportunityType: string
+    location: string | null
+    workMode: string | null
+    applicationDeadline: string | null
+  }
+  organization: { id: string; name: string; verificationStatus: string }
+}
+
+export interface ApplicationDetailResponse {
+  application: ApplicationDetailClientDTO
+}
+
+export interface EmployerApplicationClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  candidateVisibleStatusNote: string | null
+  applicant: {
+    headline: string | null
+    summary: string | null
+    skills: unknown
+    projects: unknown
+    credentials: unknown
+  }
+  contact: { email?: string } | null
+  employerNotes: string | null
+}
+
+export interface EmployerOpportunitiesResponse {
+  opportunities: PublicOpportunityClientDTO[]
+  counts: { draft: number; pending: number; published: number; closed: number }
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface EmployerApplicantsResponse {
+  opportunity: { id: string; title: string }
+  applications: EmployerApplicationClientDTO[]
+  counts: Record<string, number>
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface DiscoverableCandidateClientDTO {
+  headline: string | null
+  summaryPreview: string | null
+  preferredRoleTypes: string[]
+  preferredSkills: string[]
+  preferredLocations: string[]
+  workModes: string[]
+  skills: CareerSkillClientDTO[]
+  projects: CareerProjectClientDTO[]
+  credentials: CareerCredentialClientDTO[]
+  candidateRef: string
+}
+
+export interface CandidateSearchResponse {
+  candidates: DiscoverableCandidateClientDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface OwnSafetyReportDTO {
+  id: string
+  targetType: string
+  targetId: string
+  category: string
+  subject: string
+  status: string
+  createdAt: string
+  resolutionVisible: string | null
+}
+
+export interface AdminOrganizationRow extends PublicOrganizationDTO {
+  owner: string | null
+  memberCount: number
+  groupCount: number
+  classCount: number
+}
+
+export interface AdminOrganizationsResponse {
+  organizations: AdminOrganizationRow[]
+  total: number
+}
+
+export interface AdminEligibilityRow {
+  id: string
+  student: { displayName: string | null }
+  status: string
+  requestedAt: string | null
+  reviewedAt: string | null
+  decisionReason: string | null
+}
+
+export interface AdminEligibilityResponse {
+  reviews: AdminEligibilityRow[]
+}
+
+export interface AdminCareerReportRow {
+  id: string
+  reporterId: string
+  targetType: string
+  targetId: string
+  category: string
+  subject: string
+  description: string
+  status: string
+  assignedAdminId: string | null
+  resolutionNote: string | null
+  resolvedAt: string | null
+  createdAt: string
+}
+
+export interface AdminCareerReportsResponse {
+  reports: AdminCareerReportRow[]
+  total: number
+}
+
+// ─── Riishe Deep Research (Phase 3A) ─────────────────────────────────────────
+
+export type ResearchKind = 'EXAM_PYQ' | 'TOPIC' | 'QUESTION' | 'CONCEPT'
+export type ResearchSessionStatus = 'QUEUED' | 'RESEARCHING' | 'COMPLETE' | 'FAILED'
+export type ResearchStageState = 'PENDING' | 'RUNNING' | 'DONE' | 'SKIPPED' | 'FAILED'
+export type ResearchSourceClass =
+  | 'OFFICIAL_AUTHORITY'
+  | 'GOV_INSTITUTIONAL'
+  | 'OPEN_LICENSED'
+  | 'REPUTABLE_SECONDARY'
+  | 'UNVERIFIED'
+export type ResearchSourceStatus = 'DISCOVERED' | 'RETRIEVED' | 'CHECKED' | 'UNAVAILABLE'
+export type ResearchCandidateStatus = 'DISCOVERED' | 'SOURCE_CHECKED' | 'PROMOTED' | 'DISCARDED'
+export type ResearchRightsStatus = 'REFERENCE_ONLY' | 'VERBATIM_PERMITTED'
+
+export interface ResearchProgressStageDTO {
+  stage: string
+  state: ResearchStageState
+  detail?: string
+}
+
+export interface ResearchProgressDTO {
+  stages: ResearchProgressStageDTO[]
+  sourcesDiscovered: number
+  sourcesChecked: number
+  sourcesUnavailable: number
+  searchesUsed: number
+  fetchesUsed: number
+  llmCallsUsed: number
+  candidatesFound: number
+  updatedAt: string
+}
+
+export interface ResearchEvidenceDTO {
+  excerpt: string
+  pageRef?: string
+  subtopic?: string
+  sourceUrl?: string
+}
+
+export interface ResearchFindingDTO {
+  topic: string
+  summary: string
+  citationIds: number[]
+  conflict?: string
+}
+
+export interface ResearchSummaryDTO {
+  text: string
+  citationIds: number[]
+  generatedAt: string
+}
+
+export interface ResearchInputDTO {
+  kind: ResearchKind
+  examSlug?: string
+  examLabel?: string
+  subjectLabel?: string
+  topicLabel?: string
+  yearFrom?: number
+  yearTo?: number
+  question?: string
+  focusNote?: string
+  documentIds?: string[]
+}
+
+export interface ResearchSessionListItemDTO {
+  id: string
+  title: string
+  kind: string
+  status: ResearchSessionStatus
+  statusDetail: string | null
+  createdAt: string
+  finishedAt: string | null
+  sourcesCount: number
+  candidatesCount: number
+  progress: { stages: ResearchProgressStageDTO[]; searchesUsed: number; fetchesUsed: number; llmCallsUsed: number } | null
+}
+
+export interface ResearchSessionListResponse {
+  sessions: ResearchSessionListItemDTO[]
+}
+
+export interface ResearchSourceDTO {
+  id: string
+  url: string
+  title: string | null
+  host: string
+  kind: string
+  documentId: string | null
+  sourceClass: ResearchSourceClass
+  classReason: string | null
+  status: ResearchSourceStatus
+  reachable: boolean | null
+  httpStatus: number | null
+  contentKind: string | null
+  publishedDate: string | null
+  retrievedAt: string | null
+  snippet: string | null
+  evidence: ResearchEvidenceDTO[]
+  conflictFlag: boolean
+  rightsNote: string | null
+  notes: Record<string, unknown> | null
+}
+
+export interface ResearchCandidateDTO {
+  id: string
+  status: ResearchCandidateStatus
+  examLabel: string | null
+  examSlug: string | null
+  subjectLabel: string | null
+  year: number | null
+  sessionLabel: string | null
+  questionNumber: string | null
+  paperTitle: string | null
+  sourceUrl: string
+  sourceTitle: string | null
+  sourcePublisher: string | null
+  sourceClass: string | null
+  retrievedAt: string | null
+  locator: string | null
+  proposedCorrectIndex: number | null
+  hasVerbatim: boolean
+  rightsStatus: ResearchRightsStatus
+  rightsNote: string | null
+  verificationNote: string | null
+  conflictNote: string | null
+  evidence: ResearchEvidenceDTO[]
+  promotedQuestionId: string | null
+}
+
+export interface ResearchSessionDetailDTO {
+  session: {
+    id: string
+    title: string
+    kind: string
+    status: ResearchSessionStatus
+    statusDetail: string | null
+    input: ResearchInputDTO & Record<string, unknown>
+    progress: ResearchProgressDTO | null
+    findings: ResearchFindingDTO[]
+    summary: ResearchSummaryDTO | null
+    followUps: string[]
+    searchesUsed: number
+    fetchesUsed: number
+    llmCallsUsed: number
+    createdAt: string
+    finishedAt: string | null
+    sourcesCount: number
+  }
+  sources: ResearchSourceDTO[]
+  candidates: ResearchCandidateDTO[]
+}
+
+export interface ResearchFollowUpTurnDTO {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  grounding: string | null
+  sources: RiisheChatSourceDTO[]
+  createdAt: string
+}
+
+/** Curator-facing candidate queue row (rights-respecting DTO). */
+export interface PyqCandidateRowDTO {
+  id: string
+  status: ResearchCandidateStatus
+  examLabel: string | null
+  examSlug: string | null
+  subjectLabel: string | null
+  topicLabel: string | null
+  year: number | null
+  sessionLabel: string | null
+  questionNumber: string | null
+  paperTitle: string | null
+  sourceUrl: string
+  sourceTitle: string | null
+  sourcePublisher: string | null
+  sourceClass: string | null
+  retrievedAt: string | null
+  locator: string | null
+  answerKeyUrl: string | null
+  answerKeyRef: string | null
+  proposedCorrectIndex: number | null
+  hasOptions: boolean
+  verbatimText: string | null
+  evidence: ResearchEvidenceDTO[]
+  rightsStatus: ResearchRightsStatus
+  rightsNote: string | null
+  verificationNote: string | null
+  conflictNote: string | null
+  promotedQuestionId: string | null
+  createdAt: string
+}
+
+export interface PyqCandidatesResponse {
+  candidates: PyqCandidateRowDTO[]
+  counts: { DISCOVERED: number; SOURCE_CHECKED: number; PROMOTED: number; DISCARDED: number }
+  limit: number
+  offset: number
+}

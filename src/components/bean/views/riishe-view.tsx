@@ -65,6 +65,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ClipboardList,
+  Compass,
   Download,
   FileText,
   FileWarning,
@@ -199,6 +200,9 @@ function RiisheHub({ initialTopic }: { initialTopic?: string }) {
       <div className="mt-6 flex flex-wrap gap-3">
         <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'materials' })}>
           <Upload className="mr-2 h-4 w-4" aria-hidden /> Upload new material
+        </Button>
+        <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'riishe-research' })}>
+          <Compass className="mr-2 h-4 w-4" aria-hidden /> Deep Research
         </Button>
         <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'bean' })}>
           <Sparkles className="mr-2 h-4 w-4" aria-hidden /> Open BEAN Intelligence

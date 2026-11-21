@@ -23,9 +23,10 @@ import { safeParse } from '@/lib/serialize'
 import { processDocument } from './pipeline'
 import { generateTestJob } from './generate'
 import { explainAttemptJob } from './explain'
+import { runResearchJob } from './research'
 
-export type JobKind = 'DOCUMENT_ANALYSIS' | 'TEST_GENERATION' | 'EXPLANATION'
-export type QuotaKind = 'analyse' | 'generate' | 'explain'
+export type JobKind = 'DOCUMENT_ANALYSIS' | 'TEST_GENERATION' | 'EXPLANATION' | 'DEEP_RESEARCH'
+export type QuotaKind = 'analyse' | 'generate' | 'explain' | 'research'
 
 /** Legacy constant kept for domain-row recovery semantics (12 min). */
 export const STALE_MS = 12 * 60_000
@@ -39,11 +40,13 @@ export const QUOTA_LIMITS: Record<QuotaKind, number> = {
   analyse: 30,
   generate: 12,
   explain: 6,
+  research: 6,
 }
 
 function kindToQuota(kind: JobKind): QuotaKind {
   if (kind === 'DOCUMENT_ANALYSIS') return 'analyse'
   if (kind === 'TEST_GENERATION') return 'generate'
+  if (kind === 'DEEP_RESEARCH') return 'research'
   return 'explain'
 }
 
@@ -221,6 +224,7 @@ async function execJob(job: ClaimableJob): Promise<void> {
   }
   if (job.kind === 'TEST_GENERATION') return generateTestJob(job.refId)
   if (job.kind === 'EXPLANATION') return explainAttemptJob(job.refId, job.ownerId)
+  if (job.kind === 'DEEP_RESEARCH') return runResearchJob(job.refId)
   throw new Error(`Unknown job kind: ${job.kind}`)
 }
 
@@ -271,6 +275,11 @@ async function markDomainFailed(kind: string, refId: string, error?: string): Pr
     } else if (kind === 'TEST_GENERATION') {
       await db.riisheTest.updateMany({
         where: { id: refId, status: { in: ['QUEUED', 'GENERATING'] } },
+        data: { status: 'FAILED', statusDetail: detail },
+      })
+    } else if (kind === 'DEEP_RESEARCH') {
+      await db.researchSession.updateMany({
+        where: { id: refId, status: { in: ['QUEUED', 'RESEARCHING'] } },
         data: { status: 'FAILED', statusDetail: detail },
       })
     }
@@ -325,6 +334,32 @@ export async function recoverStaleTests(ids?: string[]) {
       data: {
         status: 'FAILED',
         statusDetail: 'Generation was interrupted (the server restarted or the job timed out). You can start a new one.',
+      },
+    })
+  }
+}
+
+/** Phase 3A: research sessions stuck mid-run without a live job → honest FAILED. */
+export async function recoverStaleResearch(ids?: string[]) {
+  const cutoff = new Date(Date.now() - STALE_MS)
+  const where = {
+    status: { in: ['QUEUED', 'RESEARCHING'] },
+    updatedAt: { lt: cutoff },
+    ...(ids && ids.length ? { id: { in: ids } } : {}),
+  }
+  const stale = await db.researchSession.findMany({ where, select: { id: true } })
+  for (const s of stale) {
+    const live = await db.riisheJob.findFirst({
+      where: { kind: 'DEEP_RESEARCH', refId: s.id, status: { in: ['QUEUED', 'RUNNING'] } },
+      select: { id: true },
+    })
+    if (live) continue
+    await db.researchSession.update({
+      where: { id: s.id },
+      data: {
+        status: 'FAILED',
+        statusDetail: 'Research was interrupted (the server restarted or the run timed out). You can start a new run.',
+        finishedAt: new Date(),
       },
     })
   }

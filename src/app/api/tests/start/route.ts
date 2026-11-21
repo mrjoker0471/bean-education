@@ -21,11 +21,14 @@ interface TestConfig {
   negativeMark: number
 }
 
-// Phase 2A PYQ review workflow: REJECTED PYQ rows must never be selected for a
-// test (unverified PYQ rows may still appear — they are simply not yet
-// reviewed; rejected ones are confirmed wrong/unsuitable by a reviewer).
-// Applied to every availability count and question selection below.
-const SELECTABLE_QUESTION = { verificationStatus: { not: 'REJECTED' } } as const
+// Phase 2A PYQ review workflow, tightened in Phase 3A (safeguard alignment):
+// UNVERIFIED and REJECTED PYQ rows must never be selected for a practice test —
+// verified practice draws only from VERIFIED rows (ORIGINAL rows are
+// author-verified by default). This makes the runtime match the documented
+// curator policy ("unverified rows are invisible to students") and the Phase 3A
+// rule that research candidates can never enter practice before a curator
+// verifies them. Applied to every availability count and selection below.
+const SELECTABLE_QUESTION = { verificationStatus: 'VERIFIED' } as const
 
 // Honour the exam's REAL marking scheme & pace when its stage pattern defines
 // one (e.g. CUET UG: +5 correct, −1 wrong, 50 Q / 60 min → 1.2 min per question).

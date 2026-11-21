@@ -17,8 +17,11 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 | Durable AI job queue + hourly quotas | Working (Phase 2A) |
 | PYQ ingestion rules (validation, dedupe, review gating) | Working (Phase 2A foundation, curator-gated in 2B) |
 | On-device AI (browser inference) | Capability detection + consent-gated adapter (foundation) |
-| BEAN Teach (teachers, classes, pilots) | Phase 4 (planned) |
-| Live classroom | Phase 5 (planned) |
+| BEAN Teach — teacher marketplace foundation (apply → admin approval → classes → free bookings) | Working (Phase 4A, merged; free pilot — planned price is metadata only, no payments) |
+| Live classroom — real LiveKit rooms behind `#/classroom/:id` (auth, tokens, whiteboard, verified attendance, usage budget) | Merged via PR #4 (Phase 5; live-only, never recorded; needs LiveKit Cloud credentials — see docs/PHASE5_LIVEKIT_SETUP.md) |
+| Trust & quality — verified reviews tied to real ATTENDED bookings, teacher responses, private complaints & investigations, trust actions (pause/suspend/emergency stop) with enforcement, appeals with a self-review ban (`#/trust-policy`, `#/my-reports`, `#/admin/trust`) | Merged via PR #5 (Phase 6; human-only moderation — a negative review never triggers anything automatic; complaints never change ratings; still no payments) |
+| Institution & career — multi-organization workspace with scoped memberships, secure invitations, groups/batches, private institution classes inside BEAN Teach + Live Classroom, assignments with private grading, student-owned career portfolio with truthful labels, verified-employer opportunities with candidate-controlled snapshots, consent-gated candidate discovery, adult-eligibility safeguard (`#/institution`, `#/career`, `#/admin/organizations`, `#/admin/career`) | Merged via PR #6, merge `129ab09` (Phase 7); full website UI completion merged via PR #7, merge `26dd3b8` (powers stay organization-scoped — never new global roles; discovery/applications blocked until the adult-eligibility review is APPROVED; still no payments) |
+| Riishe Deep Research — source-grounded research workspace (`#/riishe/research`): planned searches, SSRF-guarded retrieval, evidence-aware source classification, cited findings with conflict/missing-evidence honesty, research follow-up chat, and exam-aware historical-question discovery feeding curator-gated PYQ candidates | Working on branch `feat/bean-riishe-phase3a-deep-research` (Phase 3A; web_search quotas respected; AI never verifies — only PYQ_CURATOR review can; still no payments) |
 | Payments (Razorpay) | Final milestone only — intentionally absent |
 
 ## Documentation
@@ -31,6 +34,21 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 - docs/PHASE2B_RESULTS.md — executed test/verification numbers (82 unit tests, 37/37 API E2E, browser E2E)
 - docs/PHASE2B_SECURITY.md — role model, provisioning & recovery procedures
 - docs/PHASE2B_PYQ_CURATOR.md — curator handbook (import format, review workflow, limitations)
+- docs/BEAN_TEACH_IMPLEMENTATION.md — teacher marketplace guide (flows, state machines, API)
+- docs/BEAN_TEACH_DATABASE.md — the 4 new models, migration & baselining, seat-count invariants
+- docs/BEAN_TEACH_SECURITY.md — authorization model, endpoint matrix, privacy & abuse controls
+- docs/BEAN_TEACH_RESULTS.md — executed test/verification numbers (158 unit tests, live-server race evidence, browser E2E)
+- docs/PHASE5_LIVE_CLASSROOM.md — live classroom guide (lifecycle, tokens, whiteboard protocol, reconnection)
+- docs/PHASE5_LIVEKIT_SETUP.md — how the owner enables LiveKit Cloud (env vars, webhook, troubleshooting)
+- docs/PHASE5_SECURITY.md — token grants, webhook verification, privacy, no-recording policy
+- docs/PHASE5_USAGE_BUDGET.md — the free-pilot participant-minute budget and its atomic enforcement
+- docs/PHASE5_RESULTS.md — executed test/verification numbers (238 unit tests, browser E2E, honest gaps)
+- docs/PHASE6_TRUST_QUALITY.md — trust & quality guide (state machines, API surface, enforcement matrix, audit trail, limitations)
+- docs/PHASE6_REVIEW_POLICY.md — verified-review rules (eligibility matrix, moderation state machine, edit windows, aggregates)
+- docs/PHASE6_COMPLAINTS_AND_APPEALS.md — complaints & appeals handbook (categories, severity, what each party sees, admin actions, self-review ban)
+- docs/PHASE6_SAFEGUARDING.md — sensitive-category handling, EMERGENCY_STOP procedure, privacy controls
+- docs/PHASE6_SECURITY.md — authorization matrix, rate limits, XSS/privacy posture, free-pilot protection tests
+- docs/PHASE6_RESULTS.md — executed test/verification numbers (349 unit tests, browser E2E, honest gaps)
 - docs/DECISIONS.md — decision log (auth, data, git history, etc.)
 - CHANGELOG.md — notable changes
 

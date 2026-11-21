@@ -430,3 +430,49 @@ Work Log:
 
 Stage Summary:
 - Signed-in students now have a complete server-side data foundation: profile read/update with defensive JSON parsing, CRUD study goals with catalogue cross-validation and a 50-goal cap, and a single honest dashboard aggregate over studentId-owned rows only. Exact DTO shapes are documented in agent-ctx/11-a-zai-code.md for the UI-wiring agent (task 11-b) — StudentProfileDTO, GoalDTO (+ eager exam/topic labels), DashboardResponse.
+
+---
+Task ID: phase7-ui-completion (final session)
+Agent: Z.ai Code
+Task: PHASE 7 UI COMPLETION & WORKFLOW POLISH — final gap closure, evidence, delivery prep.
+
+Work Log:
+- Resumed the 11-commit branch (feat/bean-phase7-ui-completion, base origin/main 129ab09). Found 3 referenced-but-untracked admin career queue routes; verified against schema (CareerEligibilityReview/CareerOpportunity/CareerSafetyReport) + lib exports, tsc-clean → committed as 0064dfe so a fresh checkout resolves the admin center imports.
+- Full §16 verification re-run on the final tree: bun test 705 pass / 0 fail (44 files, 4134 assertions; Phase 2A/2B/4A/5/6/7 baselines green); bunx tsc --noEmit clean; bun run lint clean; db:status → 8 migrations present (sandbox DB provisioned via db push, no _prisma_migrations ledger — pre-existing condition, no reset performed).
+- Browser E2E on next dev -p 3100 (worktree DB) with API-registered fixtures (uiadmin/uiemployer/uicandidate; admin granted only via scripts/grant-role.ts): completed the missing evidence legs end-to-end — owner "Submit for verification" → admin approve (evidence dialog + decision dialog with note) → eligibility APPROVED → employer PUBLISHED opportunity after moderation → candidate DISCOVERABLE portfolio + consent-based application (email consent OFF) → employer applicants ("no contact sharing") + status change with candidate-visible vs private notes → candidate sees only the visible note. Screenshot 12-admin-verification.png + 11-employer-applicants.png captured; all 12 required workflow shots now present.
+- 4-breakpoint sweep (1440 via shots 01–12 + 1280/768/390 for career home and opportunity discovery) — layout and sticky footer hold; agent-browser console/page error audit: 0 errors across all sessions.
+- Privacy/authorization assertions observed live: non-admin gate on #/admin/organizations; DRAFT org offers no admin decision (legal transitions only from PENDING_REVIEW); snapshot immutability copy + payload preview; employer notes never reach candidate DOM; org-scoped employer workspace copy.
+- Docs: docs/PHASE7_UI_COMPLETION_RESULTS.md (commit-level results incl. test/verification numbers and git-hygiene statement); local evidence hub agent-ctx/e2e/REPORT.md (screenshots index + server-state confirmations; agent-ctx is gitignored by design).
+Stage Summary:
+- All Phase 7 workflows are now demonstrably usable through the website with real API data and no fabricated metrics; the branch carries 13 commits (11 functional/test + results doc + worklog) and is ready for the user to open the PR — nothing merged by the agent, main untouched.
+
+Agent: Z.ai Code
+Task: PHASE 7 UI COMPLETION — post-reset re-verification pass.
+
+Work Log:
+- Sandbox was reset between sessions (SSH material + phase7-wt worktree lost). Re-verified the entire §16 suite on the final tree from scratch: bun test 705 pass / 0 fail (44 files, 4134 assertions), bunx tsc --noEmit clean, bun run lint clean, db:status unchanged (8 migrations listed; sandbox DB provisioned via db push — pre-existing condition, no reset).
+- Secrets scan re-run on the tracked diff: no token/key/password patterns, no .env/.db/key files.
+- Browser smoke re-run end-to-end on next dev -p 3100 with the worktree DB and API-registered fixtures: signed-out admin gate, admin sign-in → Career trust & moderation (3 queues) + Organization verification (honest empty state), employer sign-in → Beanworks UI Verify workspace, candidate sign-in → career hub + opportunity discovery filters. 4 fresh screenshots (agent-ctx/e2e/smoke-0*.png, local-only). Console/page errors: 0.
+- Diagnosed and documented a dev-access artifact (not a code bug): page served at 127.0.0.1:<port> → browser Origin host ≠ Next-dev normalized req.url host (localhost) → sameOrigin CSRF-lite correctly rejects with 403. Accessing via http://localhost:<port> works. CSRF check left unchanged.
+- Push re-attempted via the ssh2 transport to ssh.github.com:443 — transport still reaches GitHub and fails exactly at public-key auth: the regenerated deploy key (bean-phase7-ui-completion-push@2026-11-20) still needs registration on GitHub. Stopped before PR creation per spec §17.
+Stage Summary:
+- Delivery re-verified end-to-end post-reset: 14 commits on feat/bean-phase7-ui-completion (13 prior + this re-verification record). Nothing merged, main untouched, branch ready for the user to push/open the PR once the deploy key is registered.
+
+---
+
+Agent: Z.ai Code
+Task ID: phase3a-deep-research
+Task: PHASE 3A — Riishe Deep Research & verified PYQ discovery (audit → implementation → verification → delivery).
+
+Work Log:
+- Baseline verified: origin/main at 26dd3b8 (PR #7 merge) via anonymous HTTPS; branch feat/bean-riishe-phase3a-deep-research cut in a fresh worktree (/home/z/p3a-wt) with an ISOLATED database (main checkout and its db untouched; a stray additive push to the main db occurred before the shell-level DATABASE_URL override was discovered — purely additive DDL, no data loss, documented).
+- Mandatory audit executed first (3 parallel read-only agents + line-level reads): gap matrix at agent-ctx/GAP_MATRIX.md covering existing implementations (ai wrapper, fence, web_search, durable jobs, quotas, PYQ import/review contracts, roles, SSRF precedent, UI tokens), genuine gaps, additive plan, tests, and security implications.
+- Schema: backup taken, then ONE additive migration 20261120153000_phase3a_deep_research — ResearchSession/ResearchSource/ResearchPyqCandidate tables, +6 nullable provenance columns on Question, +RiisheChatTurn.researchSessionId; SQL inspected (ADD COLUMN/CREATE TABLE/CREATE INDEX only).
+- Implemented: url-guard.ts (layered SSRF policy), research.ts (staged pipeline with deps seam, budgets, honest failures, verbatim-contained evidence, authority-domain AND content classification, rights-aware candidate extraction), research-followup.ts (dossier-grounded chat with citation verification), pyq-candidates.ts (curator-only promotion mirroring the import contract, always UNVERIFIED), 6 new API routes, job/quota wiring (DEEP_RESEARCH/research 6h), claim-guest extension, research view + workspace UI, PYQ Studio Candidates tab, chat panel research scope.
+- Safeguard alignment (strengthening only): SELECTABLE_QUESTION → VERIFIED-only practice; sameOrigin added to pyq import/review + candidate routes; review decision + PyqReviewEvent now atomic. Audit-found runtime/doc mismatch documented in DECISIONS-adjacent results doc.
+- Verification: bun test 777 pass / 0 fail (51 files, 4442→4470 assertions; 705 baseline kept green); tsc clean; lint clean; db:status shows 9 migrations (sandbox bookkeeping quirk unchanged, no resets); secrets scan clean (env/db/logs/agent-ctx verified git-ignored).
+- Live E2E (real AI + real web_search): three real runs. Run A exposed a genuine stale-array bug (check stage skipped) → fixed + covered by tests. Run C: COMPLETE, all stages DONE, 4 verbatim evidence excerpts, findings with real citations, honest missing-evidence + candidate-eligibility states, follow-up chat live-verified (grounding document, [3] citation). upsc.gov.in fetches honestly UNAVAILABLE (authority blocks fetchers) — noted as a real-world limitation. 10 screenshots + error audit (0 console/page errors) in agent-ctx/e2e/.
+- Module-mock leak avoided by design: pipeline + follow-up take collaborators through deps seams (Phase 7 lesson applied); only @/lib/db is ever mocked.
+
+Stage Summary:
+- Phase 3A implemented additively inside the existing app; nothing rebuilt, no microservices, no new AI providers, no payments. Branch carries the implementation + docs (PHASE3A_DEEP_RESEARCH/SECURITY/RESULTS, roadmap/README status corrections incl. PR #6 merge 129ab09 and PR #7 merge 26dd3b8). Ready for push + user-opened PR; nothing merged by the agent.

@@ -26,6 +26,10 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 
 ## Phase 4 — BEAN Teach (teacher marketplace)
 
+**Phase 4A (COMPLETE 2026-11-18):** marketplace foundation shipped on branch `feat/bean-teach-marketplace` — teacher application lifecycle + admin review queue (teacher capability is an APPROVED `TeacherProfile`, not a new role), teacher dashboard (public profile, class creation/publish/unpublish/cancel, attendance marking after class end), student marketplace (`#/classes` discovery with filters + free reservations with atomic seat claiming + My bookings), append-only `TeachAuditEvent` trail. Free pilot only: the planned price is stored as metadata and never charged; no payments exist. Results and evidence: docs/BEAN_TEACH_RESULTS.md; guide: docs/BEAN_TEACH_IMPLEMENTATION.md.
+
+**Phase 4B candidates (not scheduled):** remaining Phase 4 refinements — quality/reviews/attendance improvements (verified reviews and teacher quality indicators otherwise remain Phase 6). The live classroom is Phase 5, not 4B. The bullets below describe the full phase scope; 4A covered the marketplace foundation only.
+
 - Teacher registration, profile, identity/qualification verification workflows.
 - Teaching subjects, class creation (duration, price metadata, capacity, minimum enrolment), scheduling, student discovery.
 - Free pilot reservations, booking history, teacher dashboard.
@@ -33,18 +37,28 @@ Milestone-by-milestone plan. Each phase: inspect → plan → implement approved
 
 ## Phase 5 — Live classroom
 
-- Video service integration within a small dev/test allowance.
-- Secure classroom access, teacher/student controls, audio/video, screen share, whiteboard, attendance, session completion, connection-failure handling.
-- Hard usage caps tied to the free allowance.
+**Phase 5 (COMPLETE 2026-11-18):** real live classrooms shipped on branch `feat/bean-live-classroom-phase-5` — LiveKit Cloud realtime media behind `#/classroom/:classId` with server-authorised access (role re-derived per token request; students need a confirmed booking, teachers an approved profile), teacher start/end with an atomic monthly participant-minute budget (BEAN caps: 4000 min/month, 80 concurrent, 51/room — reserved before the room starts, released/reconciled exactly once), teacher-only screen share, collaborative whiteboard (teacher-authored, validated, late-join restore), raise hand, participant moderation (audited), pre-join device consent screen, reconnection handling with honest retry, and webhook-verified attendance evidence feeding the existing Phase 4A attendance flow as an advisory suggestion. Live-only: no recording, egress, transcription or replay (ADR-020). Results and evidence: docs/PHASE5_RESULTS.md; guide: docs/PHASE5_LIVE_CLASSROOM.md; operator setup: docs/PHASE5_LIVEKIT_SETUP.md.
 
 ## Phase 6 — Trust and quality
+
+**Phase 6 (COMPLETE 2026-11-19):** trust & quality shipped on branch `feat/bean-trust-quality-phase-6` — verified reviews tied to one real ATTENDED booking (server-evaluated eligibility, one-per-booking at the DB level, 7-day author edit window, "Verified student" attribution with consent-gated display names), teacher responses (one per review), human-only review moderation (flag → stays visible while under moderation but excluded from aggregates; admin HIDE/RESTORE with documented reasons), server-computed quality metrics with an honest "New teacher — not enough reviews yet" below the 3-review sample, private complaints (11 categories, server-derived severity, legitimate-relationship rule, append-only case history, teachers see an anonymous open count only) with restricted safeguarding/harassment/discrimination handling, admin trust actions (NOTICE → EMERGENCY_STOP) enforced in the class/book/publish/live routes, and appeals with a server-captured original decision maker and a self-review ban. A negative review never automatically triggers a refund, suspension, rejection, booking cancellation or auto-hidden review; filing a complaint never creates a trust action. Refund policies remain Phase 8 (the pilot stays free — no payments exist). Results and evidence: docs/PHASE6_RESULTS.md; guides: docs/PHASE6_TRUST_QUALITY.md, docs/PHASE6_REVIEW_POLICY.md, docs/PHASE6_COMPLAINTS_AND_APPEALS.md, docs/PHASE6_SAFEGUARDING.md, docs/PHASE6_SECURITY.md.
 
 - Verified reviews, teacher quality indicators, complaints, teacher responses, admin investigations, appeals, published refund policies, safeguarding.
 - A negative review never automatically triggers a refund.
 
 ## Phase 7 — Institution and career features
 
-- School, college, coaching-centre, professional-course and skill-learning workflows.
+**Phase 7 (COMPLETE 2026-11-20):** institution & career shipped on `feat/bean-institution-career-phase-7` and **merged via PR #6 (merge `129ab09`)**; the full website-UI completion followed on `feat/bean-phase7-ui-completion`, **merged via PR #7 (merge `26dd3b8`)**.
+
+- Institution workspace: multi-organization registration + human verification, scoped memberships, secure copy-link invitations, groups/batches/cohorts, private institution classes inside BEAN Teach + Live Classroom (audience-gated discovery/booking/live tokens), assignments with private grading, in-app announcements + HTTPS resources, institution dashboard with privacy-bounded analytics.
+- Student career portfolio: private-by-default profiles, truthful skill labels, per-project sharing, institution-issued credentials with student-controlled sharing.
+- Employer exchange: verified-employer listings with admin moderation, candidate-controlled application snapshots (explicit consent for contact), one-application-per-opportunity, withdrawal, consent-gated + rate-limited candidate discovery (no AI scoring).
+- Safeguarding: server-enforced adult-eligibility review blocks discovery/applications until APPROVED; no identity documents collected; DPDP questions flagged for professional review (docs/PHASE7_PRIVACY_AND_SAFEGUARDING.md).
+- Still no payments — free-pilot protection tests extended to Phase 7.
+
+## Phase 3A — Riishe Deep Research & verified PYQ discovery
+
+**Phase 3A (IN PROGRESS — not complete until implementation + verification finish):** a genuine research capability inside the existing Riishe workspace — planned searches over the configured `web_search` integration (quotas respected, honest unavailability), SSRF-guarded source retrieval, evidence-aware source classification (domain hint AND content check — never one alone), findings organised by topic with verbatim-contained evidence excerpts, conflicting-source warnings, explicit missing-evidence states, a cited research summary, follow-up chat grounded in the session dossier, and exam-aware historical-question discovery. Discovered questions become `ResearchPyqCandidate` rows that only an authorised PYQ_CURATOR/ADMIN can promote into the existing review queue (as UNVERIFIED); only the existing curator review can ever verify. Rights policy: verbatim storage only with a detected licence signal; otherwise locator + minimal evidence excerpts. Deferred: Phase 8 payments.
 
 ## Phase 8 — Final monetisation (ONLY after product validation)
 

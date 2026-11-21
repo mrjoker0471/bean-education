@@ -185,6 +185,14 @@ model Question {
   reviewedAt         DateTime?
   reviewNote         String? // reviewer's verification note
 
+  // ── Web-discovery provenance (Phase 3A, additive; imports leave these null) ──
+  sessionLabel      String? // exam session/shift when verifiable (e.g. "July shift 1")
+  questionNumber    String? // question number / exact locator on the source paper ("Q.47")
+  sourceUrl         String? // URL of the source the question was discovered in
+  sourcePublisher   String? // publishing authority of the source
+  retrievedAt       DateTime? // when the source was retrieved by the research pipeline
+  answerKeyRef      String? // answer-key citation (URL and/or locator) that supports the answer
+
   @@index([examId])
   @@index([topicId])
   @@index([canonicalSlug])
@@ -354,6 +362,7 @@ model RiisheChatTurn {
   documentId      String?
   attemptId       String?
   questionId      String?
+  researchSessionId String? // Phase 3A: set when this turn belongs to a research follow-up thread
   role            String // user | assistant
   content         String
   pagesCitedJson  String? // JSON number[]
@@ -365,6 +374,7 @@ model RiisheChatTurn {
   @@index([studentId, createdAt])
   @@index([documentId])
   @@index([attemptId, questionId])
+  @@index([researchSessionId, createdAt])
 }
 
 // ─── Student identity (Phase 2A) ────────────────────────────────────────────
@@ -389,6 +399,27 @@ model Student {
   updatedAt       DateTime  @updatedAt
   sessions        Session[]
   goals           StudyGoal[]
+  // BEAN Teach (Phase 4A): teacher capability = an approved TeacherProfile,
+  // NOT a new role — one account can be student, curator/admin and teacher.
+  teacherProfile  TeacherProfile?
+  classBookings   ClassBooking[]
+  // BEAN Live Classroom (Phase 5): per-person verified attendance evidence.
+  liveParticipants LiveClassParticipant[]
+  // BEAN Trust & Quality (Phase 6)
+  reviewsWritten    ClassReview[]
+  complaintsFiled   TeachComplaint[]
+  appealsFiled      TeachAppeal[]
+  // BEAN Institution & Career (Phase 7) — all powers stay organization-scoped;
+  // these relations NEVER grant a new global role.
+  organizationMemberships OrganizationMembership[]
+  assignmentSubmissions   AssignmentSubmission[]
+  careerProfile           CareerProfile?
+  careerSkills            StudentCareerSkill[]
+  careerProjects          CareerProject[]
+  careerCredentials       CareerCredential[]
+  careerEligibilityReview CareerEligibilityReview?
+  careerApplications      CareerApplication[]
+  careerSafetyReports     CareerSafetyReport[]
 
   @@index([role])
 }
@@ -501,4 +532,966 @@ model JobQuota {
 
   @@unique([ownerKey, kind, windowKey])
   @@index([windowStart])
+}
+
+// ─── BEAN Teach (Phase 4A): teacher marketplace — free pilot foundation ──────
+// Teachers are NOT a new role. The teacher capability is an APPROVED
+// TeacherProfile attached to the existing authenticated Student, so the single
+// Student.role field (STUDENT | PYQ_CURATOR | ADMIN) is untouched and accounts
+// that are also PYQ curators or administrators stay valid. All classes in this
+// milestone are FREE PILOTS: no orders, payments, wallets or payouts exist.
+// `plannedPricePaise` is stored as metadata for a future milestone only.
+
+model TeacherProfile {
+  id                 String    @id @default(cuid())
+  studentId          String    @unique // one profile per Student
+  teachingName       String // public teaching name — never a real-name requirement
+  headline           String
+  bio                String
+  subjectsJson       String // JSON string[]
+  levelsJson         String // JSON string[] — education levels served
+  languagesJson      String // JSON string[]
+  qualificationsText String // qualification details reviewed by admins
+  experienceYears    Int
+  portfolioUrl       String? // optional public portfolio / professional profile URL
+  // Verification state machine: PENDING → APPROVED | REJECTED. Resubmission
+  // after rejection — or a verification-relevant profile edit by an APPROVED
+  // teacher — returns the profile to PENDING (re-review). Only APPROVED +
+  // isPublished profiles appear in the public marketplace.
+  verificationStatus String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  isPublished        Boolean   @default(false) // set true automatically on approval; teacher can unpublish
+  reviewedBy         String? // Student.id of the admin who decided the current state
+  reviewedAt         DateTime?
+  reviewNote         String? // latest decision note — PRIVATE (applicant + admins only)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  student            Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classSessions      ClassSession[]
+  // BEAN Trust & Quality (Phase 6)
+  classReviews       ClassReview[]
+  reviewResponses    TeacherReviewResponse[]
+  trustActions       TrustAction[]
+  complaintsAbout    TeachComplaint[]
+
+  @@index([verificationStatus])
+}
+
+// Append-only audit trail for BEAN Teach. One row per decision: teacher
+// review (TEACHER_PROFILE), class cancellation (CLASS_SESSION) and attendance
+// marking (CLASS_BOOKING). Rows are NEVER updated or deleted — a re-review
+// appends a new event, so earlier decisions remain provable.
+// (Polymorphic by design: entityId is a plain string, no FK on purpose.)
+model TeachAuditEvent {
+  id         String   @id @default(cuid())
+  entityType String // TEACHER_PROFILE | CLASS_SESSION | CLASS_BOOKING
+  entityId   String // TeacherProfile.id | ClassSession.id | ClassBooking.id
+  actorId    String // Student.id of the actor (applicant / teacher / admin)
+  actorRole  String // role held at decision time (STUDENT | PYQ_CURATOR | ADMIN)
+  action     String // SUBMIT | RESUBMIT | EDIT_REVIEW | APPROVE | REJECT | CLASS_CANCELLED | ATTENDANCE_MARKED
+  detail     String? // context (e.g. rejection reason, attendance transition)
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model ClassSession {
+  id                String    @id @default(cuid())
+  teacherProfileId  String
+  title             String
+  description       String
+  subject           String
+  targetLevel       String // education level the class is aimed at
+  language          String
+  durationMinutes   Int // 60..360 in 30-minute increments (enforced server-side)
+  startsAt          DateTime // stored in UTC; display renders in `timeZone`
+  timeZone          String // IANA time zone selected by the teacher
+  capacity          Int // 1..50
+  minimumStudents   Int // 1..capacity
+  // Seats currently held = bookings whose status is NOT CANCELLED. Maintained
+  // ONLY inside transactions with conditional updates (see
+  // src/lib/teach-booking.ts) so concurrent last-seat bookings cannot overrun.
+  bookedCount       Int       @default(0)
+  // METADATA ONLY during the free pilot — never charged, no order is created.
+  plannedPricePaise Int       @default(0)
+  status            String    @default("DRAFT") // DRAFT | PUBLISHED | CANCELLED | COMPLETED
+  publishedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  teacherProfile    TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  bookings          ClassBooking[]
+  // BEAN Live Classroom (Phase 5): one primary live session per scheduled class.
+  liveSession       LiveClassSession?
+  // BEAN Trust & Quality (Phase 6)
+  reviews           ClassReview[]
+  // BEAN Institution (Phase 7): private institution classes. Nullable + safe
+  // defaults — every existing class stays PUBLIC and unchanged.
+  audience            String?     @default("PUBLIC") // PUBLIC | ORGANIZATION | GROUP
+  organizationId      String?
+  organizationGroupId String?
+  organization        Organization?        @relation(fields: [organizationId], references: [id])
+  organizationGroup   OrganizationGroup?   @relation(fields: [organizationGroupId], references: [id])
+
+  @@index([status, startsAt])
+  @@index([teacherProfileId, startsAt])
+  @@index([organizationId, audience])
+}
+
+model ClassBooking {
+  id                 String    @id @default(cuid())
+  classSessionId     String
+  studentId          String
+  status             String    @default("CONFIRMED") // CONFIRMED | CANCELLED | ATTENDED | NO_SHOW
+  bookedAt           DateTime  @default(now())
+  cancelledAt        DateTime?
+  attendanceMarkedAt DateTime? // set when the teacher marks ATTENDED / NO_SHOW
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  classSession       ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  student            Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // BEAN Trust & Quality (Phase 6): a review is tied to exactly one booking.
+  review             ClassReview?
+
+  // One booking record per student per class — rebooking after cancellation
+  // re-activates the SAME row (never a duplicate), keeping history intact.
+  @@unique([classSessionId, studentId])
+  @@index([classSessionId, status])
+  @@index([studentId, status])
+}
+
+// ─── BEAN Live Classroom (Phase 5): realtime class delivery ──────────────────
+// Additive milestone on top of the Phase 4A marketplace. Realtime media is
+// carried by LiveKit Cloud; BEAN owns identity, authorisation, scheduling,
+// usage budgeting, attendance evidence and audit. No media is ever recorded,
+// stored or replayed — the classroom is live-only (docs/PHASE5_SECURITY.md).
+//
+// One LiveClassSession row exists per scheduled ClassSession (unique FK). A
+// room that FAILED before anyone joined may be retried by REUSING the same row
+// (the reviewed retry design) — history and audit stay in one place. An ENDED
+// session can never restart.
+
+model LiveClassSession {
+  id                          String    @id @default(cuid())
+  classSessionId              String    @unique // one primary live session per ClassSession
+  roomName                    String    @unique // server-generated opaque id — never an email or display name
+  status                      String    @default("READY") // READY | LIVE | ENDED | INTERRUPTED | FAILED
+  startedAt                   DateTime?
+  endedAt                     DateTime?
+  startedById                 String // Student.id of the owner teacher who started the room
+  endedById                   String? // Student.id of who ended it (owner teacher / provider event)
+  // BEAN-side conservative reservation against the monthly allowance:
+  // (confirmed bookings + 1 teacher) × scheduled duration. Released at
+  // finalisation; actual verified usage is then recorded once.
+  reservedParticipantMinutes  Int       @default(0)
+  actualParticipantMinutes    Int? // written exactly once by the single-use finalisation guard
+  usageFinalisedAt            DateTime? // set when usage was reconciled — makes double-finalisation impossible
+  usageMonthKey               String // "2026-11" (UTC) — the month whose allowance this session reserved
+  endReason                   String? // teacher_ended | provider_room_finished | failed_room_creation | failed_unknown
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  classSession                ClassSession        @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  participants                LiveClassParticipant[]
+  whiteboard                  LiveWhiteboardState?
+
+  @@index([status])
+  @@index([usageMonthKey])
+}
+
+// Per-person verified attendance evidence. Rows are created/updated ONLY by
+// signed LiveKit webhook events (idempotent processing) — never by client
+// claims. Connection intervals are clamped so out-of-order events can never
+// produce negative durations or double-counted time.
+model LiveClassParticipant {
+  id                    String    @id @default(cuid())
+  liveClassSessionId    String
+  studentId             String // Student.id — the opaque BEAN identity behind the LiveKit participant
+  participantIdentity   String // LiveKit identity ("bean:<studentId>") — unique within a live session
+  participantRole       String // TEACHER | STUDENT
+  firstJoinedAt         DateTime?
+  activeSince           DateTime? // open connection interval (null = currently disconnected)
+  lastLeftAt            DateTime?
+  totalConnectedSeconds Int       @default(0) // accumulated verified connected time
+  reconnectCount        Int       @default(0) // completed reconnections (join → leave → join)
+  lastEventAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  liveSession           LiveClassSession @relation(fields: [liveClassSessionId], references: [id], onDelete: Cascade)
+  student               Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([liveClassSessionId, participantIdentity])
+  @@index([liveClassSessionId])
+  @@index([studentId])
+}
+
+// Webhook processing state. `providerEventId` (LiveKit's own event id) is
+// unique, so redeliveries can never double-apply accounting. No raw payloads
+// are stored — only the minimum needed for idempotency and debugging.
+model LiveKitWebhookEvent {
+  id               String    @id @default(cuid())
+  providerEventId  String    @unique // LiveKit event.id — idempotency key
+  eventName        String // room_started | room_finished | participant_joined | participant_left | participant_connection_aborted
+  roomName         String
+  receivedAt       DateTime  @default(now())
+  processedAt      DateTime?
+  processingStatus String    @default("PROCESSED") // PROCESSED | SKIPPED | FAILED
+  errorCode        String? // short machine-readable reason when SKIPPED/FAILED
+
+  @@index([roomName, receivedAt])
+}
+
+// Monthly participant-minute accounting. `reservedParticipantMinutes` holds
+// conservative in-flight reservations; `usedParticipantMinutes` grows only
+// from verified webhook/finalisation evidence. Availability is ALWAYS computed
+// as budget − reserved − used inside a single conditional UPDATE — the amount
+// can never go negative and concurrent room starts cannot oversubscribe.
+model LiveUsageMonth {
+  id                         String   @id @default(cuid())
+  monthKey                   String   @unique // "2026-11" (UTC)
+  budgetParticipantMinutes   Int
+  reservedParticipantMinutes Int      @default(0)
+  usedParticipantMinutes     Int      @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+// Whiteboard snapshot for late joiners. One row per live session (unique FK);
+// written ONLY by the session's teacher through a BEAN API. Bounded by strict
+// server-side limits (max snapshot bytes + max strokes) — no images, no
+// recordings, no arbitrary HTML/script payloads.
+model LiveWhiteboardState {
+  id                 String   @id @default(cuid())
+  liveClassSessionId String   @unique
+  snapshotJson       String // JSON WBProtocolSnapshot (validated, bounded)
+  version            Int      @default(0) // monotonically increasing snapshot version
+  updatedById        String // Student.id of the teacher who saved
+  updatedAt          DateTime @updatedAt
+  liveSession        LiveClassSession @relation(fields: [liveClassSessionId], references: [id], onDelete: Cascade)
+}
+
+// ─── BEAN Trust & Quality (Phase 6): verified reviews, complaints, appeals ───
+// Additive milestone on top of Phase 4A/5. Reviews are ALWAYS tied to one real
+// booking with final ATTENDED status (DB-level unique constraint on bookingId).
+// Complaints are private support records — never public, never part of rating
+// math. All moderation/admin decisions keep append-only event history. There
+// are still NO payments, wallets or refunds: the pilot stays free (Phase 8).
+
+// Verified class review. One per booking (bookingId unique). Rating bounds are
+// enforced by server validation (Zod + service check) on every write path.
+model ClassReview {
+  id               String    @id @default(cuid())
+  bookingId        String    @unique // one review per booking — DB-level guarantee
+  classSessionId   String
+  teacherProfileId String
+  studentId        String
+  rating           Int // 1..5 — validated server-side on create AND edit
+  title            String? // optional, bounded (5..120 chars)
+  reviewText       String // bounded (20..2000 chars), plain text only
+  status           String    @default("PUBLISHED") // PUBLISHED | FLAGGED | HIDDEN
+  // FLAGGED keeps the review publicly visible (flagging is never auto-hiding);
+  // it is excluded from aggregate metrics while under moderation and returns
+  // to PUBLISHED when an admin decides to keep it.
+  isVerified       Boolean   @default(true) // true by construction: booking-verified path only
+  showDisplayName  Boolean   @default(false) // explicit student consent to show their displayName
+  editedAt         DateTime? // set on in-window self edits (7-day window)
+  publishedAt      DateTime?
+  moderatedAt      DateTime? // last admin moderation decision time
+  moderationReason String? // PRIVATE — visible to admins and the review author only
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  booking          ClassBooking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  classSession     ClassSession      @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile    @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  student          Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  response         TeacherReviewResponse?
+
+  @@index([classSessionId, status])
+  @@index([teacherProfileId, status])
+  @@index([studentId, createdAt])
+}
+
+// Teacher's public reply under a review. One per review (unique FK); only the
+// approved owner teacher of the reviewed class can create it. Teachers can
+// never edit the student's review itself.
+model TeacherReviewResponse {
+  id               String    @id @default(cuid())
+  reviewId         String    @unique // one response per review
+  teacherProfileId String // must be the reviewed class's owner profile
+  responseText     String // bounded (20..1000 chars), plain text only
+  editedAt         DateTime? // in-window self edit (7-day window)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  review           ClassReview     @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile  @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([teacherProfileId])
+}
+
+// Private complaint / incident report. Never public, never in teacher-facing
+// DTOs beyond an anonymous open-count. Sensitive categories (safeguarding,
+// harassment, discrimination) are restricted to ADMIN eyes server-side.
+model TeachComplaint {
+  id               String    @id @default(cuid())
+  complainantId    String // Student.id of the reporter — never exposed to teachers
+  classSessionId   String? // optional product relationship anchor
+  classBookingId   String? // optional: the reporter's own booking in that class
+  teacherProfileId String? // optional: teacher the complaint concerns
+  category         String // TEACHING_QUALITY | MISLEADING_CLASS_DESCRIPTION | TEACHER_CONDUCT | STUDENT_CONDUCT | SAFEGUARDING | HARASSMENT | DISCRIMINATION | CLASS_CANCELLATION | TECHNICAL_PROBLEM | ATTENDANCE_DISPUTE | OTHER
+  severity         String    @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL — server-derived, not client-asserted
+  isSensitive      Boolean   @default(false) // SAFEGUARDING | HARASSMENT | DISCRIMINATION → ADMIN-only visibility
+  subject          String // bounded (8..120)
+  description      String // bounded (30..4000)
+  status           String    @default("OPEN") // OPEN | ACKNOWLEDGED | UNDER_REVIEW | WAITING_FOR_INFORMATION | RESOLVED | DISMISSED
+  assignedAdminId  String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  complainant      Student          @relation(fields: [complainantId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile?  @relation(fields: [teacherProfileId], references: [id], onDelete: SetNull)
+  events           ComplaintEvent[]
+
+  @@index([status, severity])
+  @@index([complainantId, createdAt])
+  @@index([assignedAdminId, status])
+  @@index([teacherProfileId])
+}
+
+// Append-only complaint history: every status change, assignment, note and
+// decision is recorded once and never rewritten (duplicates are no-ops).
+model ComplaintEvent {
+  id          String   @id @default(cuid())
+  complaintId String
+  actorId     String // Student.id of complainant or admin
+  actorRole   String // role held at event time
+  action      String // CREATED | ACKNOWLEDGED | UNDER_REVIEW | WAITING_FOR_INFORMATION | RESOLVED | DISMISSED | ASSIGNMENT_CHANGED | NOTE_ADDED | INFO_PROVIDED | ESCALATED
+  detail      String? // bounded note — PRIVATE (admins; complainant sees own-provided info only)
+  createdAt   DateTime @default(now())
+  complaint   TeachComplaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId, createdAt])
+}
+
+// Teacher trust restriction / notice record. NOTICE and WARNING are records
+// without enforcement; PAUSE_LISTINGS hides current listings and blocks new
+// bookings; SUSPEND_PUBLISHING blocks class creation/publishing;
+// EMERGENCY_STOP (the immediate-safeguarding procedure) additionally blocks
+// live classroom start/token for this teacher's classes. Restrictions expire
+// predictably (endsAt) and are deactivated by REINSTATE. Filing a complaint
+// NEVER creates a trust action automatically.
+model TrustAction {
+  id               String    @id @default(cuid())
+  teacherProfileId String
+  action           String // NOTICE | WARNING | PAUSE_LISTINGS | SUSPEND_PUBLISHING | EMERGENCY_STOP | REINSTATE
+  reason           String // mandatory documented grounds (20..1000)
+  startsAt         DateTime  @default(now())
+  endsAt           DateTime? // null = until explicitly reinstated
+  isActive         Boolean   @default(true) // false for REINSTATE rows and ended restrictions
+  createdByAdminId String
+  endedAt          DateTime? // set on expiry sweep / reinstatement
+  endedById        String?
+  createdAt        DateTime  @default(now())
+  teacherProfile   TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([teacherProfileId, isActive])
+}
+
+// Appeal against a complaint decision, review moderation or trust action.
+// The original decision is never silently overwritten: the appeal carries its
+// own decision record, and OVERTURNED applies only documented restorations.
+model TeachAppeal {
+  id                 String    @id @default(cuid())
+  appellantId        String // Student.id — must hold the product relationship
+  targetType         String // COMPLAINT_DECISION | REVIEW_MODERATION | TRUST_ACTION
+  targetId           String // TeachComplaint.id | ClassReview.id | TrustAction.id
+  originalDecisionById String? // server-captured: admin who made the original decision (self-review ban)
+  reason             String // bounded (30..2000)
+  status             String    @default("SUBMITTED") // SUBMITTED | UNDER_REVIEW | UPHELD | OVERTURNED | CLOSED
+  assignedReviewerId String?
+  decision           String? // UPHELD | OVERTURNED | CLOSED
+  decisionNote       String?
+  decidedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  appellant          Student     @relation(fields: [appellantId], references: [id], onDelete: Cascade)
+  events             AppealEvent[]
+
+  @@index([appellantId, status])
+  @@index([targetType, targetId])
+}
+
+// Append-only appeal history.
+model AppealEvent {
+  id        String   @id @default(cuid())
+  appealId  String
+  actorId   String
+  actorRole String
+  action    String // SUBMITTED | ASSIGNED | UNDER_REVIEW | DECIDED | CLOSED
+  detail    String?
+  createdAt DateTime @default(now())
+  appeal    TeachAppeal @relation(fields: [appealId], references: [id], onDelete: Cascade)
+
+  @@index([appealId, createdAt])
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BEAN Institution & Career Ecosystem (Phase 7) — additive only.
+// No existing column is altered except the three nullable ClassSession fields
+// above (safe PUBLIC defaults). Institution/employer power is organization-
+// scoped via OrganizationMembership; Student.role is never elevated by any of
+// these models. All state machines are enforced server-side (src/lib/
+// institution.ts, src/lib/career.ts) and recorded in append-only event tables.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// A verified organization means its identity was reviewed by BEAN. It does NOT
+// mean BEAN certifies government recognition, accreditation, affiliation or
+// academic quality — UI copy must reflect this truthfully.
+model Organization {
+  id                 String    @id @default(cuid())
+  name               String // official organization name
+  displayName        String?
+  orgType            String // SCHOOL | COLLEGE | UNIVERSITY | COACHING_CENTRE | PROFESSIONAL_INSTITUTE | SKILL_PROVIDER | EMPLOYER | OTHER
+  description        String?
+  website            String?
+  publicContact      String? // public contact info only — never private student data
+  country            String?
+  state              String?
+  city               String?
+  slug               String    @unique
+  logoText           String? // short emoji/mark for the profile header (no upload pipeline in Phase 7)
+  // DRAFT | PENDING_REVIEW | APPROVED | REJECTED | SUSPENDED — every transition
+  // is a deliberate human admin decision recorded in OrganizationAuditEvent.
+  verificationStatus String    @default("DRAFT")
+  verificationNote   String? // private admin note — never exposed to the organization
+  reviewedByAdminId  String?
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  isActive           Boolean   @default(true) // soft archival; orgs with history are never hard-deleted
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  memberships        OrganizationMembership[]
+  invitations        OrganizationInvitation[]
+  groups             OrganizationGroup[]
+  announcements      OrganizationAnnouncement[]
+  resources          OrganizationResource[]
+  assignments        OrganizationAssignment[]
+  issuedCredentials  CareerCredential[]
+  opportunities      CareerOpportunity[]
+  classes            ClassSession[]
+  auditEvents        OrganizationAuditEvent[]
+
+  @@index([verificationStatus])
+  @@index([orgType])
+}
+
+// One Student may hold different scoped memberships across different
+// organizations. A membership NEVER elevates Student.role.
+model OrganizationMembership {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  studentId             String
+  // OWNER | ADMIN | INSTRUCTOR | STAFF | LEARNER | CAREER_COORDINATOR | RECRUITER
+  role                  String    @default("LEARNER")
+  status                String    @default("INVITED") // INVITED | ACTIVE | SUSPENDED | LEFT
+  invitedByMembershipId String? // historical reference, no FK (history survives)
+  activatedAt           DateTime?
+  suspendedAt           DateTime?
+  leftAt                DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student               Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  groupEnrollments      OrganizationGroupMembership[]
+
+  @@unique([organizationId, studentId])
+  @@index([studentId])
+  @@index([organizationId, status])
+}
+
+// Secure invitation-based enrolment. Only a SHA-256 token hash is stored — the
+// raw token appears exactly once in the admin UI copy-link workflow and is
+// never persisted or logged. Invitations can never grant OWNER or ADMIN.
+model OrganizationInvitation {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  email                 String? // when set, only that account may accept
+  intendedRole          String // INSTRUCTOR | STAFF | LEARNER | CAREER_COORDINATOR | RECRUITER
+  tokenHash             String    @unique
+  createdByMembershipId String // historical reference
+  expiresAt             DateTime
+  maxUses               Int?
+  useCount              Int       @default(0)
+  acceptedAt            DateTime?
+  acceptedByStudentId   String?
+  revokedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// Group / batch / cohort inside an organization.
+model OrganizationGroup {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  name                  String
+  academicYear          String?
+  programmeLabel        String? // course / programme
+  batchLabel            String?
+  sectionLabel          String?
+  trackLabel            String? // subject or training track
+  startsAt              DateTime?
+  endsAt                DateTime?
+  capacity              Int?
+  status                String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdByMembershipId String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enrollments           OrganizationGroupMembership[]
+  assignments           OrganizationAssignment[]
+  classes               ClassSession[]
+  announcements         OrganizationAnnouncement[]
+  resources             OrganizationResource[]
+
+  @@index([organizationId, status])
+}
+
+// Enrollment of an organization member into a group. Unique pair prevents
+// duplicate active enrollment; records survive a member leaving (enrollmentState
+// flips to LEFT — rows are never deleted for history).
+model OrganizationGroupMembership {
+  id              String    @id @default(cuid())
+  groupId         String
+  membershipId    String
+  enrollmentState String    @default("ACTIVE") // ACTIVE | LEFT
+  joinedAt        DateTime  @default(now())
+  leftAt          DateTime?
+  group           OrganizationGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  membership      OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, membershipId])
+  @@index([membershipId])
+}
+
+// Append-only organization history: registration, verification decisions,
+// membership role changes, invitation lifecycle, group enrollment, assignment
+// publication, credential issuance/revocation. Never cascade-deleted.
+model OrganizationAuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String // ORGANIZATION | MEMBERSHIP | INVITATION | GROUP | GROUP_MEMBERSHIP | ASSIGNMENT | CREDENTIAL | ANNOUNCEMENT | RESOURCE
+  entityId       String
+  actorId        String?
+  actorRole      String?
+  action         String
+  detail         String?
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// In-app institutional communication (no email service exists; none is faked).
+model OrganizationAnnouncement {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  groupId            String? // scoped to one group when set
+  authorMembershipId String
+  title              String
+  body               String
+  status             String    @default("PUBLISHED") // DRAFT | PUBLISHED | ARCHIVED
+  publishedAt        DateTime?
+  expiresAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group              OrganizationGroup? @relation(fields: [groupId], references: [id])
+
+  @@index([organizationId, status])
+}
+
+// Learning resources shared by an institution (external HTTPS links only —
+// private documents stay inside the existing student-owned Riishe storage).
+model OrganizationResource {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  groupId            String?
+  authorMembershipId String
+  title              String
+  description        String?
+  url                String // validated https URL
+  createdAt          DateTime @default(now())
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group              OrganizationGroup? @relation(fields: [groupId], references: [id])
+
+  @@index([organizationId])
+}
+
+// Institution assignment. Only group instructors / org staff can publish;
+// students see assignments only for groups they are actively enrolled in.
+model OrganizationAssignment {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  groupId               String
+  createdByMembershipId String
+  title                 String
+  instructions          String?
+  subjectLabel          String?
+  submissionType        String    @default("TEXT_AND_LINK") // TEXT | EXTERNAL_LINK | TEXT_AND_LINK
+  status                String    @default("DRAFT") // DRAFT | PUBLISHED | CLOSED | ARCHIVED
+  publishedAt           DateTime?
+  dueAt                 DateTime?
+  maxScore              Int?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group                 OrganizationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  submissions           AssignmentSubmission[]
+
+  @@index([organizationId, groupId, status])
+}
+
+// One submission record per student per assignment (unique pair). Resubmission
+// updates this row while the assignment accepts work; grades and feedback are
+// private to the student and permitted institutional staff — never public.
+model AssignmentSubmission {
+  id                    String    @id @default(cuid())
+  assignmentId          String
+  studentId             String
+  responseText          String?
+  externalLink          String? // validated https URL
+  status                String    @default("DRAFT") // DRAFT | SUBMITTED | RETURNED | GRADED
+  submittedAt           DateTime?
+  gradedByMembershipId  String? // historical reference
+  gradeValue            String? // free-form grade label (institution-defined)
+  teacherFeedback       String?
+  gradedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  assignment            OrganizationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student               Student                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId, status])
+}
+
+// Student-owned career profile. PRIVATE by default — nothing is exposed to
+// employers merely because a student registered with BEAN.
+model CareerProfile {
+  id                 String   @id @default(cuid())
+  studentId          String   @unique
+  headline           String?
+  summary            String?
+  preferredRoleTypes String? // JSON string[]
+  preferredSkills    String? // JSON string[]
+  preferredLocations String? // JSON string[]
+  workModes          String? // JSON string[]
+  // PRIVATE | DISCOVERABLE | PAUSED. Discovery additionally requires an
+  // APPROVED CareerEligibilityReview (adult-eligibility safeguard) — both
+  // conditions are server-enforced.
+  visibility         String   @default("PRIVATE")
+  publicSlug         String?  @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  student            Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([visibility])
+}
+
+// Truthful skill labels only: a self-declared skill is never shown as verified.
+model StudentCareerSkill {
+  id                String   @id @default(cuid())
+  studentId         String
+  skillName         String
+  proficiency       String? // e.g. BEGINNER | INTERMEDIATE | ADVANCED (free label allowed)
+  description       String?
+  verificationLabel String   @default("SELF_DECLARED") // SELF_DECLARED | INSTITUTION_ISSUED | BEAN_ASSESSMENT_VERIFIED
+  sourceRef         String? // issuing organization or assessment reference
+  position          Int      @default(0) // student-controlled ordering
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, position])
+}
+
+// Portfolio projects. PRIVATE by default; students individually choose what to
+// share. External links are validated; untrusted HTML is never embedded.
+model CareerProject {
+  id          String    @id @default(cuid())
+  studentId   String
+  title       String
+  description String?
+  category    String? // ACADEMIC | PERSONAL | PRACTICAL | INTERNSHIP | RESEARCH | SKILL_DEMO
+  skillsUsed  String? // JSON string[]
+  projectUrl  String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  visibility  String    @default("PRIVATE") // PRIVATE | SHARED
+  status      String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, visibility])
+}
+
+// Institution-issued credential. Only an authorized membership of an APPROVED
+// organization can issue; issuance and revocation are audited. Students control
+// portfolio sharing via portfolioShared.
+model CareerCredential {
+  id                    String    @id @default(cuid())
+  studentId             String
+  issuerOrganizationId  String
+  credentialName        String
+  credentialDescription String?
+  issuedDate            DateTime
+  expiryDate            DateTime?
+  credentialReference   String?
+  status                String    @default("ISSUED") // ISSUED | REVOKED
+  issuedByMembershipId  String // historical reference
+  portfolioShared       Boolean   @default(false)
+  verifiedAt            DateTime  @default(now()) // institution verification moment
+  revokedAt             DateTime?
+  revokedByMembershipId String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  student               Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  issuerOrganization    Organization @relation(fields: [issuerOrganizationId], references: [id])
+
+  @@index([studentId, status])
+  @@index([issuerOrganizationId])
+}
+
+// Adult-eligibility safeguard (server-enforced): candidate discovery and job
+// applications require APPROVED status from a documented admin review. No raw
+// identity documents or numbers are ever collected or stored. Private career
+// planning and portfolio preparation remain available without approval.
+model CareerEligibilityReview {
+  id               String    @id @default(cuid())
+  studentId        String    @unique
+  status           String    @default("NOT_ELIGIBLE") // NOT_ELIGIBLE | PENDING_REVIEW | APPROVED | DENIED
+  requestedAt      DateTime?
+  reviewedByAdminId String?
+  reviewedAt       DateTime?
+  decisionReason   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  student          Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// Job / internship / apprenticeship / project listing. Only an APPROVED
+// EMPLOYER organization can create; admin review gates public publication.
+// compensationDescription is informational metadata — it never triggers any
+// payment processing (no payments exist anywhere in Phase 7).
+model CareerOpportunity {
+  id                     String    @id @default(cuid())
+  employerOrganizationId String
+  title                  String
+  description            String
+  responsibilities       String?
+  requiredSkills         String? // JSON string[]
+  preferredSkills        String? // JSON string[]
+  location               String?
+  workMode               String? // ONSITE | REMOTE | HYBRID (free label allowed)
+  opportunityType        String // JOB | INTERNSHIP | APPRENTICESHIP | PROJECT
+  compensationDescription String?
+  applicationDeadline    DateTime?
+  eligibilityDescription String?
+  status                 String    @default("DRAFT") // DRAFT | PENDING_REVIEW | PUBLISHED | PAUSED | CLOSED | REJECTED
+  reviewedByAdminId      String?
+  reviewedAt             DateTime?
+  rejectionReason        String?
+  publishedAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  organization           Organization       @relation(fields: [employerOrganizationId], references: [id])
+  applications           CareerApplication[]
+
+  @@index([status, opportunityType])
+  @@index([employerOrganizationId, status])
+}
+
+// Application to an opportunity. Unique pair prevents duplicate applications at
+// the database level. The submission-time snapshot (selected profile fields,
+// projects, credentials) is bounded JSON and is NEVER silently rewritten by
+// later profile changes. employerNotes is private to the employer and must
+// never appear in student DTOs.
+model CareerApplication {
+  id                     String    @id @default(cuid())
+  opportunityId          String
+  studentId              String
+  status                 String    @default("SUBMITTED") // SUBMITTED | UNDER_REVIEW | SHORTLISTED | INTERVIEW | SELECTED | REJECTED | WITHDRAWN
+  snapshotJson           String
+  contactSharingConsent  Boolean   @default(false)
+  employerNotes          String? // employer-private
+  candidateVisibleStatusNote String?
+  withdrawnAt            DateTime?
+  submittedAt            DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  opportunity            CareerOpportunity @relation(fields: [opportunityId], references: [id])
+  student                Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, studentId])
+  @@index([studentId, status])
+  @@index([opportunityId, status])
+}
+
+// Private safety report against a listing or organization conduct. Reports
+// NEVER auto-suspend anything — every enforcement is a recorded human decision.
+model CareerSafetyReport {
+  id              String    @id @default(cuid())
+  reporterId      String
+  targetType      String // OPPORTUNITY | ORGANIZATION
+  targetId        String
+  category        String // FRAUDULENT_LISTING | MISLEADING_DESCRIPTION | ORGANIZATION_CONDUCT | HARASSMENT | DISCRIMINATION | SAFEGUARDING | OTHER
+  subject         String
+  description     String
+  status          String    @default("OPEN") // OPEN | UNDER_REVIEW | RESOLVED | DISMISSED
+  assignedAdminId String?
+  resolutionNote  String? // admin-private
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  reporter        Student   @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([reporterId])
+}
+
+// Append-only career ecosystem history: opportunity moderation, application
+// status changes, eligibility decisions, safety decisions. Sensitive evidence
+// and complaint descriptions are never logged here.
+model CareerAuditEvent {
+  id        String   @id @default(cuid())
+  entityType String // OPPORTUNITY | APPLICATION | ELIGIBILITY | SAFETY_REPORT | CREDENTIAL
+  entityId  String
+  actorId   String?
+  actorRole String?
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// ─── Riishe Deep Research (Phase 3A) ─────────────────────────────────────────
+// A persistent, owner-scoped research workspace run. The pipeline plans
+// searches, retrieves guarded sources, classifies and checks them, then
+// synthesizes findings. Every stage persists honest progress; nothing is
+// fabricated when a stage fails.
+model ResearchSession {
+  id              String    @id @default(cuid())
+  guestId         String
+  studentId       String?
+  title           String
+  kind            String // EXAM_PYQ | TOPIC | QUESTION | CONCEPT
+  status          String    @default("QUEUED") // QUEUED | RESEARCHING | COMPLETE | FAILED
+  statusDetail    String? // honest failure / unavailability detail
+  inputJson       String // JSON ResearchInputDTO (exam, years, question, scope)
+  progressJson    String? // JSON ResearchProgressDTO (per-stage states, counts)
+  findingsJson    String? // JSON ResearchFindingDTO[] (topic, summary, citations)
+  summaryJson     String? // JSON ResearchSummaryDTO (summary text + citation ids)
+  followUpsJson   String? // JSON string[] — suggested follow-up questions
+  documentIdsJson String? // JSON string[] — owner's uploaded materials used as context
+  searchesUsed    Int       @default(0) // real web_search call count (cost honesty)
+  fetchesUsed     Int       @default(0) // real guarded page-fetch count
+  llmCallsUsed    Int       @default(0) // real model call count
+  error           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  finishedAt      DateTime?
+
+  sources   ResearchSource[]
+
+  @@index([guestId, createdAt])
+  @@index([studentId, createdAt])
+  @@index([guestId, status])
+}
+
+// One external (or attached-document) evidence source of a research session.
+// The lifecycle distinguishes discovered → retrieved → content-checked →
+// unavailable. Classification is evidence-aware: a domain hint alone never
+// makes a source official, and AI output alone never makes it trusted.
+model ResearchSource {
+  id             String    @id @default(cuid())
+  sessionId      String
+  session        ResearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  url            String
+  title          String?
+  host           String
+  kind           String    @default("web") // web | document (student's uploaded material)
+  documentId     String?   // set when kind = document (owner's uploaded material)
+  sourceClass    String    @default("UNVERIFIED") // OFFICIAL_AUTHORITY | GOV_INSTITUTIONAL | OPEN_LICENSED | REPUTABLE_SECONDARY | UNVERIFIED
+  classReason    String?
+  status         String    @default("DISCOVERED") // DISCOVERED | RETRIEVED | CHECKED | UNAVAILABLE
+  reachable      Boolean?
+  httpStatus     Int?
+  contentKind    String?   // html | text | pdf | other
+  publishedDate  String?   // raw published date when verifiable on the source
+  retrievedAt    DateTime?
+  snippet        String?   // search-result snippet (≤500 chars)
+  evidenceJson   String?   // JSON ResearchEvidenceDTO[] (excerpt ≤300, pageRef, subtopic)
+  conflictFlag   Boolean   @default(false) // evidence conflicts with another source
+  rightsNote     String?   // licence / reuse signal detected on the source
+  notesJson      String?   // JSON { unavailableReason?, checkNotes? }
+  createdAt      DateTime  @default(now())
+
+  @@index([sessionId])
+  @@index([sessionId, status])
+}
+
+// A historical-question candidate discovered by research. The candidate is
+// NOT a Question: it enters the curator queue only through the promote flow
+// (curator-only) which mirrors the existing PYQ import contract, and only the
+// existing review endpoint can ever verify it. Verbatim storage follows the
+// rights policy: REFERENCE_ONLY keeps locator + short evidence excerpts.
+model ResearchPyqCandidate {
+  id                  String    @id @default(cuid())
+  guestId             String
+  studentId           String?
+  sessionId           String?   // plain reference (no FK) — curation record survives session deletion
+  status              String    @default("DISCOVERED") // DISCOVERED | SOURCE_CHECKED | PROMOTED | DISCARDED
+  examSlug            String?
+  examLabel           String?
+  stageLabel          String?
+  subjectLabel        String?
+  topicLabel          String?
+  year                Int?
+  sessionLabel        String?
+  questionNumber      String?
+  paperTitle          String?
+  sourceUrl           String
+  sourceTitle         String?
+  sourcePublisher     String?
+  sourceClass         String?
+  retrievedAt         DateTime?
+  publishedDate       String?
+  locator             String?   // page number / exact locator on the source
+  answerKeyUrl        String?
+  answerKeyRef        String?
+  proposedCorrectIndex Int?     // set ONLY when an answer key actually supports it
+  optionsJson         String?   // JSON string[] — only when verbatim storage is permitted
+  verbatimText        String?   // full question text ONLY when rights permit (VERBATIM_PERMITTED)
+  evidenceJson        String    // JSON ResearchEvidenceDTO[] — minimum excerpts necessary
+  rightsStatus        String    @default("REFERENCE_ONLY") // REFERENCE_ONLY | VERBATIM_PERMITTED
+  rightsNote          String?
+  pyqHash             String?   // set when verbatim text + options exist (duplicate detection)
+  promotedQuestionId  String?   // Question.id after curator promotion (plain reference)
+  promotedAt          DateTime?
+  verificationNote    String?   // what the source-check actually confirmed
+  conflictNote        String?
+  provenanceJson      String?   // full machine-readable provenance record
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([guestId, status])
+  @@index([studentId, status])
+  @@index([status])
+  @@index([sessionId])
+  @@index([promotedQuestionId])
 }
