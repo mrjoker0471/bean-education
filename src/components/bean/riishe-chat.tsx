@@ -34,6 +34,8 @@ export interface RiisheChatScope {
   documentId?: string
   attemptId?: string
   questionId?: string
+  /** Phase 3A: research follow-up scope — grounded on the session's dossier. */
+  researchSessionId?: string
 }
 
 const STYLE_OPTIONS: { value: 'exam-focused' | 'simple' | 'detailed'; label: string }[] = [
@@ -50,11 +52,11 @@ function pagesLabel(pages: number[]): string {
 }
 
 /** Explicit source-state badge — rendered on EVERY assistant reply. */
-function GroundingBadge({ grounding }: { grounding: 'document' | 'mixed' | 'general' | null }) {
+function GroundingBadge({ grounding, researchMode }: { grounding: 'document' | 'mixed' | 'general' | null; researchMode?: boolean }) {
   if (grounding === 'document') {
     return (
       <p className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold">
-        <BookOpen className="h-3 w-3" aria-hidden /> Document-grounded
+        <BookOpen className="h-3 w-3" aria-hidden /> {researchMode ? 'Research-grounded' : 'Document-grounded'}
       </p>
     )
   }
@@ -181,6 +183,7 @@ export function RiisheChatPanel({
    *  per-question review). */
   materials?: { id: string; title: string }[]
 }) {
+  const researchMode = !!scope.researchSessionId
   const beanSettings = useAppStore(s => s.beanSettings)
   const setBeanSettings = useAppStore(s => s.setBeanSettings)
   const showSources = beanSettings.showSourceContext
@@ -193,7 +196,7 @@ export function RiisheChatPanel({
   const [scopeDocs, setScopeDocs] = useState<string[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const scopeKey = `${scope.documentId ?? ''}|${scope.attemptId ?? ''}|${scope.questionId ?? ''}`
+  const scopeKey = `${scope.documentId ?? ''}|${scope.attemptId ?? ''}|${scope.questionId ?? ''}|${scope.researchSessionId ?? ''}`
 
   // Sync the focus when a new topic deep-link arrives
   const [lastFocusProp, setLastFocusProp] = useState(topicFocus)
@@ -206,12 +209,18 @@ export function RiisheChatPanel({
   useEffect(() => {
     if (!guestId) return
     let alive = true
-    api
-      .riisheChatHistory(guestId, {
-        documentId: scope.documentId,
-        attemptId: scope.attemptId,
-        questionId: scope.questionId,
-      })
+    const load = researchMode
+      ? api
+          .researchFollowUps(scope.researchSessionId as string, guestId)
+          .then(d => ({ turns: d.turns.map(t => ({ ...t, pagesCited: [], grounding: (t.grounding === 'document' ? 'document' : 'general') as 'document' | 'general' | null })) }))
+      : api
+          .riisheChatHistory(guestId, {
+            documentId: scope.documentId,
+            attemptId: scope.attemptId,
+            questionId: scope.questionId,
+          })
+          .then(d => ({ turns: d.turns }))
+    load
       .then(d => {
         if (alive) setTurns(d.turns)
       })
@@ -237,17 +246,23 @@ export function RiisheChatPanel({
       ...(prev ?? []),
       { id: `local-${Date.now()}`, role: 'user', content: text, pagesCited: [], grounding: null, sources: [], createdAt: new Date().toISOString() },
     ])
-    api
-      .riisheChat({
-        guestId,
-        messages: [...(turns ?? []), { role: 'user' as const, content: text }].slice(-12).map(t => ({ role: t.role as 'user' | 'assistant', content: t.content })),
-        documentId: scope.documentId,
-        documentIds: scopeDocs.length > 0 ? scopeDocs : undefined,
-        attemptId: scope.attemptId,
-        questionId: scope.questionId,
-        topic: focus,
-        style: beanSettings.style,
-      })
+    const sendPromise = researchMode
+      ? api
+          .researchFollowUp(scope.researchSessionId as string, { guestId, content: text })
+          .then(r => ({ reply: r.reply, turnId: r.turnId, pagesCited: [] as number[], grounding: r.grounding, sources: r.sources ?? [] }))
+      : api
+          .riisheChat({
+            guestId,
+            messages: [...(turns ?? []), { role: 'user' as const, content: text }].slice(-12).map(t => ({ role: t.role as 'user' | 'assistant', content: t.content })),
+            documentId: scope.documentId,
+            documentIds: scopeDocs.length > 0 ? scopeDocs : undefined,
+            attemptId: scope.attemptId,
+            questionId: scope.questionId,
+            topic: focus,
+            style: beanSettings.style,
+          })
+          .then(r => ({ reply: r.reply, turnId: r.turnId, pagesCited: r.pagesCited, grounding: r.grounding, sources: r.sources ?? [] }))
+    sendPromise
       .then(r => {
         setTurns(prev => [
           ...(prev ?? []),
@@ -256,8 +271,8 @@ export function RiisheChatPanel({
             role: 'assistant',
             content: r.reply,
             pagesCited: r.pagesCited,
-            grounding: r.grounding,
-            sources: r.sources ?? [],
+            grounding: (r.grounding === 'document' ? 'document' : r.grounding === 'mixed' ? 'mixed' : 'general') as 'document' | 'mixed' | 'general',
+            sources: r.sources,
             createdAt: new Date().toISOString(),
           },
         ])
@@ -407,7 +422,7 @@ export function RiisheChatPanel({
             >
               <p className="whitespace-pre-wrap">{t.content}</p>
             </div>
-            {t.role === 'assistant' && <GroundingBadge grounding={t.grounding} />}
+            {t.role === 'assistant' && <GroundingBadge grounding={t.grounding} researchMode={researchMode} />}
             {t.role === 'assistant' && showSources && (
               <SourcesPanel turn={t} onOpenPage={onOpenPage} />
             )}

@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { sameOrigin } from '@/lib/auth'
 import { requirePyqCurator } from '@/lib/roles'
 import { z } from 'zod'
 import {
@@ -71,6 +72,11 @@ interface ImportStats {
 
 export async function POST(req: NextRequest) {
   try {
+    // CSRF-lite guard — Phase 3A hardening: the same origin check every other
+    // mutating BEAN route applies (session-cookie authenticity).
+    if (!sameOrigin(req)) {
+      return NextResponse.json({ error: 'Invalid origin' }, { status: 403 })
+    }
     const parsed = bodySchema.safeParse(await req.json())
     if (!parsed.success) {
       const detail = parsed.error.issues.map(i => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ')

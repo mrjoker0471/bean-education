@@ -457,3 +457,22 @@ Work Log:
 - Push re-attempted via the ssh2 transport to ssh.github.com:443 — transport still reaches GitHub and fails exactly at public-key auth: the regenerated deploy key (bean-phase7-ui-completion-push@2026-11-20) still needs registration on GitHub. Stopped before PR creation per spec §17.
 Stage Summary:
 - Delivery re-verified end-to-end post-reset: 14 commits on feat/bean-phase7-ui-completion (13 prior + this re-verification record). Nothing merged, main untouched, branch ready for the user to push/open the PR once the deploy key is registered.
+
+---
+
+Agent: Z.ai Code
+Task ID: phase3a-deep-research
+Task: PHASE 3A — Riishe Deep Research & verified PYQ discovery (audit → implementation → verification → delivery).
+
+Work Log:
+- Baseline verified: origin/main at 26dd3b8 (PR #7 merge) via anonymous HTTPS; branch feat/bean-riishe-phase3a-deep-research cut in a fresh worktree (/home/z/p3a-wt) with an ISOLATED database (main checkout and its db untouched; a stray additive push to the main db occurred before the shell-level DATABASE_URL override was discovered — purely additive DDL, no data loss, documented).
+- Mandatory audit executed first (3 parallel read-only agents + line-level reads): gap matrix at agent-ctx/GAP_MATRIX.md covering existing implementations (ai wrapper, fence, web_search, durable jobs, quotas, PYQ import/review contracts, roles, SSRF precedent, UI tokens), genuine gaps, additive plan, tests, and security implications.
+- Schema: backup taken, then ONE additive migration 20261120153000_phase3a_deep_research — ResearchSession/ResearchSource/ResearchPyqCandidate tables, +6 nullable provenance columns on Question, +RiisheChatTurn.researchSessionId; SQL inspected (ADD COLUMN/CREATE TABLE/CREATE INDEX only).
+- Implemented: url-guard.ts (layered SSRF policy), research.ts (staged pipeline with deps seam, budgets, honest failures, verbatim-contained evidence, authority-domain AND content classification, rights-aware candidate extraction), research-followup.ts (dossier-grounded chat with citation verification), pyq-candidates.ts (curator-only promotion mirroring the import contract, always UNVERIFIED), 6 new API routes, job/quota wiring (DEEP_RESEARCH/research 6h), claim-guest extension, research view + workspace UI, PYQ Studio Candidates tab, chat panel research scope.
+- Safeguard alignment (strengthening only): SELECTABLE_QUESTION → VERIFIED-only practice; sameOrigin added to pyq import/review + candidate routes; review decision + PyqReviewEvent now atomic. Audit-found runtime/doc mismatch documented in DECISIONS-adjacent results doc.
+- Verification: bun test 777 pass / 0 fail (51 files, 4442→4470 assertions; 705 baseline kept green); tsc clean; lint clean; db:status shows 9 migrations (sandbox bookkeeping quirk unchanged, no resets); secrets scan clean (env/db/logs/agent-ctx verified git-ignored).
+- Live E2E (real AI + real web_search): three real runs. Run A exposed a genuine stale-array bug (check stage skipped) → fixed + covered by tests. Run C: COMPLETE, all stages DONE, 4 verbatim evidence excerpts, findings with real citations, honest missing-evidence + candidate-eligibility states, follow-up chat live-verified (grounding document, [3] citation). upsc.gov.in fetches honestly UNAVAILABLE (authority blocks fetchers) — noted as a real-world limitation. 10 screenshots + error audit (0 console/page errors) in agent-ctx/e2e/.
+- Module-mock leak avoided by design: pipeline + follow-up take collaborators through deps seams (Phase 7 lesson applied); only @/lib/db is ever mocked.
+
+Stage Summary:
+- Phase 3A implemented additively inside the existing app; nothing rebuilt, no microservices, no new AI providers, no payments. Branch carries the implementation + docs (PHASE3A_DEEP_RESEARCH/SECURITY/RESULTS, roadmap/README status corrections incl. PR #6 merge 129ab09 and PR #7 merge 26dd3b8). Ready for push + user-opened PR; nothing merged by the agent.

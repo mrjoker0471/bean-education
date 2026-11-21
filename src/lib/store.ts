@@ -17,6 +17,8 @@ export type Route =
   | { view: 'pdf'; resourceId: string }
   | { view: 'materials' }
   | { view: 'riishe'; docId?: string; page?: number; topic?: string }
+  | { view: 'riishe-research' }
+  | { view: 'riishe-research-session'; sessionId: string }
   | { view: 'practice'; doc?: string; topics?: string }
   | { view: 'topics' }
   | { view: 'settings' }
@@ -101,12 +103,22 @@ export function parseHash(hash: string): Route {
     case 'materials':
       return { view: 'materials' }
     case 'riishe':
+      // Phase 3A: research paths share the /riishe prefix — intercept first.
+      if (parts[1] === 'research') {
+        return parts[2]
+          ? { view: 'riishe-research-session', sessionId: decodeURIComponent(parts[2]) }
+          : { view: 'riishe-research' }
+      }
       return {
         view: 'riishe',
         docId: parts[1] ? decodeURIComponent(parts[1]) : undefined,
         page: params.get('page') ? Number(params.get('page')) || undefined : undefined,
         topic: params.get('topic') ?? undefined,
       }
+    case 'riishe-research':
+      return { view: 'riishe-research' }
+    case 'riishe-research-session':
+      return { view: 'riishe-research-session', sessionId: parts[1] ? decodeURIComponent(parts[1]) : '' }
     case 'practice':
       return { view: 'practice', doc: params.get('doc') ?? undefined, topics: params.get('topics') ?? undefined }
     case 'topics':
@@ -229,6 +241,10 @@ export function routeToHash(route: Route): string {
       const base = route.docId ? `#/riishe/${encodeURIComponent(route.docId)}` : '#/riishe'
       return `${base}${qs ? '?' + qs : ''}`
     }
+    case 'riishe-research':
+      return '#/riishe/research'
+    case 'riishe-research-session':
+      return `#/riishe/research/${encodeURIComponent(route.sessionId)}`
     case 'practice': {
       const p = new URLSearchParams()
       if (route.doc) p.set('doc', route.doc)
