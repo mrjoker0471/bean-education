@@ -5,6 +5,15 @@ import { safeParse } from '@/lib/serialize'
 import { chat, fenceDocumentText, parseSourceTag, flagsOutsideMaterial, stylePrompt, webSearch, TIME_SENSITIVE_RE, type WebResult, type SourceState } from '@/lib/riishe/ai'
 import { buildLearningDigest } from '@/lib/learning/insights'
 import { assertLearningOwner } from '@/lib/learning/scope'
+import {
+  RIISHE_TUTOR_MODES,
+  RIISHE_RESPONSE_LANGUAGES,
+  DEFAULT_TUTOR_MODE,
+  tutorModePrompt,
+  responseLanguagePrompt,
+  learnerAdaptationPrompt,
+  type RiisheTutorMode,
+} from '@/lib/riishe/tutor'
 import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
 import { SectionIndex } from '@/lib/riishe/index'
 import type { RiisheChatSourceDTO } from '@/lib/types'
@@ -48,6 +57,10 @@ const bodySchema = z.object({
   topic: z.string().max(160).optional(),
   /** Presentation style — depth/wording only, never the sources. */
   style: z.enum(['exam-focused', 'simple', 'detailed']).optional(),
+  /** Phase 3C — teaching mode: how Riishe teaches, never what it may claim. */
+  tutorMode: z.enum(RIISHE_TUTOR_MODES).optional(),
+  /** Phase 3C — response language; omitted/'auto' preserves the existing default. */
+  responseLanguage: z.enum(RIISHE_RESPONSE_LANGUAGES).optional(),
 })
 
 /** Legacy rows may carry 'external' or null — both display honestly as general knowledge. */
@@ -137,7 +150,9 @@ export async function POST(req: NextRequest) {
   try {
     const parsed = bodySchema.safeParse(await req.json())
     if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
-    const { guestId, messages, documentId, documentIds, attemptId, questionId, topic, style } = parsed.data
+    const { guestId, messages, documentId, documentIds, attemptId, questionId, topic, style, tutorMode, responseLanguage } = parsed.data
+    // Teaching mode defaults to EXPLAIN when the client does not send one.
+    const effectiveTutorMode: RiisheTutorMode = tutorMode ?? DEFAULT_TUTOR_MODE
 
     if (rateLimited(guestId)) {
       return NextResponse.json({ error: 'You are sending questions very quickly — please wait a minute and try again.' }, { status: 429 })
@@ -321,6 +336,11 @@ export async function POST(req: NextRequest) {
     // exists and the guest identity was claimed by a DIFFERENT account, the
     // digest is withheld — one account's learning profile never enriches
     // another account's prompt (guest-bearer chat itself is pre-existing).
+    // Phase 3C: teaching mode (how to teach), response language (which
+    // language to answer in) and learner-adaptation instructions ride on top.
+    // They are presentation/teaching preferences only — retrieval scope,
+    // source-evidence verification, citation checks and disclosure rules are
+    // computed independently below and are never weakened by them.
     const digestOwner = await assertLearningOwner(guestId)
     const learningContext = digestOwner.ok ? await buildLearningDigest(guestId) : ''
     const topicLine = topic
@@ -330,6 +350,11 @@ export async function POST(req: NextRequest) {
       'You are Riishe, the AI study tutor inside BEAN EXAMS. The student practises from their own uploaded documents.',
       questionContext ? `CONTEXT — the student is asking about a specific question from their practice attempt:\n${questionContext}` : '',
       learningContext,
+      // Phase 3C — how to adapt teaching to the (verified) learner evidence,
+      // or an explicit honesty rule when no evidence is available.
+      learnerAdaptationPrompt(learningContext !== ''),
+      // Phase 3C — the selected teaching mode (defaults to EXPLAIN).
+      tutorModePrompt(effectiveTutorMode),
       topicLine,
       retrievalText
         ? `GROUNDING: factual explanations about the material MUST come from the excerpts below. When you state a fact from an excerpt, cite it as (DocumentName, page N) using the [page N] markers. If the excerpts do not contain what the student asks about, say plainly that your uploaded-material text does not cover it — then, if you use general knowledge, introduce it with "Outside your uploaded material:" so the student can tell the difference. Never invent page numbers or quotes.`
@@ -341,6 +366,8 @@ export async function POST(req: NextRequest) {
       wantsLive && webResults.length === 0
         ? `LIVE LOOKUP UNAVAILABLE: this question needs current information, but the live web lookup ${liveLookupFailed ? 'failed just now' : 'returned no usable results'}. Never claim you checked anything live — state plainly that the information is NOT verified as current and recommend checking an official source.`
         : '',
+      // Response language — presentation only; '' for auto/omitted (existing default)
+      responseLanguagePrompt(responseLanguage),
       // Presentation style — depth only, never sources
       stylePrompt(style),
       'Keep answers concise (2-6 sentences unless asked for step-by-step), exam-useful and encouraging. You may quiz the student with a short follow-up question when that helps.',
