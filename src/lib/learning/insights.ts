@@ -11,6 +11,7 @@
 
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
+import { dateKeyOf, PRODUCT_TIMEZONE } from './scope'
 import type { LearningInsightsDTO } from './dto'
 
 export const OBSERVATION_WINDOW_DAYS = 14
@@ -25,9 +26,12 @@ export interface InsightsInput {
   guestId: string
   /** The claimed account behind this guest identity, when one exists. */
   studentId: string | null
+  /** Learner timezone for day grouping; the documented product default otherwise. */
+  tz?: string
 }
 
 export async function buildInsights(input: InsightsInput): Promise<LearningInsightsDTO> {
+  const tz = input.tz ?? PRODUCT_TIMEZONE
   const since = Date.now() - OBSERVATION_WINDOW_DAYS * 24 * 3600_000
 
   const attempts = await db.attempt.findMany({
@@ -51,7 +55,7 @@ export async function buildInsights(input: InsightsInput): Promise<LearningInsig
 
   for (const a of attempts) {
     const d = a.startedAt
-    activeDayKeys.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)
+    activeDayKeys.add(dateKeyOf(d, tz))
     const touched = (a.submittedAt ?? a.startedAt).getTime()
     if (lastActivityMs === null || touched > lastActivityMs) lastActivityMs = touched
     const scored = a.status === 'SUBMITTED' || a.status === 'TIMED_OUT'

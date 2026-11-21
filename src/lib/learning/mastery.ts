@@ -3,6 +3,11 @@
 // score; no client input can write these rows; reading documents or notes
 // never counts as evidence — only answered questions do.
 //
+// Evidence window: ALL submitted attempts of the owner, processed in
+// deterministic oldest→newest order via cursor pagination (bounded memory —
+// never a take-limited slice and never an undocumented rolling window; see
+// recomputeTopicMastery).
+//
 // Documented status mapping (docs/PHASE3B_PERSONAL_LEARNING_INTELLIGENCE.md):
 //   • NOT_ASSESSED          — zero evidence (no row is persisted for this case)
 //   • INSUFFICIENT_EVIDENCE — fewer than MIN_EVIDENCE_QUESTIONS distinct
@@ -73,9 +78,15 @@ export interface MasteryComputation {
 // `attempts` MUST be ordered oldest → newest so later attempts overwrite
 // earlier outcomes per question ("latest answer wins").
 
-export function buildTopicEvidence(attempts: AttemptForEvidence[]): Map<string, TopicEvidence> {
-  const byTopic = new Map<string, TopicEvidence>()
-
+/**
+ * Fold one oldest→newest batch of attempts into an existing evidence map.
+ * Exported so DB orchestration can feed paginated pages incrementally while
+ * keeping the exact same per-question semantics as the one-shot builder.
+ */
+export function accumulateTopicEvidence(
+  byTopic: Map<string, TopicEvidence>,
+  attempts: AttemptForEvidence[],
+): void {
   for (const attempt of attempts) {
     const qById = new Map(attempt.questions.map(q => [q.id, q]))
     // Per-topic accuracy of THIS attempt (answered questions only).
@@ -109,7 +120,11 @@ export function buildTopicEvidence(attempts: AttemptForEvidence[]): Map<string, 
       ev.lastAttemptAt = attempt.submittedAt ?? attempt.startedAt
     }
   }
+}
 
+export function buildTopicEvidence(attempts: AttemptForEvidence[]): Map<string, TopicEvidence> {
+  const byTopic = new Map<string, TopicEvidence>()
+  accumulateTopicEvidence(byTopic, attempts)
   return byTopic
 }
 
@@ -167,7 +182,23 @@ export function mapMasteryStatus(
 
 // ─── DB orchestration ──────────────────────────────────────────────────────────
 
-const MAX_EVIDENCE_ATTEMPTS = 200
+/**
+ * Evidence pagination: attempts are processed in fixed-size pages of
+ * EVIDENCE_PAGE_SIZE, oldest → newest, until the owner's history is exhausted.
+ *
+ * • The cursor is the attempt's UNIQUE id while the ordering is the composite
+ *   (startedAt, id) — a total, deterministic order. A non-unique startedAt
+ *   cursor alone could silently skip every row sharing the boundary
+ *   timestamp; the composite seek cannot.
+ * • Memory stays bounded: only one page of attempt rows (plus that page's
+ *   question metadata) is loaded at a time; the growing evidence map is the
+ *   RESULT, not the raw history.
+ * • There is no rolling window: every submitted attempt of the owner is
+ *   folded into the evidence, so a topic that first appears after any number
+ *   of earlier attempts still receives its row, and a re-answer beyond the
+ *   first page still replaces the older outcome of the same question.
+ */
+export const EVIDENCE_PAGE_SIZE = 200
 const QUESTION_CHUNK = 500
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -187,57 +218,71 @@ interface SubmittedAttemptRow {
 
 /**
  * Recompute TopicMastery rows for the given owner across ALL submitted
- * attempts (evidence only grows). When `topicIds` is provided, only those
- * topics are rewritten (but evidence is still built from every attempt, so
- * per-question latest outcomes stay globally correct).
+ * attempts (evidence only grows). Attempts stream through in deterministic
+ * oldest→newest pages (see EVIDENCE_PAGE_SIZE) so the latest outcome per
+ * question always wins, no matter how large the history grows.
+ * When `topicIds` is provided, only those topics are rewritten (but evidence
+ * is still built from every attempt, so per-question latest outcomes stay
+ * globally correct).
  */
 export async function recomputeTopicMastery(
   guestId: string,
   topicIds?: string[],
 ): Promise<{ updated: number }> {
-  const attempts: SubmittedAttemptRow[] = await db.attempt.findMany({
-    where: { guestId, status: { in: ['SUBMITTED', 'TIMED_OUT'] } },
-    select: { id: true, startedAt: true, submittedAt: true, questionIdsJson: true, answersJson: true, source: true },
-    orderBy: { startedAt: 'asc' },
-    take: MAX_EVIDENCE_ATTEMPTS,
-  })
-  if (attempts.length === 0) return { updated: 0 }
+  const evidence = new Map<string, TopicEvidence>()
 
-  // Resolve bank question metadata (mastery covers catalogue topics only —
-  // Riishe `t:` topics stay with the existing weak-areas system).
-  const bankQuestionIds = new Set<string>()
-  for (const a of attempts) {
-    if (a.source !== 'BANK') continue
-    for (const id of safeParse<string[]>(a.questionIdsJson, [])) bankQuestionIds.add(id)
-  }
-  const metaById = new Map<string, ScoredQuestionMeta>()
-  for (const ids of chunk([...bankQuestionIds], QUESTION_CHUNK)) {
-    const rows = await db.question.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, topicId: true, correctIndex: true, optionsJson: true },
+  // ── Stream every submitted attempt of this owner, oldest → newest ──
+  let cursorId: string | undefined
+  for (;;) {
+    const page: SubmittedAttemptRow[] = await db.attempt.findMany({
+      where: { guestId, status: { in: ['SUBMITTED', 'TIMED_OUT'] } },
+      select: { id: true, startedAt: true, submittedAt: true, questionIdsJson: true, answersJson: true, source: true },
+      orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      take: EVIDENCE_PAGE_SIZE,
     })
-    for (const r of rows) {
-      metaById.set(r.id, {
-        id: r.id,
-        topicId: r.topicId,
-        correctIndex: r.correctIndex,
-        optionCount: safeParse<string[]>(r.optionsJson ?? '', []).length,
-      })
+    if (page.length === 0) break
+
+    // Resolve bank question metadata for THIS page only (bounded per page).
+    // Mastery covers catalogue topics only — Riishe `t:` topics stay with the
+    // existing weak-areas system.
+    const pageBankIds = new Set<string>()
+    for (const a of page) {
+      if (a.source !== 'BANK') continue
+      for (const id of safeParse<string[]>(a.questionIdsJson, [])) pageBankIds.add(id)
     }
+    const metaById = new Map<string, ScoredQuestionMeta>()
+    for (const ids of chunk([...pageBankIds], QUESTION_CHUNK)) {
+      const rows = await db.question.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, topicId: true, correctIndex: true, optionsJson: true },
+      })
+      for (const r of rows) {
+        metaById.set(r.id, {
+          id: r.id,
+          topicId: r.topicId,
+          correctIndex: r.correctIndex,
+          optionCount: safeParse<string[]>(r.optionsJson ?? '', []).length,
+        })
+      }
+    }
+
+    const evidenceAttempts: AttemptForEvidence[] = page.map(a => ({
+      id: a.id,
+      startedAt: a.startedAt,
+      submittedAt: a.submittedAt,
+      questionIds: safeParse<string[]>(a.questionIdsJson, []),
+      answers: safeParse<Record<string, number>>(a.answersJson ?? '{}', {}),
+      questions: safeParse<string[]>(a.questionIdsJson, [])
+        .map(id => metaById.get(id))
+        .filter((q): q is ScoredQuestionMeta => !!q && !!q.topicId),
+    }))
+    accumulateTopicEvidence(evidence, evidenceAttempts)
+
+    cursorId = page[page.length - 1].id
+    if (page.length < EVIDENCE_PAGE_SIZE) break
   }
 
-  const evidenceAttempts: AttemptForEvidence[] = attempts.map(a => ({
-    id: a.id,
-    startedAt: a.startedAt,
-    submittedAt: a.submittedAt,
-    questionIds: safeParse<string[]>(a.questionIdsJson, []),
-    answers: safeParse<Record<string, number>>(a.answersJson ?? '{}', {}),
-    questions: safeParse<string[]>(a.questionIdsJson, [])
-      .map(id => metaById.get(id))
-      .filter((q): q is ScoredQuestionMeta => !!q && !!q.topicId),
-  }))
-
-  const evidence = buildTopicEvidence(evidenceAttempts)
   const targets = topicIds ? [...evidence.entries()].filter(([topicId]) => topicIds.includes(topicId)) : [...evidence.entries()]
   if (targets.length === 0) return { updated: 0 }
 

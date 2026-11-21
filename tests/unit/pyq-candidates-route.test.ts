@@ -7,6 +7,7 @@
 //   • PROMOTED/DISCARDED/SOURCE_CHECKED state machine is enforced
 //   • candidates can never bypass /api/pyq/review (no verify path exists here)
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 
 interface FakeCandidate {
@@ -141,7 +142,7 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.student,
   sameOrigin: () => true,
 }))

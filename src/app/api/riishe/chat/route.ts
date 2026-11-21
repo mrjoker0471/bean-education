@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { safeParse } from '@/lib/serialize'
 import { chat, fenceDocumentText, parseSourceTag, flagsOutsideMaterial, stylePrompt, webSearch, TIME_SENSITIVE_RE, type WebResult, type SourceState } from '@/lib/riishe/ai'
 import { buildLearningDigest } from '@/lib/learning/insights'
+import { assertLearningOwner } from '@/lib/learning/scope'
 import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
 import { SectionIndex } from '@/lib/riishe/index'
 import type { RiisheChatSourceDTO } from '@/lib/types'
@@ -316,8 +317,12 @@ export async function POST(req: NextRequest) {
     // Phase 3B: a server-computed digest of the learner's real records is
     // injected so explanations lean on actual gaps. Built only from DB rows —
     // client-supplied progress values are never trusted. Empty when there is
-    // no data (the prompt is unchanged).
-    const learningContext = await buildLearningDigest(guestId)
+    // no data (the prompt is unchanged). Ownership: when a signed-in session
+    // exists and the guest identity was claimed by a DIFFERENT account, the
+    // digest is withheld — one account's learning profile never enriches
+    // another account's prompt (guest-bearer chat itself is pre-existing).
+    const digestOwner = await assertLearningOwner(guestId)
+    const learningContext = digestOwner.ok ? await buildLearningDigest(guestId) : ''
     const topicLine = topic
       ? `The student is focusing on the topic "${topic}" from their uploaded material — prioritise excerpts that discuss it.`
       : ''

@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { guestIdFromQuery } from '@/lib/learning/scope'
+import { guestIdFromQuery, resolveLearnerTimezone, assertLearningOwner } from '@/lib/learning/scope'
 import { dueStateOf } from '@/lib/learning/revision'
 import type { RevisionItemDTO, RevisionResponseDTO } from '@/lib/learning/dto'
 
@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
   try {
     const guestId = guestIdFromQuery(req)
     if (!guestId) return NextResponse.json({ error: 'guestId required' }, { status: 400 })
+    const owner = await assertLearningOwner(guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
 
+    const tz = resolveLearnerTimezone(new URL(req.url).searchParams.get('tz'))
     const now = new Date()
     const items = await db.revisionScheduleItem.findMany({
       where: { guestId },
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
     })
 
     const mapped: RevisionItemDTO[] = items.map(item => {
-      const { dueState, daysUntilDue } = dueStateOf(item, now)
+      const { dueState, daysUntilDue } = dueStateOf(item, now, tz)
       return {
         topicId: item.topicId,
         topicName: item.topicName,

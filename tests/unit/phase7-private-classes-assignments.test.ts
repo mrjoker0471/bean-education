@@ -12,6 +12,7 @@
 //     links validated.
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 
 const state = {
@@ -121,7 +122,7 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.student,
   sameOrigin: () => true,
   getSessionStudent: async () => state.student,

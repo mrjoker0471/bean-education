@@ -43,7 +43,7 @@ Focused re-audit on the merged baseline (superseding the pre-3A audit at `26dd3b
 Five new tables, all additive, all dual-ownership (`guestId` required, `studentId` stamped by claim-guest):
 
 - **TopicMastery** — one row per (guest, catalogue topic). Unique `[guestId, topicId]`. A topic with no row is NOT_ASSESSED by definition (zero evidence is never persisted).
-- **StudyPlanTask** — one task per plan slot. `planDate` (YYYY-MM-DD server-local), kind, priority, evidence-cited `rationale`, status PLANNED/COMPLETED/SKIPPED/DEFERRED.
+- **StudyPlanTask** — one task per plan slot. `planDate` (YYYY-MM-DD learner-local day key — see §17c), kind, priority, evidence-cited `rationale`, status PLANNED/COMPLETED/SKIPPED/DEFERRED.
 - **RevisionScheduleItem** — one per (guest, topic): interval ladder state, lapses, next due date, weakness flag.
 - **MistakeRecord** — one per (attempt, question) wrong answer with an immutable snapshot (text/options/explanation), evidence-only category, optional student self-tag/note.
 - **LearningAction** — one per (guest, actionKey): dismiss/snooze/complete lifecycle + outcome snapshots.
@@ -59,7 +59,9 @@ Compatibility: all five tables are added to `claim-guest` (stamping is idempoten
 
 ## 4. Mastery engine (spec §5) — deterministic, documented
 
-Computation lives in `src/lib/learning/mastery.ts`. Pure functions (`buildTopicEvidence`, `mapMasteryStatus`) are unit-tested; the DB layer only gathers and upserts. An LLM is never in this path.
+Computation lives in `src/lib/learning/mastery.ts`. Pure functions (`buildTopicEvidence` / `accumulateTopicEvidence`, `mapMasteryStatus`) are unit-tested; the DB layer only gathers and upserts. An LLM is never in this path.
+
+**Evidence pagination (release review §17a):** `recomputeTopicMastery` streams ALL submitted attempts of the owner in deterministic oldest→newest pages of `EVIDENCE_PAGE_SIZE = 200`, ordered by the composite `(startedAt, id)` with the unique attempt id as the seek cursor — bounded memory, no gaps, no duplicates, and no undocumented rolling window. A topic that first appears beyond attempt 200 still receives its row, and a re-answer beyond the first page still replaces the earlier outcome of the same question. Proven by a real-persistence regression test (`tests/unit/learning-mastery-pagination.test.ts`) that runs the orchestration against an isolated Prisma/SQLite database with a same-timestamp group straddling the page boundary.
 
 Evidence rules (anti-gaming):
 - Evidence = **DISTINCT answered questions**; each question's outcome is its **latest** answered result across all submitted attempts (latest answer wins). Repeating the same question can never inflate accuracy.
@@ -84,8 +86,9 @@ Riishe document topics (free-text `t:` labels) are deliberately out of scope for
 
 `src/lib/learning/diagnostics.ts` reuses the authoritative engine end-to-end:
 
+- **Scope (release review §17b):** a diagnostic probes one TOPIC (the original form), one UNIT (chapter), one SUBJECT or one whole EXAM/syllabus area (`scopeType` + `scopeId`; legacy `topicId` requests keep working). Non-topic selections go THROUGH the topic relation (`topic → unit → subject → stage → exam`), so every selected question still carries a catalogue topic and per-topic results, mastery evidence and mistake records work identically for all four scopes. Scope metadata (`scopeType`/`scopeId`/`scopeLabel`, `topicId` mirror for TOPIC) is persisted in the attempt's `configJson`, so the four kinds are distinguishable afterwards.
 - Selection is server-side from **VERIFIED bank rows only** (same safeguard constant semantics as `/api/tests/start`); answers are never exposed before submission.
-- Needs ≥ 6 verified questions per topic, takes up to 10; honest 409 otherwise.
+- Needs ≥ 6 verified questions **in the requested scope**, takes up to 10; honest 409 otherwise — coverage is never fabricated, and unknown scope ids are 404s, not invented banks.
 - Config marked `kind: 'DIAGNOSTIC'`; 1 minute per question (a mastery probe, not an exam simulation — the difference from stage-pattern practice is documented).
 - One in-progress diagnostic per topic (resume instead of stacking); skipped questions count as skipped, never wrong; retests after learning are always allowed.
 - Rate limit 12 starts/hour/owner; CSRF-lite on the route.
@@ -112,6 +115,7 @@ Riishe document topics (free-text `t:` labels) are deliberately out of scope for
 - Weakness signal (a REPEAT_GAP mistake — a real prior miss — or a grounded misconception explanation): the next due date is pulled to at most +1 day until a SUCCESS clears the flag.
 - First real evidence creates the schedule (first revision tomorrow).
 - The UI and API state plainly that this is a practical pattern, not a scientific prediction of memory.
+- Due-state classification (`dueStateOf`) computes "today" in the learner's explicit timezone (§17c): overdue flips at LOCAL midnight, never at the server container's midnight.
 
 ## 8. Mistake intelligence (spec §8)
 
@@ -158,6 +162,7 @@ Riishe document topics (free-text `t:` labels) are deliberately out of scope for
 ## 13. Privacy & security (spec §13)
 
 - Strict ownership: every learning query is scoped by the validated `guestId` (8–64 chars, zod); foreign rows are invisible or 404 (tested).
+- **Honest identity model (release review §17d):** the learning API is guest-first — the `guestId` is an opaque bearer identifier, the SAME product contract as `/api/progress` and `/api/attempts`. These routes are therefore NOT session-bound for unclaimed guests, and the docs say so plainly. On top of the bearer contract, the existing claim model is enforced where it allows a real check: when a signed-in session exists, a guest identity CLAIMED by a different account is rejected with 403 on every learning route (reads included), while guests keep full access and a signed-in claimant keeps access. No client-supplied `studentId` exists in any learning request schema — the account side always comes from the server-side session. The Riishe chat digest withholds the learning profile under the same check (one account's profile never enriches another account's prompt).
 - CSRF-lite (`sameOrigin`) on every mutating learning route; per-owner in-memory rate limits (plan regen 6/h, task updates 60/min, mistake tags 30/min, action decisions 30/min, diagnostics 12/h).
 - No client-supplied progress/score value is ever trusted; mastery/plan/revision are server-computed.
 - No sensitive profiling: insights are counts of activity, never health/disability/personality inferences; inactivity is never treated as low ability; nothing is shared with teachers/employers/institutions.
@@ -170,7 +175,7 @@ No new dependencies, no external services, no workers. Five SQLite tables + dete
 
 ## 15. Verification evidence (spec §16)
 
-- `bun test`: **841 passed / 0 failed** across 58 files (baseline on `ba80d98`: 777 passed / 0 failed). New suites: mastery mapping (incl. anti-gaming), revision ladder, planner priorities/capacity, mistake classification, action ranking/suppression, route proofs (guest validation, cross-guest invisibility, CSRF, diagnostic guard, plan-history immutability, action lifecycle), and claim/export/delete compatibility. The tests caught and fixed two real bugs before push (a transaction-result destructuring mismatch in claim-guest and in the guest purge route).
+- `bun test` (at original implementation): **841 passed / 0 failed** across 58 files (baseline on `ba80d98`: 777 passed / 0 failed). Release review re-run: **888+ passed / 0 failed** across 62+ files — see §17 and docs/PHASE3B_CORRECTIONS_RELEASE_REVIEW.md for the final numbers.
 - `bunx tsc --noEmit`: clean. `bun run lint`: clean.
 - `prisma migrate deploy` (empty path) + additive migration on a production-data copy (record-survival verified above).
 - No secrets committed (`.env`, DB files and uploads stay untracked); no production data in the repository.
@@ -185,3 +190,17 @@ No new dependencies, no external services, no workers. Five SQLite tables + dete
 - Outcome boost is a small deterministic signal (+10), not a learned ranking system.
 - The analyse-quota self-heal path is intentionally uncharged (system recovery); it is bounded by per-owner job caps, and this asymmetry is documented rather than hidden.
 - `/api/student/dashboard` remains studentId-scoped by its original doctrine; the learning section reads via the guest-scoped learning API so both guests and students see the same intelligence.
+
+## 17. Release-review corrections (2026-11-21)
+
+Four targeted corrections were applied to the SAME feature branch (the original implementation commit `4ed712f` is preserved untouched; corrections are a follow-up commit). Full evidence: `docs/PHASE3B_CORRECTIONS_RELEASE_REVIEW.md`.
+
+**a. Mastery evidence pagination (critical fix).** The original orchestration read `take: 200` oldest attempts — permanently excluding newer evidence beyond that limit. Replaced with deterministic cursor pagination over ALL submitted attempts (see §4). A real-persistence regression test with 212 attempts (a same-timestamp group straddling the page boundary) proves: latest attempt updates a first-page question's outcome, a topic first appearing after attempt 200 gets its row, counts and the NEEDS_REVISION regression rule stay exact, and pagination loses/duplicates nothing.
+
+**b. Diagnostic scope extension.** TOPIC / UNIT / SUBJECT / EXAM scopes added (spec §4 originally included chapters, subjects and syllabus areas). Engine reuse is complete: server-authoritative selection, VERIFIED-only, no answers before submission, honest 409 on thin coverage, resume-not-stack per scope, rate limits unchanged. Limitations stated rather than faked: unit/subject/exam diagnostics deliberately select only questions that HAVE a catalogue topic (topic-less rows would silently contribute nothing to per-topic results); scope coverage is derived in the overview UI only from the learner's thin-evidence topics (no invented global catalogue browsing).
+
+**c. Timezone policy.** All day-keyed surfaces (daily plan date keys, revision due/overdue classification, observed-activity day grouping) now compute "today" in an EXPLICIT timezone. Product default: **Asia/Kolkata** (the app's exam audience; fixed +05:30, no DST — stable boundaries year-round). The client passes its own IANA zone as an explicit learner timezone (`tz` param); the server validates it (charset + `Intl` check) and falls back to the product default — the accidental host/container zone is never consulted. Tests pin the IST midnight boundary (18:30 UTC), DST zones, calendar-key arithmetic (leap years), and the wrong-local-hour regression (a revision due during an IST day must read OVERDUE at 00:30 IST, not flip at UTC midnight).
+
+**d. Ownership hardening.** `assertLearningOwner` guards all nine `/api/learning/*` routes and the Riishe chat digest: guest-bearer operation is preserved (documented product contract), and the claim model is enforced where it allows a real check — a signed-in session that does not match a claimed identity's claimant gets 403 (reads included) before any row mutation. No client-supplied `studentId` exists anywhere; claim/export/delete compatibility is untouched.
+
+**Operational note discovered during the review (DB footgun):** in this sandbox the Prisma CLI does not load `.env` files — a `prisma db push` without an explicit `DATABASE_URL` env var silently no-ops ("already in sync" while writing nothing). This is exactly the class of shell-level ambiguity behind the disclosed Phase 3B incident (see `docs/PHASE3B_CORRECTIONS_RELEASE_REVIEW.md` §5 for the closure note). Rule going forward: every DB-touching command carries an explicit `DATABASE_URL` prefix; `.env` is relied on only for the Next dev server (Next loads it itself).

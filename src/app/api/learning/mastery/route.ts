@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { guestIdFromQuery } from '@/lib/learning/scope'
+import { guestIdFromQuery, assertLearningOwner } from '@/lib/learning/scope'
 import { masteryRowToDTO, sortMasteryRows } from '@/lib/learning/mastery'
 import { recomputeTopicMastery } from '@/lib/learning/mastery'
 import type { TopicMasteryDTO } from '@/lib/learning/dto'
@@ -18,6 +18,8 @@ export async function GET(req: NextRequest) {
   try {
     const guestId = guestIdFromQuery(req)
     if (!guestId) return NextResponse.json({ error: 'guestId required' }, { status: 400 })
+    const owner = await assertLearningOwner(guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
 
     const statusFilter = new URL(req.url).searchParams.get('status')
     if (statusFilter && !VALID_STATUS.has(statusFilter)) {
