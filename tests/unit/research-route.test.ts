@@ -122,6 +122,8 @@ const fakeDb = {
 
 const fakeJobs = {
   reserveQuota: async () => state.quotaOk,
+  // Phase 3B: failed starts release their reservation — the mock tracks the call.
+  releaseQuota: async () => undefined,
   enqueueJob: async (opts: { kind: string; refId: string; ownerId: string }) => {
     state.enqueued.push(opts)
     return { jobId: `job-${state.enqueued.length}`, alreadyQueued: false }

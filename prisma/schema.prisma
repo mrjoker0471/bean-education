@@ -523,7 +523,7 @@ model RiisheJob {
 model JobQuota {
   id          String   @id @default(cuid())
   ownerKey    String // guestId or studentId
-  kind        String // analyse | generate | explain
+  kind        String // analyse | generate | explain | research (Phase 3A added research; Phase 3B enforces analyse at upload/retry)
   windowKey   String // ISO hour bucket, e.g. "2026-11-18T09"
   windowStart DateTime
   count       Int      @default(0)
@@ -1494,4 +1494,149 @@ model ResearchPyqCandidate {
   @@index([status])
   @@index([sessionId])
   @@index([promotedQuestionId])
+}
+
+// ─── Personal Learning Intelligence (Phase 3B) ───────────────────────────────
+// Deterministic, evidence-based learner state. Every value is computed
+// server-side from real submitted attempts (bank or Riishe) — never from
+// reading content, never from an LLM, never from client-supplied scores.
+// Ownership follows the app-wide dual model: guestId is the working identity,
+// studentId is stamped by claim-guest, and every table appears in the claim,
+// export and delete flows.
+//
+// TopicMastery covers CATALOGUE topics only (topicId is a real Topic.id).
+// Riishe document topics (free-text, `t:`-prefixed in perTopicJson) keep
+// surfacing through the existing weak-areas system — documented limitation.
+
+// Evidence-based mastery for one catalogue topic. A topic with NO row here is
+// NOT_ASSESSED by definition — nothing is persisted for zero evidence.
+model TopicMastery {
+  id                String    @id @default(cuid())
+  guestId           String
+  studentId         String?
+  topicId           String    // plain Topic reference (no FK — mastery survives catalogue edits)
+  topicName         String    // display snapshot at computation time
+  examLabel         String?
+  status            String // INSUFFICIENT_EVIDENCE | LEARNING | DEVELOPING | STRONG | NEEDS_REVISION (NOT_ASSESSED = no row)
+  accuracy          Int // 0-100 over DISTINCT answered questions; latest answer per question wins
+  evidenceQuestions Int // distinct answered questions behind this row
+  attemptCount      Int // real submitted attempts covering this topic
+  correctDistinct   Int // distinct questions whose latest outcome is correct
+  statusReason      String? // one-line deterministic explanation of the current status
+  lastActivityAt    DateTime?
+  computedAt        DateTime  @updatedAt
+
+  @@unique([guestId, topicId])
+  @@index([guestId, status])
+  @@index([studentId, status])
+}
+
+// One task on a personal day plan. Completed / Skipped / Deferred rows are
+// history and are NEVER rewritten or deleted by regeneration — only PLANNED
+// rows are ever replaced.
+model StudyPlanTask {
+  id               String    @id @default(cuid())
+  guestId          String
+  studentId        String?
+  planDate         String // YYYY-MM-DD (server-local day)
+  kind             String // REVISE_TOPIC | PRACTICE_TOPIC | DIAGNOSTIC | REVIEW_MISTAKES | GOAL_WORK | CONTINUE_DOC
+  title            String
+  topicId          String?
+  topicName        String?
+  examLabel        String?
+  estimatedMinutes Int
+  priority         Int // 1 = highest … 3 = lowest (deterministic)
+  rationale        String // evidence-cited reason shown to the learner
+  evidenceJson     String? // JSON — the real numbers behind the rationale
+  status           String    @default("PLANNED") // PLANNED | COMPLETED | SKIPPED | DEFERRED
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([guestId, planDate, status])
+  @@index([studentId, planDate])
+}
+
+// Spaced-revision schedule for one catalogue topic. The interval ladder is a
+// deterministic SM-2-inspired heuristic — documented in
+// docs/PHASE3B_PERSONAL_LEARNING_INTELLIGENCE.md; it is NOT a scientific
+// model of memory and the UI never claims otherwise.
+model RevisionScheduleItem {
+  id                String    @id @default(cuid())
+  guestId           String
+  studentId         String?
+  topicId           String
+  topicName         String
+  examLabel         String?
+  intervalDays      Int       @default(1)
+  repetitions       Int       @default(0)
+  lapses            Int       @default(0)
+  lastOutcome       String? // SUCCESS | PARTIAL | FAILURE (topic accuracy of the triggering attempt)
+  lastReviewedAt    DateTime?
+  nextDueAt         DateTime
+  misconceptionFlag Boolean   @default(false) // pulls the next revision earlier until a success clears it
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([guestId, topicId])
+  @@index([guestId, nextDueAt])
+  @@index([studentId, nextDueAt])
+}
+
+// One wrong answer, recorded once per (attempt, question). System categories
+// are evidence-only (CONCEPT needs a grounded Riishe explanation, REPEAT_GAP
+// needs a real prior miss); everything else stays honestly UNCLASSIFIED.
+// Students may add a subjective self-tag (FACT/FORMULA/MISREAD/CONCEPT) which
+// the UI prefers over the system category and labels as self-reported.
+model MistakeRecord {
+  id             String    @id @default(cuid())
+  guestId        String
+  studentId      String?
+  attemptId      String // plain reference — display uses the snapshot below
+  questionId     String
+  source         String // BANK | RIISHE
+  topicId        String?
+  topicName      String?
+  chosenIndex    Int
+  correctIndex   Int
+  snapshotJson   String // JSON { text, options[], explanation? } captured at submit time
+  category       String    @default("UNCLASSIFIED") // CONCEPT | REPEAT_GAP | UNCLASSIFIED
+  categoryReason String?
+  studentTag     String? // CONCEPT | FACT | FORMULA | MISREAD — self-report, never system-inferred
+  note           String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([attemptId, questionId])
+  @@index([guestId, createdAt])
+  @@index([guestId, topicId])
+  @@index([studentId, createdAt])
+  @@index([questionId])
+}
+
+// Next-best-action lifecycle. The OPEN set is computed deterministically on
+// read from real evidence; rows here only record decisions (dismiss / snooze /
+// complete) and outcomes, so ranking can learn — deterministically — what
+// actually helped. actionKey is stable per evidence source, e.g.
+// WEAK_TOPIC_PRACTICE:<topicId>.
+model LearningAction {
+  id           String    @id @default(cuid())
+  guestId      String
+  studentId    String?
+  actionKey    String
+  type         String // REVIEW_DUE | NEEDS_REVISION_PRACTICE | WEAK_TOPIC_PRACTICE | DIAGNOSTIC | REVIEW_MISTAKES | GOAL_WORK | PLAN_TODAY | CONTINUE_DOC
+  title        String
+  reason       String
+  topicId      String?
+  href         String
+  priority     Int
+  status       String // DISMISSED | SNOOZED | COMPLETED (no row = OPEN)
+  snoozedUntil DateTime?
+  resolvedAt   DateTime?
+  outcomeJson  String? // JSON — what happened after completion (attempt ids, scores)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([guestId, actionKey])
+  @@index([guestId, status])
+  @@index([studentId, status])
 }

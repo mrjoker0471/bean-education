@@ -28,6 +28,7 @@ export type Route =
   | { view: 'dashboard' }
   | { view: 'workspace' }
   | { view: 'goals' }
+  | { view: 'learning' }
   | { view: 'pyq-studio' }
   // Phase 4A — BEAN Teach marketplace (additive; every existing route unchanged)
   | { view: 'classes'; tab?: 'browse' | 'bookings' }
@@ -136,6 +137,9 @@ export function parseHash(hash: string): Route {
       return { view: 'workspace' }
     case 'goals':
       return { view: 'goals' }
+    // Phase 3B — personal learning intelligence (works for guests AND students)
+    case 'learning':
+      return { view: 'learning' }
     case 'pyq-studio':
       return { view: 'pyq-studio' }
     // Phase 4A — BEAN Teach marketplace

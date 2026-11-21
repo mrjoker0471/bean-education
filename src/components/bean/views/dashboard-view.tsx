@@ -17,6 +17,7 @@ import { formatDate } from '@/components/bean/format'
 import {
   ArrowRight,
   BookOpenCheck,
+  Brain,
   CalendarCheck,
   ClipboardList,
   Clock3,
@@ -29,6 +30,7 @@ import {
   Upload,
 } from 'lucide-react'
 import type { DashboardResponse } from '@/lib/types'
+import type { LearningOverviewDTO } from '@/lib/learning/dto'
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -115,7 +117,9 @@ export function DashboardView() {
 
 function DashboardData({ onRetry }: { onRetry: () => void }) {
   const navigate = useAppStore(s => s.navigate)
+  const guestId = useAppStore(s => s.guestId)
   const [data, setData] = useState<DashboardResponse | null>(null)
+  const [learning, setLearning] = useState<LearningOverviewDTO | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
 
   useEffect(() => {
@@ -124,6 +128,14 @@ function DashboardData({ onRetry }: { onRetry: () => void }) {
       .studentDashboard()
       .then(d => !cancelled && setData(d))
       .catch(e => !cancelled && setFailed(e instanceof Error ? e.message : 'Could not load your dashboard.'))
+    // Phase 3B: the learning-intelligence slice is a separate, guest-scoped
+    // read — a failure here must never break the dashboard itself.
+    if (guestId) {
+      api
+        .learningOverview(guestId)
+        .then(o => !cancelled && setLearning(o))
+        .catch(() => undefined)
+    }
     return () => {
       cancelled = true
     }
@@ -294,6 +306,73 @@ function DashboardData({ onRetry }: { onRetry: () => void }) {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+          </SectionCard>
+
+          {/* ── Learning intelligence (Phase 3B) ── */}
+          <SectionCard
+            icon={Brain}
+            title="Learning intelligence"
+            action={
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => navigate({ view: 'learning' })}>
+                Open hub <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+              </Button>
+            }
+          >
+            {!learning ? (
+              <p className="text-sm text-muted-foreground">Loading your learning signals…</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Stat label="Strong" value={String(learning.mastery.counts.strong)} hint="80%+ topics" />
+                  <Stat label="Learning" value={String(learning.mastery.counts.learning)} hint="below 60%" />
+                  <Stat label="Revision due" value={String(learning.revision.dueCount)} hint={learning.revision.overdueCount > 0 ? `${learning.revision.overdueCount} overdue` : 'on schedule'} />
+                  <Stat label="Plan today" value={`${learning.plan.completedToday}/${learning.plan.openTasks + learning.plan.completedToday}`} hint={`${learning.plan.plannedMinutes} min planned`} />
+                </div>
+                {learning.actions.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Suggested now (with reasons)</h3>
+                    <ul className="mt-2 space-y-2">
+                      {learning.actions.slice(0, 2).map(a => (
+                        <li key={a.actionKey}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              window.location.hash = a.href
+                              window.scrollTo({ top: 0 })
+                            }}
+                            className="w-full rounded-lg border border-border bg-elevated px-4 py-3 text-left transition-colors hover:border-gold/40"
+                          >
+                            <span className="block text-sm font-medium text-gold">{a.title}</span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">{a.reason}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {learning.mastery.weakest.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Weakest evidence-backed topics</h3>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {learning.mastery.weakest.slice(0, 4).map(t => (
+                        <button
+                          key={t.topicId}
+                          type="button"
+                          onClick={() => navigate({ view: 'topic', topicId: t.topicId })}
+                          className="rounded-full border border-border bg-elevated px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold"
+                        >
+                          {t.topicName} · {t.accuracy}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Computed only from submitted answers — reading material never counts as mastery, and thin evidence is
+                  labelled thin.
+                </p>
               </div>
             )}
           </SectionCard>
