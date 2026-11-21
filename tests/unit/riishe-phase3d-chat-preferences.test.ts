@@ -20,7 +20,7 @@ import { completeAuthMock } from '../helpers/auth-mock'
 //  D3. account data deletion removes turns and their preferences (whole row)
 //  D5. old conversation records with missing preference fields keep working
 //  D6. preference metadata never grants access: fail-closed ownership still
-//      withholds the learner digest, and history stays guest-scoped
+//      withholds the learner digest, and the guarded history GET fails closed
 //  D7. research follow-ups stay on their independent pathway (no preferences)
 //
 // Repo conventions: only '@/lib/db' is ever module-mocked (bun first-mock
@@ -54,6 +54,12 @@ const newGuest = () => `p3d-guest-${++guestSeq}`
 let turnSeq = 0
 const nextTurnId = () => `turn-${++turnSeq}`
 
+// Phase 3D.1: monotonic fake clock for rows created through the mocked
+// create(). Two turns written in the same millisecond must never tie on
+// createdAt — the history GET sorts desc then reverses, so a tie made the
+// "most recent preference" pick ambiguous (intermittent A6 failure observed
+// on pristine ad53dcd). Test-infrastructure stabilisation only.
+
 function resetState() {
   state.sessionStudent = null
   state.sessionThrows = false
@@ -67,7 +73,11 @@ function resetState() {
   state.researchSessions = []
   lastChatFindWhere = null
   lastChatUpdateData = null
+  fakeClockMs = Date.now()
 }
+
+// Monotonic fake clock (see note above nextTurnId).
+let fakeClockMs = Date.now()
 
 const PAGE1 =
   "Newton's first law of motion states that a body continues in its state of rest or of uniform motion in a straight line unless acted upon by an external net force. This property of matter is called inertia."
@@ -207,7 +217,7 @@ const fakeDb = {
         responseLanguage: null,
         ...data,
         id: nextTurnId(),
-        createdAt: new Date(),
+        createdAt: new Date(fakeClockMs++),
       }
       state.chatTurns.push(row)
       return row
@@ -568,10 +578,14 @@ describe('Phase 3D — preferences stay scoped to their conversation', () => {
     const row = state.chatTurns.find(t => t.role === 'assistant')
     expect(row?.tutorMode).toBe('SOCRATIC')
     expect(row?.responseLanguage).toBe('ta')
-    // History stays guest-scoped: a foreign guestId sees none of it.
+    // History stays protected (Phase 3D.1): with session verification failing,
+    // the guarded history GET fails CLOSED — generic 503, no turn contents,
+    // no preference metadata, never a guest fallback.
     const foreign = await GET(getReq({ guestId: newGuest(), documentId: 'doc-a' }))
-    const { turns } = await foreign.json() as { turns: unknown[] }
-    expect(turns).toHaveLength(0)
+    expect(foreign.status).toBe(503)
+    const foreignBody = await foreign.json() as { error: string; turns?: unknown[] }
+    expect(foreignBody.error).toBe('Account ownership could not be verified. Please retry.')
+    expect(foreignBody.turns).toBeUndefined()
   })
 
   it('D7. research follow-ups remain on their independent pathway (no preference metadata)', async () => {

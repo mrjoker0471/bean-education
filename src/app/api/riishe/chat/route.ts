@@ -109,6 +109,19 @@ export async function GET(req: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     const { guestId, documentId, attemptId, questionId } = parsed.data
 
+    // Phase 3D.1: the persisted conversation is protected history — verify
+    // account ownership of a claimed guest identity BEFORE any database read.
+    // Same guard contract as the learning routes: an unauthenticated guest whose
+    // session resolution completes keeps the guest-bearer contract; a signed-in
+    // claimant keeps access; a foreign signed-in account gets 403; a session or
+    // claim-lookup failure fails CLOSED with the generic 503 (never guest
+    // access, never an "unclaimed" fallback). The response carries only the
+    // guard's generic error text — no turn contents, preference metadata or
+    // account details. tutorMode/responseLanguage metadata is presentation
+    // state only and never authorizes this read.
+    const owner = await assertLearningOwner(guestId)
+    if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status })
+
     const where: Record<string, unknown> = { guestId }
     if (attemptId && questionId) {
       where.attemptId = attemptId
