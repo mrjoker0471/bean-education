@@ -1,0 +1,65 @@
+# BEAN Education CI — repeatable quality gate (Phase 3B.1).
+#
+# One required job (`quality`) running the exact verification stack the
+# project uses locally: ESLint, TypeScript, the full Bun test suite and the
+# real production build. No paid providers, no external AI credentials, no
+# production secrets.
+#
+# Database isolation: Prisma reads DATABASE_URL from the environment only
+# (.env files are not committed and are never relied on). CI points it at a
+# throwaway SQLite file under /tmp — never a developer or production database.
+# The real-persistence pagination regression test creates its own temp
+# database and stays fully independent of this setting.
+
+name: BEAN Education CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'fix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    env:
+      # Explicit, isolated CI database — never implicit .env loading, never a
+      # developer or production database file.
+      DATABASE_URL: file:/tmp/bean-ci-isolated.db
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun 1.3.14
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Push schema to the isolated CI database
+        run: bunx prisma db push --skip-generate
+
+      - name: Lint
+        run: bun run lint
+
+      - name: TypeScript
+        run: bun x tsc --noEmit
+
+      - name: Tests
+        run: bun test
+
+      - name: Production build
+        run: bun run build
