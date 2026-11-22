@@ -32,6 +32,14 @@
 // verification and source disclosure are computed server-side and unaffected.
 // They are hidden in research follow-up scope — that pathway (Phase 3A) has
 // its own dossier-grounded pipeline that intentionally stays unchanged.
+//
+// Phase 3E adds the Interactive Learning Studio as another Riishe capability:
+// a Studio launcher in this settings bar opens a dialog that generates
+// concept maps, step-by-step explanations, formula walkthroughs, flashcards
+// and mini-tests from the same grounding scope — server-validated, never
+// persisted, and never writing to learner records. Hidden in research
+// follow-up scope (same reasoning as above) and in compact per-question
+// review panels.
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
@@ -52,6 +60,7 @@ import { Switch } from '@/components/ui/switch'
 import { Toggle } from '@/components/ui/toggle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageRefChips } from '@/components/bean/riishe-bits'
+import { RiisheStudioLauncher } from '@/components/bean/riishe-studio'
 import { cn } from '@/lib/utils'
 import { BookOpen, Globe, GraduationCap, Languages, Loader2, Send, Sparkles, X } from 'lucide-react'
 
@@ -427,6 +436,21 @@ export function RiisheChatPanel({
               </SelectContent>
             </Select>
           </div>
+        )}
+        {/* Phase 3E — Interactive Learning Studio: concept maps, guided steps,
+            formula walkthroughs, flashcards and mini-tests generated from the
+            same grounding scope. Hidden in research scope (own pathway) and
+            compact per-question panels. */}
+        {!researchMode && !compact && (
+          <RiisheStudioLauncher
+            guestId={guestId}
+            documentId={scope.documentId}
+            documentIds={scopeDocs.length > 0 ? scopeDocs : undefined}
+            topicFocus={focus}
+            responseLanguage={responseLanguage}
+            onOpenPage={onOpenPage}
+            compact={compact}
+          />
         )}
         <div className="flex items-center gap-2">
           <Switch
