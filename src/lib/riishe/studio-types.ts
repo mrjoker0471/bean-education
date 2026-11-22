@@ -158,6 +158,156 @@ export const STUDIO_FLASHCARD_KIND_LABELS: Record<StudioFlashcardKind, string> =
   qa: 'Question',
 }
 
+// ─── Phase 3G: graded recall (type-the-answer flashcards) ─────────────────────
+//
+// Phase 3F left flashcard recall self-reported (documented limitation §11.4:
+// "a future graded-recall mode (type-the-answer checking) could strengthen
+// it"). Phase 3G adds an OPTIONAL graded-recall step: before revealing the
+// answer, the learner can type what they recall, and a deterministic,
+// documented text-similarity heuristic grades the attempt against the card's
+// answer.
+//
+// Honesty contract (extends the Phase 3E/3F one):
+//   - The verdict is APPROXIMATE TEXT MATCHING, never semantic understanding.
+//     A correct idea phrased differently can be marked wrong — the card's real
+//     answer is always shown after the check, and the note below says so.
+//   - The verdict is evidence INSIDE the studio record only. It never feeds
+//     TopicMastery, attempts, revision or any exam mastery surface (the same
+//     zero-contribution rule as Phase 3F).
+//   - The stored completion result is recomputed SERVER-SIDE from the stored
+//     snapshot + stored typed answers (identical helper). Client verdicts are
+//     display-only and never trusted for the stored result.
+//   - Self-marked recall (Phase 3F) stays available and is never overwritten
+//     by typing; the two evidence kinds are labelled and reported separately.
+
+export type StudioRecallVerdict = 'correct' | 'partial' | 'incorrect'
+
+/**
+ * Deterministic token-similarity thresholds for graded recall. Documented
+ * heuristics — deliberately simple and explainable, not a semantic grader.
+ */
+export const GRADE_CORRECT_THRESHOLD = 0.75
+export const GRADE_PARTIAL_THRESHOLD = 0.4
+/** Typed input with more than 3x the expected token count caps at partial. */
+export const GRADE_SPAM_TOKEN_RATIO = 3
+
+/** Fixed honest framing for graded recall (English chrome, deterministic). */
+export const STUDIO_GRADED_RECALL_NOTE =
+  'Typed answers are checked by approximate text matching — a correct idea phrased differently can be marked wrong. The card\'s answer is always shown, and this evidence stays in the studio record without changing mastery.'
+
+/**
+ * Normalize text for comparison: NFKC (superscripts → digits), lowercase,
+ * strip diacritics, punctuation → space, collapse whitespace. Exported for
+ * tests; the UI and server share the identical code path via gradeTypedRecall.
+ */
+export function normalizeRecallText(raw: string): string {
+  return raw
+    .normalize('NFKC')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip combining diacritics
+    .replace(/[’'`\u2018\u201C\u201D]/g, '') // apostrophes/quotes stay IN the word (newton's → newtons)
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ') // remaining punctuation and symbols → space
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function recallTokens(normalized: string): string[] {
+  return normalized.length > 0 ? normalized.split(' ').filter(Boolean) : []
+}
+
+/** Token-set overlap (Jaccard): |A∩B| / |A∪B|. Empty side → 0. */
+function recallTokenOverlap(a: string[], b: string[]): number {
+  if (a.length === 0 || b.length === 0) return 0
+  const setA = new Set(a)
+  const setB = new Set(b)
+  let shared = 0
+  for (const t of setB) if (setA.has(t)) shared++
+  return shared / (setA.size + setB.size - shared)
+}
+
+/**
+ * Operator characters are significant for formula-style answers — but two
+ * notation-only families are lenient: multiplication dots (·, ×, * — because
+ * juxtaposition "ma" equals explicit multiplication "m · a" in plain typing)
+ * and the ASCII caret superscript notation ("mc^2" ≡ "mc²"). Division,
+ * addition, subtraction and equality are compared exactly: "m/a" vs "m·a"
+ * is a different formula and must not grade correct.
+ */
+function significantOps(raw: string): string {
+  const ops = raw
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[·×∗∙⋅]/g, '*')
+    .replace(/÷/g, '/')
+    .match(/[+=*/^%<>\u2212-]/g)
+  // Lenient notation families: multiplication dots (juxtaposition "ma" equals
+  // "m · a") and ASCII caret superscripts ("mc^2" ≡ "mc²").
+  return (ops ?? []).filter(op => op !== '*' && op !== '^').join('')
+}
+
+/**
+ * Grade one typed recall attempt against the card's expected answer.
+ * Deterministic and pure — the UI uses it for immediate feedback and the
+ * server re-runs the identical function when computing the stored result.
+ *
+ * An empty (or whitespace-only) attempt returns `null`: an attempt that was
+ * never made is not evidence and must not be graded.
+ */
+export function gradeTypedRecall(expected: string, typed: string): StudioRecallVerdict | null {
+  const exp = normalizeRecallText(expected)
+  const got = normalizeRecallText(typed)
+  if (got.length === 0) return null
+  if (exp.length === 0) return 'incorrect'
+  if (got === exp) {
+    // Identical after normalization — but operators were stripped by
+    // normalization, so for formula-like answers they are still compared
+    // (m/a vs m·a must not grade correct). Notation-lenient families (dots,
+    // carets) are ignored by significantOps.
+    return significantOps(expected) === significantOps(typed) ? 'correct' : 'partial'
+  }
+
+  const expTokens = recallTokens(exp)
+  const gotTokens = recallTokens(got)
+  const expCompact = exp.replace(/\s+/g, '')
+  const gotCompact = got.replace(/\s+/g, '')
+
+  let similarity: number
+  if (expCompact === gotCompact) {
+    // Same letters and numbers in the same order. Operators are significant
+    // (m/a ≠ m·a) except the lenient notation families above; a same-letters
+    // different-significant-operators attempt caps at partial.
+    similarity = significantOps(expected) === significantOps(typed) ? 1 : GRADE_PARTIAL_THRESHOLD
+  } else if (expTokens.length === 1 || gotTokens.length === 1) {
+    // Single-token answers (formulas, terms): a typed substring counts as
+    // partial only when it is long enough (≥4 chars) that a one-letter slip or
+    // a common word cannot inflate the verdict.
+    if (gotCompact === expCompact) similarity = 1
+    else if (gotCompact.length >= 4 && expCompact.includes(gotCompact)) similarity = GRADE_PARTIAL_THRESHOLD
+    else similarity = recallTokenOverlap(expTokens, gotTokens)
+  } else {
+    similarity = recallTokenOverlap(expTokens, gotTokens)
+  }
+
+  let verdict: StudioRecallVerdict
+  if (similarity >= GRADE_CORRECT_THRESHOLD) verdict = 'correct'
+  else if (similarity >= GRADE_PARTIAL_THRESHOLD) verdict = 'partial'
+  else verdict = 'incorrect'
+  // Spam guard: input far longer than the answer cannot count as fully correct.
+  if (verdict === 'correct' && gotTokens.length > expTokens.length * GRADE_SPAM_TOKEN_RATIO) {
+    verdict = 'partial'
+  }
+  return verdict
+}
+
+/** Server-computed graded-recall counts — present only when ≥1 card was typed. */
+export interface StudioGradedRecallSummary {
+  attempted: number
+  correct: number
+  partial: number
+  incorrect: number
+}
+
 // ─── Mini-test ────────────────────────────────────────────────────────────────
 
 export type StudioQuizDifficulty = 'foundation' | 'application' | 'advanced'
@@ -353,16 +503,29 @@ export interface StudioActivityProgress {
  *   answer was revealed. A reveal without a self-mark stays review, never
  *   evidence. `recalled` / `missed` are the student's own assessment.
  * - mini-test: the submitted answers; the score is recomputed server-side.
+ * - flashcards (Phase 3G): `typedRecall` — what the learner TYPED before
+ *   revealing, per card index. Objective recall evidence: the verdict is
+ *   recomputed server-side from the stored snapshot via gradeTypedRecall.
+ *   Optional per card; empty input is never stored as an attempt.
  */
 export interface StudioActivityResponses {
   selfRecall?: Record<string, 'recalled' | 'missed'>
   answers?: (number | null)[]
+  typedRecall?: Record<string, string>
 }
 
 /** Server-computed completion summaries — never a client score, never mastery. */
 export type StudioActivityResult =
   | { type: 'mini-test'; correct: number; answered: number; total: number; percent: number }
-  | { type: 'flashcards'; cardsTotal: number; cardsReviewed: number; recalled: number; missed: number }
+  | {
+      type: 'flashcards'
+      cardsTotal: number
+      cardsReviewed: number
+      recalled: number
+      missed: number
+      /** Phase 3G: server-recomputed graded-recall counts; present only when ≥1 card was typed. */
+      graded?: StudioGradedRecallSummary
+    }
   | { type: 'steps'; stepsStudied: number; stepsTotal: number }
   | { type: 'formula'; verified: boolean; illustrative: boolean }
   | { type: 'concept-map'; conceptsTotal: number }

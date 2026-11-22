@@ -81,3 +81,74 @@ Classifications and the required action:
 Run it before starting a milestone, before every push, and at the end of
 every milestone. The hygiene condition is met only when the report shows
 zero branches behind `origin/main`.
+
+## The permanent milestone publication lifecycle (mandatory)
+
+A milestone is not finished when the code works locally. It is finished when
+GitHub is in a verified state. **A local commit is not a published commit; a
+successful local test is not a successful GitHub CI run.** Every milestone —
+this one and every future one — MUST walk this lifecycle in order:
+
+1. Freshly fetch origin and verify the exact `origin/main` SHA
+   (`git ls-remote origin refs/heads/main`).
+2. Create a dedicated feature branch from that verified SHA.
+3. Implement the approved scope (audit first, minimal targeted changes).
+4. Run all required checks (typecheck, lint, full test suite, build).
+5. Commit all approved milestone changes — nothing approved stays uncommitted.
+6. Push the branch with a normal push (no force, ever).
+7. Verify the remote branch tip independently: `git ls-remote origin
+   refs/heads/<branch>` must equal the local HEAD.
+8. Record the milestone in `docs/milestone-ledger.json` (commit SHAs, remote
+   SHA, push verification timestamp).
+9. Open exactly one PR to `main` (unless an equivalent PR already exists).
+10. Wait for the PR's real CI result — verify run IDs and conclusions.
+11. Merge through the authorized normal GitHub workflow when required checks
+    pass and permissions permit. If no authorized PR operation is available,
+    STOP at that gate and report the precise manual action required — never
+    fabricate a PR, a merge or a CI result.
+12. Verify the merge commit AND every feature commit are ancestors of the new
+    `origin/main`.
+13. Re-run the branch report; fast-forward eligible behind-only branches per
+    rule 8 (small batches, independently verified).
+14. Update the ledger (PR state, merge commit, CI runs, final main SHA,
+    sync status) and the milestone documentation.
+15. Run `bun scripts/branch-health.mjs --gate <milestone-id>` — it must PASS
+    before the milestone may be declared COMPLETE anywhere.
+
+## The commit ledger
+
+`docs/milestone-ledger.json` is the permanent, machine-readable record (see
+`docs/MILESTONE-LEDGER.md` for the field reference and summary). Every
+approved commit is accounted for exactly once. The ledger distinguishes
+three states for every commit:
+
+- **local only** — exists on a local branch; not published (never acceptable
+  at a milestone boundary);
+- **published on a feature branch** — verified on the remote branch via
+  `ls-remote`, but NOT yet integrated;
+- **integrated** — an ancestor of `origin/main` (verified with
+  `git merge-base --is-ancestor`).
+
+## The milestone completion gate
+
+```sh
+bun scripts/branch-health.mjs --gate <milestone-id> [--json]
+```
+
+The gate refuses COMPLETE (exit 1, with the exact outstanding items) when any
+of these hold:
+
+- the working tree has uncommitted changes;
+- the local HEAD is not pushed (remote tip ≠ local tip, or the branch is
+  missing on the remote);
+- a remote feature branch carries commits missing from main (ahead-only
+  work), is behind main (synchronization debt), or is divergent/unprovable;
+- the ledger's claimed commits / merge commit are not ancestors of the live
+  `origin/main`, or its `finalMainSha` no longer matches;
+- the milestone's PR is open/unresolved;
+- required CI is pending or failing — verified through `gh` when available;
+  otherwise reported as an explicit MANUAL item that keeps the gate open.
+
+The gate is read-only. It never pushes, merges, deletes, rewrites, or force-
+updates anything; it only proves state and refuses to bless an unfinished
+milestone.

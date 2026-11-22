@@ -535,3 +535,18 @@ Work Log:
 
 Stage Summary:
 - Four targeted corrections + one test-hygiene fix delivered on the existing feature branch with no rebuilds, no new dependencies, no redesign; the original implementation commit, all prior phase safeguards and the existing UI/architecture are preserved. The branch is ready for the user to review and open the PR; merge remains explicitly unauthorised.
+
+---
+
+Agent: Z.ai Code
+Task ID: phase3g-graded-recall
+Task: PHASE 3G — Riishe Studio graded recall (type-the-answer flashcards) + permanent GitHub commit publication & synchronization enforcement.
+
+Work Log:
+- Baseline verified first: fresh fetch + independent ls-remote — origin/main = e93cdef1bf2d3a584f05c35c9038ab9e68091052 (PR #22 merge), all 16 feature branches IN SYNC, Phase 3F migration/tests/docs and the branch-health fix (753624d) confirmed on main; branch-health script green under Bun and Node. Protected local-only commits (f127b793/311effbe/0da1af53) and the stash untouched in the original checkout.
+- Scope decision (documented): no explicit 3G spec exists in the repo; the smallest coherent next milestone was taken from docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md §11.4 — "a future graded-recall mode (type-the-answer checking) could strengthen it". Phase 3G = optional type-the-answer flashcard recall with a deterministic, documented grading heuristic; zero mastery contribution; no migration; no route/ownership changes; no new providers.
+- Implementation (worktree /home/z/p3g-wt, isolated from the original checkout): studio-types.ts (typedRecall DTO, graded result block, gradeTypedRecall helper with NFKC/diacritic/apostrophe normalization, token-overlap thresholds 0.75/0.40, operator significance — m·a vs m/a stays honest, notation-lenient dots/carets, spam guard — plus STUDIO_GRADED_RECALL_NOTE); studio-store.ts (typedRecall validation against the stored snapshot with index bounds + 2000-char cap + whitespace-only dropped; server-side graded recomputation in computeResult; field-level evidence merge at completion so mid-session typed answers are never dropped); riishe-studio.tsx (optional type-then-check flow with honest verdict labels + approximation note, review-mode typed answers, graded history lines; plain reveal keeps exact 3F behaviour).
+- Tests: tests/unit/riishe-phase3g-graded-recall.test.ts — 25 tests across helper/store/routes (normalization, thresholds, empty-attempt honesty, operator honesty, idempotency, client-verdict stripping, ownership 403/404, cross-origin 403). Full suite: 1129 pass / 0 fail (baseline 1104 + 25); tsc clean; eslint clean. Test-driven bug fixes during the run: apostrophe tokenization, compact-form equality, early-exact-match operator check, field-level completion merge.
+- PART D permanent enforcement: docs/milestone-ledger.json (machine-readable ledger, every merged milestone accounted with verified merge/commit/PR/CI evidence; pre-ledger entries honestly null-noted), docs/MILESTONE-LEDGER.md (rules + summary), scripts/branch-health.mjs --gate <milestone-id> (read-only completion gate: dirty tree, unpushed commits, unmerged/behind/divergent/unprovable branches, ledger ancestry + finalMainSha checks, PR/CI verified via gh when available else explicit MANUAL items — verified FAIL states live), docs/GIT-BRANCH-HYGIENE.md (permanent 15-step publication lifecycle + ledger + gate sections), roadmap Phase 3B status corrected to COMPLETE + Phase 3G section added.
+Stage Summary:
+- Phase 3G implemented additively inside the existing architecture; nothing rebuilt, no new deps, no payments, no destructive changes. Publication lifecycle enforced permanently for every future milestone. Branch ready for push + PR; merge follows the authorized normal GitHub workflow.
