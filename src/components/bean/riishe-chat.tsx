@@ -18,9 +18,16 @@
 // Response styles (Exam-focused / Simple / Detailed) change presentation and
 // depth only — never the sources or factual correctness.
 //
-// Phase 3C adds two per-chat controls (component state, not persisted prefs):
+// Phase 3C adds two per-chat controls:
 //   Teaching mode  — how Riishe teaches (Explain/Socratic/Worked example/…)
 //   Response language — which language the reply is written in
+// Phase 3D makes them conversation-scoped and persistent: every assistant
+// turn stores the preference in force when it was produced, the chat-history
+// API returns it, and reloading a conversation re-initialises the controls
+// from the most recent stored assistant-turn settings (older conversations
+// without metadata fall back to the EXPLAIN / auto defaults). Settings stay
+// stable for the rest of the active conversation and never leak across
+// scopes — each scope (hub, document, question review) restores its own.
 // Both change teaching/presentation only; retrieval scope, citation
 // verification and source disclosure are computed server-side and unaffected.
 // They are hidden in research follow-up scope — that pathway (Phase 3A) has
@@ -212,8 +219,9 @@ export function RiisheChatPanel({
   const [error, setError] = useState<string | null>(null)
   const [focus, setFocus] = useState<string | undefined>(topicFocus)
   const [scopeDocs, setScopeDocs] = useState<string[]>([])
-  // Phase 3C — per-chat teaching controls (temporary by design: they apply to
-  // subsequent messages in this chat component and are not stored anywhere).
+  // Phase 3C/3D — per-conversation teaching controls. Restored from the
+  // conversation's most recent stored assistant-turn preference when the
+  // scope loads (Phase 3D); stable for the rest of the active conversation.
   const [tutorMode, setTutorMode] = useState<RiisheTutorMode>(DEFAULT_TUTOR_MODE)
   const [responseLanguage, setResponseLanguage] = useState<RiisheResponseLanguage>('auto')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -234,7 +242,7 @@ export function RiisheChatPanel({
     const load = researchMode
       ? api
           .researchFollowUps(scope.researchSessionId as string, guestId)
-          .then(d => ({ turns: d.turns.map(t => ({ ...t, pagesCited: [], grounding: (t.grounding === 'document' ? 'document' : 'general') as 'document' | 'general' | null })) }))
+          .then(d => ({ turns: d.turns.map(t => ({ ...t, pagesCited: [], grounding: (t.grounding === 'document' ? 'document' : 'general') as 'document' | 'general' | null, tutorMode: null, responseLanguage: null })) }))
       : api
           .riisheChatHistory(guestId, {
             documentId: scope.documentId,
@@ -244,10 +252,31 @@ export function RiisheChatPanel({
           .then(d => ({ turns: d.turns }))
     load
       .then(d => {
-        if (alive) setTurns(d.turns)
+        if (!alive) return
+        setTurns(d.turns)
+        // Phase 3D — restore THIS conversation's preferences: the most recent
+        // assistant turn carrying preference metadata wins. Older conversa-
+        // tions without metadata fall back to the documented defaults
+        // (EXPLAIN / auto). Values are defensively re-validated client-side.
+        const withPrefs = [...d.turns]
+          .reverse()
+          .find(t => t.role === 'assistant' && (t.tutorMode != null || t.responseLanguage != null))
+        setTutorMode(
+          withPrefs && (RIISHE_TUTOR_MODES as readonly string[]).includes(withPrefs.tutorMode ?? '')
+            ? (withPrefs.tutorMode as RiisheTutorMode)
+            : DEFAULT_TUTOR_MODE,
+        )
+        setResponseLanguage(
+          withPrefs && (RIISHE_RESPONSE_LANGUAGES as readonly string[]).includes(withPrefs.responseLanguage ?? '')
+            ? (withPrefs.responseLanguage as RiisheResponseLanguage)
+            : 'auto',
+        )
       })
       .catch(() => {
-        if (alive) setTurns([]) // honest empty — the chat still works
+        if (!alive) return
+        setTurns([]) // honest empty — the chat still works
+        setTutorMode(DEFAULT_TUTOR_MODE)
+        setResponseLanguage('auto')
       })
     return () => {
       alive = false

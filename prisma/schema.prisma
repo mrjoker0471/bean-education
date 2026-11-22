@@ -368,6 +368,11 @@ model RiisheChatTurn {
   pagesCitedJson  String? // JSON number[]
   grounding       String? // document | mixed | general (assistant turns only)
   sourcesJson     String? // JSON RiisheChatSourceDTO[]
+  // Phase 3D: the teaching preference in force when this ASSISTANT turn was
+  // produced. Nullable, additive — legacy rows stay null and are displayed as
+  // the EXPLAIN / auto defaults; user turns always stay null.
+  tutorMode       String? // RiisheTutorMode (assistant turns only)
+  responseLanguage String? // RiisheResponseLanguage incl. 'auto' (assistant turns only)
   createdAt       DateTime @default(now())
 
   @@index([guestId, createdAt])

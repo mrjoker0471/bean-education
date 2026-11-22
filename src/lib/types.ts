@@ -620,6 +620,12 @@ export interface RiisheChatTurnDTO {
   pagesCited: number[]
   grounding: RiisheGroundingDTO | null
   sources: RiisheChatSourceDTO[]
+  /** Phase 3D: teaching preference in force for this assistant turn.
+   *  Null on user turns and legacy rows — the UI falls back to EXPLAIN. */
+  tutorMode?: string | null
+  /** Phase 3D: response language in force for this assistant turn.
+   *  Null on user turns and legacy rows — the UI falls back to 'auto'. */
+  responseLanguage?: string | null
   createdAt: string
 }
 
@@ -629,6 +635,10 @@ export interface RiisheChatResponseDTO {
   grounding: RiisheGroundingDTO
   sources: RiisheChatSourceDTO[]
   turnId?: string
+  /** Phase 3D: the effective teaching preference used for this reply. */
+  tutorMode?: string
+  /** Phase 3D: the effective response language used for this reply. */
+  responseLanguage?: string
 }
 
 // ─── Riishe topics browser (aggregated across the library) ───

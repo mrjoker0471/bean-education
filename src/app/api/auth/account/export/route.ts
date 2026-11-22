@@ -72,7 +72,8 @@ export async function GET(_req: NextRequest) {
       db.riisheChatTurn.findMany({
         where: { studentId: student.id },
         orderBy: { createdAt: 'asc' },
-        select: { role: true, content: true, createdAt: true, documentId: true },
+        // Phase 3D: the per-turn teaching preference exports with the turn.
+        select: { role: true, content: true, createdAt: true, documentId: true, tutorMode: true, responseLanguage: true },
       }),
       // Phase 3B: personal learning intelligence state exports with everything else.
       db.topicMastery.findMany({
@@ -170,6 +171,9 @@ export async function GET(_req: NextRequest) {
         content: c.content,
         createdAt: c.createdAt.toISOString(),
         documentId: c.documentId,
+        // Phase 3D: null on user turns / legacy rows — exported verbatim.
+        tutorMode: c.tutorMode,
+        responseLanguage: c.responseLanguage,
       })),
       learning: {
         mastery: masteryRows.map(m => ({
