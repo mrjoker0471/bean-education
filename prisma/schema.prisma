@@ -1645,3 +1645,53 @@ model LearningAction {
   @@index([guestId, status])
   @@index([studentId, status])
 }
+
+// ─── Riishe Learning Studio continuity (Phase 3F) ─────────────────────────────
+// Persistence for ONE generated Studio activity (Phase 3E) so a student can
+// leave and return without losing progress, plus a compact, private history.
+//
+// Design invariants (documented in docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md):
+//   - guestId-first, exactly like RiisheChatTurn: rows are never stamped with
+//     studentId at creation; claim-guest stamps them like every other table.
+//   - activityJson stores the SERVER-VALIDATED activity snapshot (the output of
+//     the Phase 3E normalisers — never raw model output), versioned by
+//     activityVersion. Resume renders the snapshot; generation is never rerun
+//     for an existing activity, so reopening needs no provider and no document.
+//   - progressJson (UI state: current step, concept selection, flashcard
+//     position) is kept separate from responsesJson (learner interaction
+//     evidence: flashcard self-marked recall, mini-test submitted answers).
+//   - resultJson is the completion summary; scores are recomputed SERVER-side
+//     from the snapshot at completion time — client scores are never trusted.
+//   - documentId is a plain reference WITHOUT cascade: history survives a
+//     deleted document; documentTitle keeps the display label.
+//   - Studio rows NEVER write Attempt, TopicMastery, RevisionScheduleItem,
+//     MistakeRecord or LearningAction rows: the existing mastery system
+//     represents catalogue topics only and is driven by real submitted
+//     attempts (source BANK) — studio self-study evidence stays here, honestly
+//     labelled as practice that does not change mastery.
+model RiisheStudioActivity {
+  id               String   @id @default(cuid())
+  guestId          String
+  studentId        String? // set by claim-guest like every other learner table
+  kind             String // concept-map | steps | formula | flashcards | mini-test
+  topic            String
+  status           String   @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | ABANDONED
+  grounding        String // document | general (Phase 3E honesty labels)
+  documentId       String? // plain reference — no FK, no cascade
+  documentTitle    String? // display snapshot; survives document deletion
+  responseLanguage String? // RiisheResponseLanguage incl. 'auto'
+  activityVersion  Int      @default(1) // schema version of activityJson
+  activityJson     String // validated StudioActivity snapshot
+  progressJson     String? // JSON — UI progress state (per-kind shape)
+  responsesJson    String? // JSON — learner interaction evidence (per-kind shape)
+  resultJson       String? // JSON — server-computed completion summary
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  lastAccessedAt   DateTime @default(now())
+  completedAt      DateTime?
+
+  @@index([guestId, status, updatedAt])
+  @@index([studentId, status])
+  @@index([guestId, kind])
+  @@index([documentId])
+}

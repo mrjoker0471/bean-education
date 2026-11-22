@@ -55,6 +55,9 @@ export async function POST(req: NextRequest) {
       await tx.studyPlanTask.deleteMany({ where: { studentId: student.id } })
       await tx.revisionScheduleItem.deleteMany({ where: { studentId: student.id } })
       await tx.topicMastery.deleteMany({ where: { studentId: student.id } })
+      // Phase 3F: Studio activity records (snapshots + learner evidence) are
+      // self-contained rows — deleting them leaves no orphaned responses.
+      await tx.riisheStudioActivity.deleteMany({ where: { studentId: student.id } })
       // Deleting documents cascades RiisheTests and RiisheQuestions (schema onDelete).
       await tx.riisheTest.deleteMany({ where: { studentId: student.id } })
       await tx.studyDocument.deleteMany({ where: { studentId: student.id } })

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const { guestId } = parsed.data
 
   try {
-    const [attempts, documents, tests, chatTurns, researchSessions, researchCandidates, masteryRows, planTasks, revisionItems, mistakeRows, actionRows] = await db.$transaction([
+    const [attempts, documents, tests, chatTurns, researchSessions, researchCandidates, masteryRows, planTasks, revisionItems, mistakeRows, actionRows, studioActivities] = await db.$transaction([
       db.attempt.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.studyDocument.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.riisheTest.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
@@ -56,6 +56,9 @@ export async function POST(req: NextRequest) {
       db.revisionScheduleItem.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.mistakeRecord.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.learningAction.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      // Phase 3F: Studio activities (validated snapshots + learner evidence)
+      // join the claim like every other learner table.
+      db.riisheStudioActivity.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
     ])
 
     return NextResponse.json({
@@ -65,6 +68,7 @@ export async function POST(req: NextRequest) {
         tests: tests.count,
         chatTurns: chatTurns.count,
         learningRows: masteryRows.count + planTasks.count + revisionItems.count + mistakeRows.count + actionRows.count,
+        studioActivities: studioActivities.count,
       },
     })
   } catch (err) {

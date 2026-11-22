@@ -113,7 +113,16 @@ import type {
 } from './types'
 import type { RiisheTutorMode, RiisheResponseLanguage } from '@/lib/riishe/tutor'
 // Phase 3E — Interactive Learning Studio activity contracts (client-safe).
-import type { StudioActivityKind, StudioGenerateResponseDTO } from '@/lib/riishe/studio-types'
+// Phase 3F — continuity DTOs (history, resume, evidence) share the same module.
+import type {
+  StudioActivityKind,
+  StudioGenerateResponseDTO,
+  StudioActivityProgress,
+  StudioActivityResponses,
+  StudioActivityRecordDTO,
+  StudioEvidenceSummaryDTO,
+  StudioHistoryItemDTO,
+} from '@/lib/riishe/studio-types'
 import type {
   LearningOverviewDTO,
   DiagnosticScopeType,
@@ -389,6 +398,50 @@ export const api = {
     jsonFetch<StudioGenerateResponseDTO>('/api/riishe/studio', {
       method: 'POST',
       body: JSON.stringify(body),
+    }),
+
+  // ─── Riishe Studio continuity (Phase 3F) — history, resume, lifecycle ───
+  riisheStudioHistory: (guestId: string) =>
+    jsonFetch<{ items: StudioHistoryItemDTO[]; evidence: StudioEvidenceSummaryDTO }>(
+      `/api/riishe/studio?guestId=${encodeURIComponent(guestId)}`,
+    ),
+
+  riisheStudioActivity: (guestId: string, activityId: string) =>
+    jsonFetch<{ record: StudioActivityRecordDTO }>(
+      `/api/riishe/studio/${encodeURIComponent(activityId)}?guestId=${encodeURIComponent(guestId)}`,
+    ),
+
+  riisheStudioSaveProgress: (
+    activityId: string,
+    body: { guestId: string; progress?: StudioActivityProgress; responses?: StudioActivityResponses },
+  ) =>
+    jsonFetch<{ ok: boolean }>(`/api/riishe/studio/${encodeURIComponent(activityId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  riisheStudioComplete: (
+    activityId: string,
+    body: { guestId: string; action: 'complete'; responses?: StudioActivityResponses },
+  ) =>
+    jsonFetch<{ record: StudioActivityRecordDTO; alreadyCompleted: boolean }>(
+      `/api/riishe/studio/${encodeURIComponent(activityId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      },
+    ),
+
+  riisheStudioAbandon: (activityId: string, body: { guestId: string; action: 'abandon' }) =>
+    jsonFetch<{ ok: boolean }>(`/api/riishe/studio/${encodeURIComponent(activityId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  riisheStudioDelete: (activityId: string, guestId: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/riishe/studio/${encodeURIComponent(activityId)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ guestId }),
     }),
 
   // ─── Riishe — topics discovered across the library ───

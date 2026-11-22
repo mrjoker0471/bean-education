@@ -9,9 +9,13 @@
 // renders validated plain text only — never model-generated HTML or executable
 // content (React text-node escaping; no dangerouslySetInnerHTML anywhere).
 //
-// Honesty contract: an opened flashcard, a generated activity or a completed
-// mini-test NEVER changes mastery/revision/attempt records — studio results
-// are ephemeral self-study aids, and every activity carries that framing.
+// Honesty contract (Phase 3E Part 5, carried into Phase 3F): an opened
+// flashcard or a generated activity NEVER changes mastery/revision/attempt
+// records — studio results are self-study aids, and every activity carries
+// that framing. Phase 3F adds persistence for CONTINUITY only: activities and
+// their learner interactions are saved so the student can resume and review
+// them, but that evidence stays in the studio record and never feeds the exam
+// mastery systems (see docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md).
 
 import type { RiisheResponseLanguage } from '@/lib/riishe/tutor'
 
@@ -198,6 +202,11 @@ export interface StudioGenerateResponseDTO {
   docTitle?: string
   responseLanguage: RiisheResponseLanguage
   topic: string
+  /**
+   * Phase 3F: the persisted activity record id (resume/history key). Present on
+   * every successful generation — the activity is saved IN_PROGRESS server-side.
+   */
+  activityId?: string
 }
 
 // ─── Pure helpers (shared by UI + tests) ──────────────────────────────────────
@@ -292,4 +301,103 @@ export function shuffleWithSeed<T>(items: T[], seed: number): T[] {
     ;[out[i], out[j]] = [out[j], out[i]]
   }
   return out
+}
+
+// ─── Phase 3F: continuity DTOs (persistence, resume, history, evidence) ──────
+// Client-safe shared contract for the Studio persistence surfaces. The SERVER
+// validates every stored field with zod in src/lib/riishe/studio-store.ts;
+// these interfaces are the render/transport shapes. Lifecycle transitions are
+// never client-supplied — the client only sends progress, responses and
+// explicit complete/abandon intents, and the server enforces the transition
+// rules and idempotency.
+
+/** Version of the validated activity snapshot schema stored in activityJson. */
+export const STUDIO_SCHEMA_VERSION = 1
+
+export const STUDIO_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'ABANDONED'] as const
+export type StudioActivityStatus = (typeof STUDIO_STATUSES)[number]
+
+/** English chrome labels. "Completed" never implies mastery. */
+export const STUDIO_STATUS_LABELS: Record<StudioActivityStatus, string> = {
+  IN_PROGRESS: 'In progress',
+  COMPLETED: 'Completed',
+  ABANDONED: 'Discarded',
+}
+
+/**
+ * UI progress state per kind (restored on resume; saved while in progress).
+ * Kept as one flat interface with optional per-kind fields — the server
+ * validates the exact per-kind shape before storing.
+ */
+export interface StudioActivityProgress {
+  /** concept-map: selected node + expanded set. */
+  selectedNodeId?: string
+  expandedIds?: string[]
+  /** steps: current step and the furthest step reached. */
+  stepIndex?: number
+  maxStepReached?: number
+  /** flashcards: display order (card indexes), position, reveal state, reviewed set. */
+  order?: number[]
+  index?: number
+  revealed?: boolean
+  reviewed?: number[]
+  /** mini-test: current question, chosen/submitted answers, finished flag. */
+  answers?: (number | null)[]
+  submitted?: boolean[]
+  finished?: boolean
+}
+
+/**
+ * Learner interaction evidence, stored separately from generated content.
+ * - flashcards: self-marked recall per card index — recorded only after the
+ *   answer was revealed. A reveal without a self-mark stays review, never
+ *   evidence. `recalled` / `missed` are the student's own assessment.
+ * - mini-test: the submitted answers; the score is recomputed server-side.
+ */
+export interface StudioActivityResponses {
+  selfRecall?: Record<string, 'recalled' | 'missed'>
+  answers?: (number | null)[]
+}
+
+/** Server-computed completion summaries — never a client score, never mastery. */
+export type StudioActivityResult =
+  | { type: 'mini-test'; correct: number; answered: number; total: number; percent: number }
+  | { type: 'flashcards'; cardsTotal: number; cardsReviewed: number; recalled: number; missed: number }
+  | { type: 'steps'; stepsStudied: number; stepsTotal: number }
+  | { type: 'formula'; verified: boolean; illustrative: boolean }
+  | { type: 'concept-map'; conceptsTotal: number }
+
+/** Compact history row (no activity snapshot — fetch the record to resume). */
+export interface StudioHistoryItemDTO {
+  id: string
+  kind: StudioActivityKind
+  topic: string
+  status: StudioActivityStatus
+  grounding: 'document' | 'general'
+  documentTitle?: string
+  responseLanguage?: RiisheResponseLanguage
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+  result: StudioActivityResult | null
+}
+
+/** Full record — the resume payload (validated snapshot + progress + evidence). */
+export interface StudioActivityRecordDTO extends StudioHistoryItemDTO {
+  documentId?: string
+  activity: StudioActivity
+  progress: StudioActivityProgress | null
+  responses: StudioActivityResponses | null
+}
+
+/** Compact, honest self-study evidence roll-up for the Studio panel. */
+export interface StudioEvidenceSummaryDTO {
+  total: number
+  inProgress: number
+  completed: number
+  abandoned: number
+  miniTestsCompleted: number
+  miniTestPercentAvg: number | null
+  cardsReviewed: number
+  cardsRecalled: number
 }

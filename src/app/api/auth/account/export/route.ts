@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest) {
   }
 
   try {
-    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows] = await Promise.all([
+    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows, studioActivities] = await Promise.all([
       db.student.findUnique({
         where: { id: student.id },
         select: {
@@ -100,6 +100,18 @@ export async function GET(_req: NextRequest) {
         where: { studentId: student.id },
         orderBy: { updatedAt: 'desc' },
         select: { actionKey: true, type: true, title: true, reason: true, status: true, snoozedUntil: true, resolvedAt: true, outcomeJson: true, updatedAt: true },
+      }),
+      // Phase 3F: Studio activity history exports with everything else —
+      // kind/topic/status context plus the learner evidence (snapshots are
+      // self-study content, never mastery data).
+      db.riisheStudioActivity.findMany({
+        where: { studentId: student.id },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true, kind: true, topic: true, status: true, grounding: true, documentTitle: true,
+          responseLanguage: true, activityVersion: true, progressJson: true, responsesJson: true,
+          resultJson: true, createdAt: true, updatedAt: true, completedAt: true,
+        },
       }),
     ])
 
@@ -234,6 +246,23 @@ export async function GET(_req: NextRequest) {
           updatedAt: a.updatedAt.toISOString(),
         })),
       },
+      // Phase 3F: persisted Riishe Studio activities (self-study history).
+      studioActivities: studioActivities.map(s => ({
+        id: s.id,
+        kind: s.kind,
+        topic: s.topic,
+        status: s.status,
+        grounding: s.grounding,
+        documentTitle: s.documentTitle,
+        responseLanguage: s.responseLanguage,
+        activityVersion: s.activityVersion,
+        progress: jsonish(s.progressJson),
+        responses: jsonish(s.responsesJson),
+        result: jsonish(s.resultJson),
+        createdAt: s.createdAt.toISOString(),
+        updatedAt: s.updatedAt.toISOString(),
+        completedAt: s.completedAt ? s.completedAt.toISOString() : null,
+      })),
     }
 
     const filename = `bean-export-${new Date().toISOString().slice(0, 10)}.json`
