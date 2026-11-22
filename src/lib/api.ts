@@ -112,6 +112,8 @@ import type {
   RiisheChatSourceDTO
 } from './types'
 import type { RiisheTutorMode, RiisheResponseLanguage } from '@/lib/riishe/tutor'
+// Phase 3E — Interactive Learning Studio activity contracts (client-safe).
+import type { StudioActivityKind, StudioGenerateResponseDTO } from '@/lib/riishe/studio-types'
 import type {
   LearningOverviewDTO,
   DiagnosticScopeType,
@@ -374,6 +376,20 @@ export const api = {
     if (scope.questionId) p.set('questionId', scope.questionId)
     return jsonFetch<{ turns: RiisheChatTurnDTO[] }>(`/api/riishe/chat?${p.toString()}`)
   },
+
+  // ─── Riishe — Interactive Learning Studio (Phase 3E) ───
+  riisheStudioGenerate: (body: {
+    guestId: string
+    kind: StudioActivityKind
+    topic?: string
+    documentId?: string
+    documentIds?: string[]
+    responseLanguage?: RiisheResponseLanguage
+  }) =>
+    jsonFetch<StudioGenerateResponseDTO>('/api/riishe/studio', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // ─── Riishe — topics discovered across the library ───
   riisheTopics: (guestId: string) =>
