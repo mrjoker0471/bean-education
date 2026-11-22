@@ -44,10 +44,12 @@ import {
   STUDIO_ACTIVITY_LABELS,
   STUDIO_ACTIVITY_HINTS,
   STUDIO_FLASHCARD_KIND_LABELS,
+  STUDIO_GRADED_RECALL_NOTE,
   STUDIO_STATUS_LABELS,
   conceptChildrenMap,
   conceptDepthOf,
   conceptRelatedIds,
+  gradeTypedRecall,
   shuffleWithSeed,
   type StudioActivityKind,
   type StudioActivityProgress,
@@ -62,6 +64,7 @@ import {
   type StudioGenerateResponseDTO,
   type StudioHistoryItemDTO,
   type StudioMiniTestDTO,
+  type StudioRecallVerdict,
   type StudioStepsDTO,
 } from '@/lib/riishe/studio-types'
 import { RIISHE_LANGUAGE_LABELS, type RiisheResponseLanguage } from '@/lib/riishe/tutor'
@@ -125,8 +128,13 @@ function resultLine(result: StudioActivityResult | null): string | null {
   switch (result.type) {
     case 'mini-test':
       return `${result.percent}% · ${result.correct} of ${result.total} correct`
-    case 'flashcards':
-      return `Self-marked recall on ${result.cardsReviewed} of ${result.cardsTotal} cards (${result.recalled} recalled)`
+    case 'flashcards': {
+      const graded = result.graded
+      const gradedLine = graded
+        ? ` · typed check: ${graded.correct} correct, ${graded.partial} partial, ${graded.incorrect} no match of ${graded.attempted} typed`
+        : ''
+      return `Self-marked recall on ${result.cardsReviewed} of ${result.cardsTotal} cards (${result.recalled} recalled)${gradedLine}`
+    }
     case 'steps':
       return `Studied ${result.stepsStudied} of ${result.stepsTotal} steps`
     case 'formula':
@@ -602,6 +610,14 @@ function FormulaStudio({
 
 // ─── D. Flashcards ────────────────────────────────────────────────────────────
 
+/** Honest display labels for graded-recall verdicts — "match" wording, not a
+ *  mastery or correctness guarantee (approximate text matching). */
+const RECALL_VERDICT_LABELS: Record<StudioRecallVerdict, string> = {
+  correct: 'matches the answer',
+  partial: 'partially matches',
+  incorrect: 'does not match',
+}
+
 function FlashcardsStudio({
   cards,
   initialProgress,
@@ -635,21 +651,38 @@ function FlashcardsStudio({
     const saved = initialProgress?.reviewed
     return new Set((saved ?? []).filter(i => i >= 0 && i < total))
   })
-  // Self-marked recall — the ONLY recall evidence, recorded per card, only
-  // after a reveal. A reveal without a mark stays review.
+  // Self-marked recall — recorded per card, only after a reveal. A reveal
+  // without a mark stays review. Phase 3G adds a second, objective evidence
+  // kind: typedRecall (what the learner typed before revealing). The two are
+  // stored separately and never merged.
   const [selfRecall, setSelfRecall] = useState<Record<string, 'recalled' | 'missed'>>(() => ({
     ...(initialResponses?.selfRecall ?? {}),
   }))
+  // Phase 3G: committed typed answers per card index (evidence), the live
+  // input value for the current card, and the verdict of the last check.
+  const [typedRecall, setTypedRecall] = useState<Record<string, string>>(() => ({
+    ...(initialResponses?.typedRecall ?? {}),
+  }))
+  const [typedInput, setTypedInput] = useState('')
+  const [checkedVerdict, setCheckedVerdict] = useState<StudioRecallVerdict | null>(null)
 
   const cardIdx = order[index]
   const card = cards.cards[cardIdx]
   const currentMark = cardIdx != null ? selfRecall[String(cardIdx)] : undefined
+  const currentTyped = cardIdx != null ? typedRecall[String(cardIdx)] : undefined
 
   const publish = useCallback(
-    (nextOrder: number[], nextIndex: number, nextRevealed: boolean, nextReviewed: Set<number>, nextRecall: Record<string, 'recalled' | 'missed'>) => {
+    (
+      nextOrder: number[],
+      nextIndex: number,
+      nextRevealed: boolean,
+      nextReviewed: Set<number>,
+      nextRecall: Record<string, 'recalled' | 'missed'>,
+      nextTyped: Record<string, string>,
+    ) => {
       onSync?.(
         { order: nextOrder, index: nextIndex, revealed: nextRevealed, reviewed: [...nextReviewed] },
-        { selfRecall: nextRecall },
+        { selfRecall: nextRecall, ...(Object.keys(nextTyped).length > 0 ? { typedRecall: nextTyped } : {}) },
       )
     },
     [onSync],
@@ -659,31 +692,53 @@ function FlashcardsStudio({
     if (cardIdx == null) return
     const nextRecall = { ...selfRecall, [String(cardIdx)]: value }
     setSelfRecall(nextRecall)
-    publish(order, index, revealed, reviewed, nextRecall)
+    publish(order, index, revealed, reviewed, nextRecall, typedRecall)
+  }
+
+  // Phase 3G: grade the typed attempt against the card's answer with the same
+  // pure helper the server re-runs when computing the stored result. Checking
+  // always reveals the answer — the learner sees the real answer next to the
+  // verdict, and the typed answer becomes objective evidence for this card.
+  const checkTyped = () => {
+    if (cardIdx == null) return
+    const text = typedInput.trim()
+    if (text.length === 0) return
+    const verdict = gradeTypedRecall(card.back, text)
+    const nextTyped = { ...typedRecall, [String(cardIdx)]: text }
+    setTypedRecall(nextTyped)
+    setCheckedVerdict(verdict ?? 'incorrect')
+    const nextReviewed = new Set(reviewed).add(cardIdx)
+    setReviewed(nextReviewed)
+    setRevealed(true)
+    publish(order, index, true, nextReviewed, selfRecall, nextTyped)
   }
 
   const reveal = () => {
     const nextReviewed = new Set(reviewed).add(cardIdx)
     setReviewed(nextReviewed)
     setRevealed(true)
-    publish(order, index, true, nextReviewed, selfRecall)
+    publish(order, index, true, nextReviewed, selfRecall, typedRecall)
   }
   const go = (dir: 1 | -1) => {
     const next = Math.min(total - 1, Math.max(0, index + dir))
     setIndex(next)
     setRevealed(false)
-    publish(order, next, false, reviewed, selfRecall)
+    setCheckedVerdict(null)
+    setTypedInput('')
+    publish(order, next, false, reviewed, selfRecall, typedRecall)
   }
   const shuffle = () => {
     const nextOrder = shuffleWithSeed(cards.cards.map((_, i) => i), Date.now())
     setOrder(nextOrder)
     setIndex(0)
     setRevealed(false)
-    publish(nextOrder, 0, false, reviewed, selfRecall)
+    setCheckedVerdict(null)
+    setTypedInput('')
+    publish(nextOrder, 0, false, reviewed, selfRecall, typedRecall)
   }
 
   const finish = () => {
-    onComplete?.({ selfRecall })
+    onComplete?.({ selfRecall, ...(Object.keys(typedRecall).length > 0 ? { typedRecall } : {}) })
   }
 
   return (
@@ -708,9 +763,64 @@ function FlashcardsStudio({
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{card.back}</p>
           </>
         ) : (
-          <p className="mt-3 text-[11px] italic text-muted-foreground">Think of the answer, then reveal it.</p>
+          <p className="mt-3 text-[11px] italic text-muted-foreground">Think of the answer, then reveal it — or type it below for an honest check.</p>
         )}
       </div>
+
+      {/* Phase 3G: optional graded recall — type what you recall BEFORE
+          revealing. Checking reveals the answer next to the verdict. The
+          verdict is approximate text matching (never semantic grading), so
+          the note and the visible answer keep it honest. A plain reveal
+          without typing keeps the exact Phase 3F behaviour. */}
+      {!revealed && inProgress && (
+        <form
+          className="space-y-1.5"
+          onSubmit={e => {
+            e.preventDefault()
+            checkTyped()
+          }}
+        >
+          <label htmlFor="studio-typed-recall" className="text-[11px] text-muted-foreground">
+            Type what you recall (optional):
+          </label>
+          <div className="flex gap-2">
+            <Input
+              id="studio-typed-recall"
+              value={typedInput}
+              onChange={e => setTypedInput(e.target.value)}
+              placeholder="Your answer, in your own words"
+              maxLength={2000}
+              autoComplete="off"
+              className="h-8 flex-1 border-border bg-background text-xs"
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              disabled={typedInput.trim().length === 0}
+              aria-label="Check the typed answer against the card"
+              className="h-8 gap-1 border-gold/40 text-xs text-gold hover:bg-gold/10"
+            >
+              Check
+            </Button>
+          </div>
+        </form>
+      )}
+      {checkedVerdict && revealed && inProgress && (
+        <div className="space-y-1" role="status">
+          <p
+            className={cn(
+              'text-[11px] font-medium',
+              checkedVerdict === 'correct' && 'text-success',
+              checkedVerdict === 'partial' && 'text-gold',
+              checkedVerdict === 'incorrect' && 'text-destructive',
+            )}
+          >
+            Typed answer: {RECALL_VERDICT_LABELS[checkedVerdict]}.
+          </p>
+          <p className="text-[10px] leading-relaxed text-muted-foreground">{STUDIO_GRADED_RECALL_NOTE}</p>
+        </div>
+      )}
 
       {/* Self-marked recall — only offered AFTER a reveal, only while in
           progress. This is what distinguishes demonstrated recall from a
@@ -751,6 +861,11 @@ function FlashcardsStudio({
       {!inProgress && currentMark && (
         <p className="text-[11px] text-muted-foreground">
           Self-marked: {currentMark === 'recalled' ? 'recalled' : 'needed the answer'}.
+        </p>
+      )}
+      {!inProgress && currentTyped && (
+        <p className="text-[11px] text-muted-foreground">
+          Typed: “{currentTyped}” — {RECALL_VERDICT_LABELS[gradeTypedRecall(card.back, currentTyped) ?? 'incorrect']}.
         </p>
       )}
 

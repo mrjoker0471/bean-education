@@ -36,13 +36,14 @@
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
-import { scoreMiniTest } from '@/lib/riishe/studio-types'
+import { gradeTypedRecall, scoreMiniTest } from '@/lib/riishe/studio-types'
 import {
   STUDIO_SCHEMA_VERSION,
   type StudioActivity,
   type StudioActivityResult,
   type StudioActivityResponses,
   type StudioEvidenceSummaryDTO,
+  type StudioGradedRecallSummary,
   type StudioHistoryItemDTO,
   type StudioActivityRecordDTO,
   type StudioActivityStatus,
@@ -140,6 +141,10 @@ const miniTestProgressSchema = z.object({
 const flashcardResponsesSchema = z.object({
   // Absent/empty marks = zero recall evidence (a reveal alone is never recall).
   selfRecall: z.record(z.string().regex(/^\d{1,3}$/), z.enum(['recalled', 'missed'])).default({}),
+  // Phase 3G: what the learner typed before revealing, per card index. Empty
+  // strings are dropped by validation below (no attempt = no evidence); each
+  // entry is capped to keep the stored row small.
+  typedRecall: z.record(z.string().regex(/^\d{1,3}$/), z.string().max(2000)).default({}),
 })
 
 const miniTestResponsesSchema = z.object({
@@ -256,7 +261,19 @@ function validateResponses(
       }
       selfRecall[String(idx)] = value
     }
-    return { selfRecall }
+    // Phase 3G: typed answers are validated against the same index bounds.
+    // Whitespace-only entries are dropped (an attempt that was never made is
+    // not evidence); everything else is stored trimmed, verbatim.
+    const typedRecall: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed.data.typedRecall)) {
+      const idx = Number(key)
+      if (!Number.isInteger(idx) || idx < 0 || idx >= total) {
+        throw new StudioStoreError(400, 'Invalid request')
+      }
+      const trimmed = value.trim()
+      if (trimmed.length > 0) typedRecall[String(idx)] = trimmed
+    }
+    return { selfRecall, ...(Object.keys(typedRecall).length > 0 ? { typedRecall } : {}) }
   }
 
   if (kind === 'mini-test') {
@@ -294,12 +311,33 @@ function computeResult(kind: (typeof ACTIVITY_KINDS)[number], snapshot: StudioAc
     const marks = responses?.selfRecall ?? {}
     const marked = Object.keys(marks)
     const recalled = marked.filter(k => marks[k] === 'recalled').length
+    // Phase 3G: graded-recall counts are recomputed here, server-side, from
+    // the stored snapshot + validated typed answers via the SAME pure helper
+    // the UI uses for immediate feedback. Client verdicts are never stored.
+    // The graded block is present only when at least one card was attempted.
+    const typed = responses?.typedRecall ?? {}
+    const typedKeys = Object.keys(typed)
+    let graded: StudioGradedRecallSummary | undefined
+    if (typedKeys.length > 0) {
+      let correct = 0
+      let partial = 0
+      let incorrect = 0
+      for (const key of typedKeys) {
+        const card = snapshot.cards[Number(key)]
+        const verdict = card ? gradeTypedRecall(card.back, typed[key]) : 'incorrect'
+        if (verdict === 'correct') correct++
+        else if (verdict === 'partial') partial++
+        else incorrect++
+      }
+      graded = { attempted: typedKeys.length, correct, partial, incorrect }
+    }
     return {
       type: 'flashcards',
       cardsTotal: snapshot.cards.length,
       cardsReviewed: marked.length,
       recalled,
       missed: marked.length - recalled,
+      ...(graded ? { graded } : {}),
     }
   }
   if (kind === 'steps' && snapshot.kind === 'steps') {
@@ -526,7 +564,16 @@ export async function completeStudioActivity(
   if (kind === 'flashcards' || kind === 'mini-test') {
     // The request payload wins; when absent, fall back to the stored evidence
     // (completion stays robust even if the client does not re-send marks).
-    const source = rawResponses ?? (row.responsesJson ? safeParse<unknown>(row.responsesJson, null) : null)
+    // Phase 3G, flashcards only: the merge is FIELD-level (selfRecall from the
+    // request, typedRecall falls back to the stored evidence when the request
+    // omits it) — typed answers saved mid-session must never be silently
+    // dropped by a completion payload that only re-sends self-marks.
+    const storedSource = row.responsesJson ? safeParse<Record<string, unknown> | null>(row.responsesJson, null) : null
+    const requestSource = (rawResponses ?? null) as Record<string, unknown> | null
+    const source =
+      kind === 'flashcards' && requestSource !== null && typeof requestSource === 'object'
+        ? { ...(storedSource ?? {}), ...requestSource }
+        : (requestSource ?? storedSource)
     responses = validateResponses(kind, snapshot, source)
   } else if (rawResponses !== null && rawResponses !== undefined) {
     // These kinds have no objective responses — anything sent is malformed.
