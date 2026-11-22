@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { safeParse, shuffle } from '@/lib/serialize'
 import { isValidAnswerIndex } from '@/lib/answer-index'
+import { recordAttemptEvidence } from '@/lib/learning/evidence'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -252,6 +253,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     await scoreAttempt(attempt.id, answers, parsed.data.timeSpentSec, timedOut ? 'TIMED_OUT' : 'SUBMITTED')
+
+    // Phase 3B: derive learning state (mastery, mistakes, revision ladder)
+    // from the now-scored attempt. The hook is idempotent and never throws;
+    // scoring truth stays untouched in the Attempt row.
+    try {
+      await recordAttemptEvidence(attempt.id)
+    } catch (evidenceErr) {
+      console.error('[api/attempts POST] evidence hook (non-fatal)', evidenceErr)
+    }
+
     return NextResponse.json({ resultUrl: `#/result/${attempt.id}` })
   } catch (err) {
     console.error('[api/attempts POST]', err)

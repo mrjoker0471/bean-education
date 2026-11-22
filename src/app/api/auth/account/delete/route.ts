@@ -48,6 +48,13 @@ export async function POST(req: NextRequest) {
 
       await tx.attempt.deleteMany({ where: { studentId: student.id } })
       await tx.riisheChatTurn.deleteMany({ where: { studentId: student.id } })
+      // Phase 3B: personal learning intelligence rows reference attempts by
+      // plain FKs — purge them before the attempts they cite.
+      await tx.mistakeRecord.deleteMany({ where: { studentId: student.id } })
+      await tx.learningAction.deleteMany({ where: { studentId: student.id } })
+      await tx.studyPlanTask.deleteMany({ where: { studentId: student.id } })
+      await tx.revisionScheduleItem.deleteMany({ where: { studentId: student.id } })
+      await tx.topicMastery.deleteMany({ where: { studentId: student.id } })
       // Deleting documents cascades RiisheTests and RiisheQuestions (schema onDelete).
       await tx.riisheTest.deleteMany({ where: { studentId: student.id } })
       await tx.studyDocument.deleteMany({ where: { studentId: student.id } })

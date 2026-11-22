@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
-import { enqueueJob } from '@/lib/riishe/jobs'
+import { enqueueJob, reserveQuota } from '@/lib/riishe/jobs'
 import { processDocument } from '@/lib/riishe/pipeline'
 import { isOcrAvailable } from '@/lib/riishe/ocr'
 import { safeParse } from '@/lib/serialize'
@@ -52,6 +52,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
       // Targeted partial retry — keep status READY (processDocument's partial
       // path requires it) and queue the job; it re-runs only failed sections.
+      // Phase 3B: user-initiated retries now charge the analyse quota too —
+      // the reservation happens BEFORE any state change (honest 429).
+      const charged = await reserveQuota(guestId, 'analyse')
+      if (!charged) {
+        return NextResponse.json(
+          { error: 'Hourly analysis limit reached (30/hour) — please try again later.' },
+          { status: 429 },
+        )
+      }
       void enqueueJob({ kind: 'DOCUMENT_ANALYSIS', refId: id, ownerId: doc.guestId })
       return NextResponse.json({ ok: true, partial: true })
     }
@@ -59,6 +68,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: 'This document is currently processing.' }, { status: 409 })
     }
 
+    // Phase 3B: user-initiated retries charge the analyse quota before any
+    // state change (honest 429) — retries are real analysis demand.
+    const charged = await reserveQuota(guestId, 'analyse')
+    if (!charged) {
+      return NextResponse.json(
+        { error: 'Hourly analysis limit reached (30/hour) — please try again later.' },
+        { status: 429 },
+      )
+    }
     await db.studyDocument.update({
       where: { id },
       data: { status: 'QUEUED', statusDetail: force ? 'Queued for a full re-analysis…' : 'Queued for a retry…' },

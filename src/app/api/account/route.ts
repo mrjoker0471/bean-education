@@ -35,9 +35,16 @@ export async function DELETE(req: NextRequest) {
       select: { id: true },
     })
 
-    const [explanationsDeleted, chatDeleted, attemptsDeleted, testsDeleted, docsDeleted] = await db.$transaction([
+    const [explanationsDeleted, chatDeleted, mistakesDeleted, actionsDeleted, planDeleted, revisionDeleted, masteryDeleted, attemptsDeleted, testsDeleted, docsDeleted] = await db.$transaction([
       db.riisheExplanation.deleteMany({ where: { attemptId: { in: attemptIds.map(a => a.id) } } }),
       db.riisheChatTurn.deleteMany({ where: { guestId } }),
+      // Phase 3B: learning rows reference attempts by plain FKs — purge them
+      // before the attempts they cite.
+      db.mistakeRecord.deleteMany({ where: { guestId } }),
+      db.learningAction.deleteMany({ where: { guestId } }),
+      db.studyPlanTask.deleteMany({ where: { guestId } }),
+      db.revisionScheduleItem.deleteMany({ where: { guestId } }),
+      db.topicMastery.deleteMany({ where: { guestId } }),
       db.attempt.deleteMany({ where: { guestId } }),
       db.riisheTest.deleteMany({ where: { guestId } }),
       db.studyDocument.deleteMany({ where: { guestId } }),
@@ -52,6 +59,7 @@ export async function DELETE(req: NextRequest) {
         explanations: explanationsDeleted.count,
         chatTurns: chatDeleted.count,
         files: docs.length,
+        learningRows: mistakesDeleted.count + actionsDeleted.count + planDeleted.count + revisionDeleted.count + masteryDeleted.count,
       },
     })
   } catch (err) {

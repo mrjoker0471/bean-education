@@ -1,8 +1,10 @@
-// ─── Phase 7: Admin — adult-eligibility reviews queue (safeguarding) ──────────
-// GET lists eligibility requests (PENDING_REVIEW default). Decisions are
-// recorded via the dynamic subpath route. No identity documents are collected
-// or stored anywhere in this flow — the decision is based on the documented,
-// privacy-minimizing review process.
+// ─── Phase 7: Admin — adult-eligibility review queue (safeguarding) ──────────
+// GET lists adult-eligibility reviews for the safeguarding workbench, pending
+// requests first. Status filter: PENDING_REVIEW | APPROVED | DENIED |
+// NOT_ELIGIBLE (default PENDING_REVIEW) or ALL. The row is privacy-minimizing:
+// display name plus review metadata only — BEAN never collects identity
+// documents or numbers for this review. Decisions happen on the per-review
+// decision route and are audited there.
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/teach'
@@ -11,25 +13,30 @@ import { db } from '@/lib/db'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+const REVIEW_STATUSES = ['NOT_ELIGIBLE', 'PENDING_REVIEW', 'APPROVED', 'DENIED'] as const
+const QUEUE_PAGE_SIZE = 100
+
 export async function GET(req: NextRequest) {
   try {
     const guard = await requireAdmin()
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
 
-    const url = new URL(req.url)
-    const status = (url.searchParams.get('status') ?? 'PENDING_REVIEW').toUpperCase()
-    const allowed = ['PENDING_REVIEW', 'APPROVED', 'DENIED', 'NOT_ELIGIBLE', 'ALL']
-    const where = allowed.includes(status) && status !== 'ALL' ? { status } : {}
+    const statusRaw = (req.nextUrl.searchParams.get('status') ?? '').trim().toUpperCase()
+    if (statusRaw && statusRaw !== 'ALL' && !(REVIEW_STATUSES as readonly string[]).includes(statusRaw)) {
+      return NextResponse.json({ error: 'Invalid status filter.' }, { status: 400 })
+    }
 
-    const reviews = await db.careerEligibilityReview.findMany({
+    const where = statusRaw && statusRaw !== 'ALL' ? { status: statusRaw } : {}
+    const rows = await db.careerEligibilityReview.findMany({
       where,
-      include: { student: { select: { displayName: true, email: true } } },
-      orderBy: { updatedAt: 'desc' },
-      take: 100,
+      include: { student: { select: { displayName: true } } },
+      orderBy: [{ requestedAt: 'desc' }, { updatedAt: 'desc' }],
+      take: QUEUE_PAGE_SIZE,
     })
+
     return NextResponse.json(
       {
-        reviews: reviews.map(r => ({
+        reviews: rows.map(r => ({
           id: r.id,
           student: { displayName: r.student.displayName },
           status: r.status,

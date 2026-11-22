@@ -11,6 +11,7 @@ import {
   Briefcase,
   Building2,
   ClipboardCheck,
+  Compass,
   FlaskConical,
   FolderOpen,
   GraduationCap,
@@ -40,6 +41,7 @@ interface NavItem {
 // marketplace browsing is public); Teacher Review is admin-only.
 const SIGNED_IN_NAV: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, hash: '#/dashboard', activeFor: ['dashboard'] },
+  { key: 'learning', label: 'Learning', icon: Compass, hash: '#/learning', activeFor: ['learning'] },
   { key: 'workspace', label: 'My Learning', icon: FolderOpen, hash: '#/workspace', activeFor: ['workspace', 'materials', 'riishe'] },
   { key: 'goals', label: 'Goals', icon: Target, hash: '#/goals', activeFor: ['goals'] },
   { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class', 'teach-apply', 'teach-dashboard'] },
@@ -52,6 +54,7 @@ const SIGNED_IN_NAV: NavItem[] = [
 
 const GUEST_NAV: NavItem[] = [
   { key: 'catalog', label: 'Exams', icon: BookOpen, hash: '#/catalog', activeFor: ['catalog', 'exam', 'topic', 'test', 'result'] },
+  { key: 'learning', label: 'Learning', icon: Compass, hash: '#/learning', activeFor: ['learning'] },
   { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class'] },
   { key: 'opportunities', label: 'Opportunities', icon: Briefcase, hash: '#/career/opportunities', activeFor: ['career-opportunities', 'career-opportunity'] },
   { key: 'materials', label: 'My Materials', icon: FolderOpen, hash: '#/materials', activeFor: ['materials', 'riishe'] },
@@ -79,7 +82,7 @@ export function Header() {
       ]
     : GUEST_NAV
 
-  const riisheItem: NavItem = { key: 'riishe', label: 'Riishe AI', icon: Sparkles, hash: '#/riishe', activeFor: ['riishe', 'materials'] }
+  const riisheItem: NavItem = { key: 'riishe', label: 'Riishe AI', icon: Sparkles, hash: '#/riishe', activeFor: ['riishe', 'riishe-research', 'riishe-research-session', 'materials'] }
 
   const isActive = (item: NavItem) => item.activeFor.includes(route.view)
 

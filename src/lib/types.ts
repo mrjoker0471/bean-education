@@ -620,6 +620,12 @@ export interface RiisheChatTurnDTO {
   pagesCited: number[]
   grounding: RiisheGroundingDTO | null
   sources: RiisheChatSourceDTO[]
+  /** Phase 3D: teaching preference in force for this assistant turn.
+   *  Null on user turns and legacy rows — the UI falls back to EXPLAIN. */
+  tutorMode?: string | null
+  /** Phase 3D: response language in force for this assistant turn.
+   *  Null on user turns and legacy rows — the UI falls back to 'auto'. */
+  responseLanguage?: string | null
   createdAt: string
 }
 
@@ -629,6 +635,10 @@ export interface RiisheChatResponseDTO {
   grounding: RiisheGroundingDTO
   sources: RiisheChatSourceDTO[]
   turnId?: string
+  /** Phase 3D: the effective teaching preference used for this reply. */
+  tutorMode?: string
+  /** Phase 3D: the effective response language used for this reply. */
+  responseLanguage?: string
 }
 
 // ─── Riishe topics browser (aggregated across the library) ───
@@ -1436,19 +1446,44 @@ export interface OrgGroupsResponse {
   groups: GroupDTO[]
 }
 
+/** One recent audit activity row on the institution dashboard. `summary` is
+ *  the audit event's detail string; actor names are display names only. */
+export interface OrgRecentActivityItemDTO {
+  id: string
+  action: string
+  entityType: string
+  entityId: string
+  summary: string | null
+  actorRole: string | null
+  createdAt: string
+  actorDisplayName: string | null
+}
+
 export interface OrgDashboardResponse {
   organization: PublicOrganizationDTO
   membership: MyMembershipDTO
+  /** Role echo of the caller's organization membership. */
+  role: string
   isAdmin: boolean
+  /** OWNER | ADMIN | INSTRUCTOR — mirrors ORG_INSTRUCTOR_ROLES server-side. */
+  isStaff: boolean
   verification: { status: string; operational: boolean }
   overview: {
     activeMembers: number
     pendingMembers: number
     activeGroups: number
+    archivedGroups: number
     upcomingClasses: number
     publishedAssignments: number
+    closedAssignments: number
+    draftAssignments: number
     openSubmissions: number
+    submissionsAwaitingGrading: number
+    submissionsGraded: number
     activeAnnouncements: number
+    announcementsActive: number
+    resourcesTotal: number
+    recentActivity: OrgRecentActivityItemDTO[]
   }
 }
 
@@ -1502,10 +1537,16 @@ export interface AnnouncementDTO {
   publishedAt: string | null
   expiresAt: string | null
   createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
 export interface OrgAnnouncementsResponse {
   announcements: AnnouncementDTO[]
+  /** True when the viewer is org staff — DRAFT + ARCHIVED items are included. */
+  includeAll: boolean
 }
 
 export interface OrgResourceDTO {
@@ -1515,6 +1556,10 @@ export interface OrgResourceDTO {
   description: string | null
   url: string
   createdAt: string
+  /** Row identity of the authoring membership (gates author-or-admin actions). */
+  authorMembershipId: string
+  /** Display name resolved server-side via membership → student; never an email. */
+  authorName: string | null
 }
 
 export interface OrgResourcesResponse {
@@ -1605,6 +1650,8 @@ export interface CareerCredentialClientDTO {
   credentialReference: string | null
   status: string
   portfolioShared: boolean
+  /** Flattened issuer name for portfolio display (displayName, else official name). */
+  issuerName: string
   issuer: { id: string; name: string; displayName: string | null; verificationStatus: string }
 }
 
@@ -1646,6 +1693,29 @@ export interface MyApplicationsResponse {
   applications: OwnApplicationClientDTO[]
 }
 
+export interface ApplicationDetailClientDTO {
+  id: string
+  status: string
+  submittedAt: string
+  updatedAt: string
+  candidateVisibleStatusNote: string | null
+  contactSharingConsent: boolean
+  snapshot: Record<string, unknown>
+  opportunity: {
+    id: string
+    title: string
+    opportunityType: string
+    location: string | null
+    workMode: string | null
+    applicationDeadline: string | null
+  }
+  organization: { id: string; name: string; verificationStatus: string }
+}
+
+export interface ApplicationDetailResponse {
+  application: ApplicationDetailClientDTO
+}
+
 export interface EmployerApplicationClientDTO {
   id: string
   status: string
@@ -1665,12 +1735,18 @@ export interface EmployerApplicationClientDTO {
 export interface EmployerOpportunitiesResponse {
   opportunities: PublicOpportunityClientDTO[]
   counts: { draft: number; pending: number; published: number; closed: number }
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface EmployerApplicantsResponse {
   opportunity: { id: string; title: string }
   applications: EmployerApplicationClientDTO[]
   counts: Record<string, number>
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface DiscoverableCandidateClientDTO {
@@ -1747,4 +1823,206 @@ export interface AdminCareerReportRow {
 export interface AdminCareerReportsResponse {
   reports: AdminCareerReportRow[]
   total: number
+}
+
+// ─── Riishe Deep Research (Phase 3A) ─────────────────────────────────────────
+
+export type ResearchKind = 'EXAM_PYQ' | 'TOPIC' | 'QUESTION' | 'CONCEPT'
+export type ResearchSessionStatus = 'QUEUED' | 'RESEARCHING' | 'COMPLETE' | 'FAILED'
+export type ResearchStageState = 'PENDING' | 'RUNNING' | 'DONE' | 'SKIPPED' | 'FAILED'
+export type ResearchSourceClass =
+  | 'OFFICIAL_AUTHORITY'
+  | 'GOV_INSTITUTIONAL'
+  | 'OPEN_LICENSED'
+  | 'REPUTABLE_SECONDARY'
+  | 'UNVERIFIED'
+export type ResearchSourceStatus = 'DISCOVERED' | 'RETRIEVED' | 'CHECKED' | 'UNAVAILABLE'
+export type ResearchCandidateStatus = 'DISCOVERED' | 'SOURCE_CHECKED' | 'PROMOTED' | 'DISCARDED'
+export type ResearchRightsStatus = 'REFERENCE_ONLY' | 'VERBATIM_PERMITTED'
+
+export interface ResearchProgressStageDTO {
+  stage: string
+  state: ResearchStageState
+  detail?: string
+}
+
+export interface ResearchProgressDTO {
+  stages: ResearchProgressStageDTO[]
+  sourcesDiscovered: number
+  sourcesChecked: number
+  sourcesUnavailable: number
+  searchesUsed: number
+  fetchesUsed: number
+  llmCallsUsed: number
+  candidatesFound: number
+  updatedAt: string
+}
+
+export interface ResearchEvidenceDTO {
+  excerpt: string
+  pageRef?: string
+  subtopic?: string
+  sourceUrl?: string
+}
+
+export interface ResearchFindingDTO {
+  topic: string
+  summary: string
+  citationIds: number[]
+  conflict?: string
+}
+
+export interface ResearchSummaryDTO {
+  text: string
+  citationIds: number[]
+  generatedAt: string
+}
+
+export interface ResearchInputDTO {
+  kind: ResearchKind
+  examSlug?: string
+  examLabel?: string
+  subjectLabel?: string
+  topicLabel?: string
+  yearFrom?: number
+  yearTo?: number
+  question?: string
+  focusNote?: string
+  documentIds?: string[]
+}
+
+export interface ResearchSessionListItemDTO {
+  id: string
+  title: string
+  kind: string
+  status: ResearchSessionStatus
+  statusDetail: string | null
+  createdAt: string
+  finishedAt: string | null
+  sourcesCount: number
+  candidatesCount: number
+  progress: { stages: ResearchProgressStageDTO[]; searchesUsed: number; fetchesUsed: number; llmCallsUsed: number } | null
+}
+
+export interface ResearchSessionListResponse {
+  sessions: ResearchSessionListItemDTO[]
+}
+
+export interface ResearchSourceDTO {
+  id: string
+  url: string
+  title: string | null
+  host: string
+  kind: string
+  documentId: string | null
+  sourceClass: ResearchSourceClass
+  classReason: string | null
+  status: ResearchSourceStatus
+  reachable: boolean | null
+  httpStatus: number | null
+  contentKind: string | null
+  publishedDate: string | null
+  retrievedAt: string | null
+  snippet: string | null
+  evidence: ResearchEvidenceDTO[]
+  conflictFlag: boolean
+  rightsNote: string | null
+  notes: Record<string, unknown> | null
+}
+
+export interface ResearchCandidateDTO {
+  id: string
+  status: ResearchCandidateStatus
+  examLabel: string | null
+  examSlug: string | null
+  subjectLabel: string | null
+  year: number | null
+  sessionLabel: string | null
+  questionNumber: string | null
+  paperTitle: string | null
+  sourceUrl: string
+  sourceTitle: string | null
+  sourcePublisher: string | null
+  sourceClass: string | null
+  retrievedAt: string | null
+  locator: string | null
+  proposedCorrectIndex: number | null
+  hasVerbatim: boolean
+  rightsStatus: ResearchRightsStatus
+  rightsNote: string | null
+  verificationNote: string | null
+  conflictNote: string | null
+  evidence: ResearchEvidenceDTO[]
+  promotedQuestionId: string | null
+}
+
+export interface ResearchSessionDetailDTO {
+  session: {
+    id: string
+    title: string
+    kind: string
+    status: ResearchSessionStatus
+    statusDetail: string | null
+    input: ResearchInputDTO & Record<string, unknown>
+    progress: ResearchProgressDTO | null
+    findings: ResearchFindingDTO[]
+    summary: ResearchSummaryDTO | null
+    followUps: string[]
+    searchesUsed: number
+    fetchesUsed: number
+    llmCallsUsed: number
+    createdAt: string
+    finishedAt: string | null
+    sourcesCount: number
+  }
+  sources: ResearchSourceDTO[]
+  candidates: ResearchCandidateDTO[]
+}
+
+export interface ResearchFollowUpTurnDTO {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  grounding: string | null
+  sources: RiisheChatSourceDTO[]
+  createdAt: string
+}
+
+/** Curator-facing candidate queue row (rights-respecting DTO). */
+export interface PyqCandidateRowDTO {
+  id: string
+  status: ResearchCandidateStatus
+  examLabel: string | null
+  examSlug: string | null
+  subjectLabel: string | null
+  topicLabel: string | null
+  year: number | null
+  sessionLabel: string | null
+  questionNumber: string | null
+  paperTitle: string | null
+  sourceUrl: string
+  sourceTitle: string | null
+  sourcePublisher: string | null
+  sourceClass: string | null
+  retrievedAt: string | null
+  locator: string | null
+  answerKeyUrl: string | null
+  answerKeyRef: string | null
+  proposedCorrectIndex: number | null
+  hasOptions: boolean
+  verbatimText: string | null
+  evidence: ResearchEvidenceDTO[]
+  rightsStatus: ResearchRightsStatus
+  rightsNote: string | null
+  verificationNote: string | null
+  conflictNote: string | null
+  promotedQuestionId: string | null
+  createdAt: string
+}
+
+export interface PyqCandidatesResponse {
+  candidates: PyqCandidateRowDTO[]
+  counts: { DISCOVERED: number; SOURCE_CHECKED: number; PROMOTED: number; DISCARDED: number }
+  limit: number
+  offset: number
 }

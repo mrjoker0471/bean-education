@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 
 // ─── Route-level security proofs for POST /api/pyq/review (Phase 2B Milestone A)
@@ -48,10 +49,13 @@ const fakeDb = {
       return data
     },
   },
+  // Phase 3A: review decisions + audit rows are written in ONE transaction.
+  // The fake runs the callback against the same fake client (single-writer).
+  $transaction: async (fn: (tx: typeof fakeDb) => Promise<unknown>) => fn(fakeDb),
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   // Only what '@/lib/roles' + the route actually consume.
   requireStudent: async () => state.student,
   sameOrigin: () => true,

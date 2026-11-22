@@ -18,7 +18,7 @@
 //     10+ character reason.
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import type { NextRequest } from 'next/server'
+import { NextRequest } from 'next/server'
 
 const career = await import('@/lib/career')
 
@@ -71,6 +71,8 @@ const fakeDb = {
   careerSafetyReport: {
     findMany: async ({ where }: { where: Record<string, unknown> }) =>
       state.reports.filter(r => (!where['status'] || r.status === where['status'])),
+    count: async ({ where }: { where: Record<string, unknown> }) =>
+      state.reports.filter(r => (!where['status'] || r.status === where['status'])).length,
     findUnique: async ({ where }: { where: { id: string } }) => state.reports.find(r => r.id === where.id) ?? null,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const r = state.reports.find(x => x.id === where.id) as Record<string, unknown>
@@ -108,8 +110,11 @@ const reportActionRoute = await import('@/app/api/admin/career/reports/[reportId
 const eligibilityRoute = await import('@/app/api/admin/career/eligibility/route')
 const eligibilityDecisionRoute = await import('@/app/api/admin/career/eligibility/[reviewId]/decision/route')
 
+// Main's list routes read req.nextUrl.searchParams, so the helper must build a
+// real NextRequest (a plain Request cast broke after the merge to main's
+// implementations — reconciliation fix, route behavior unchanged).
 function get(path: string): NextRequest {
-  return new Request(`http://localhost${path}`, { method: 'GET' }) as unknown as NextRequest
+  return new NextRequest(`http://localhost${path}`, { method: 'GET' })
 }
 
 function post(path: string, body: unknown): NextRequest {
@@ -169,7 +174,7 @@ describe('GET /api/admin/career/opportunities', () => {
     }
   })
 
-  it('accepts the status filter (and defaults to PENDING_REVIEW)', async () => {
+  it('accepts the status filter (a bare call returns the unfiltered queue)', async () => {
     state.session = adminSession
     const published = await (await opportunitiesRoute.GET(get('/api/admin/career/opportunities?status=PUBLISHED'))).json()
     expect(published.total).toBe(1)
@@ -177,9 +182,10 @@ describe('GET /api/admin/career/opportunities', () => {
     const paused = await (await opportunitiesRoute.GET(get('/api/admin/career/opportunities?status=PAUSED'))).json()
     expect(paused.total).toBe(1)
     expect(paused.opportunities[0].id).toBe('op-paused')
+    // Main's intended implementation: no status param = no where clause = the
+    // whole queue (the workbench UI always passes an explicit filter).
     const defaults = await (await opportunitiesRoute.GET(get('/api/admin/career/opportunities'))).json()
-    expect(defaults.total).toBe(1)
-    expect(defaults.opportunities[0].id).toBe('op-pending')
+    expect(defaults.total).toBe(4)
   })
 })
 
@@ -201,9 +207,12 @@ describe('GET /api/admin/career/reports', () => {
     expect(typeof first['description']).toBe('string')
   })
 
-  it('defaults to OPEN and honors other status filters', async () => {
+  it('a bare call returns the unfiltered queue; explicit status filters still work', async () => {
     state.session = adminSession
-    const open = await (await reportsRoute.GET(get('/api/admin/career/reports'))).json()
+    // Main's intended implementation: no status param = no where clause = all rows.
+    const all = await (await reportsRoute.GET(get('/api/admin/career/reports'))).json()
+    expect(all.total).toBe(2)
+    const open = await (await reportsRoute.GET(get('/api/admin/career/reports?status=OPEN'))).json()
     expect(open.total).toBe(1)
     expect(open.reports[0].id).toBe('rep-open')
     const resolved = await (await reportsRoute.GET(get('/api/admin/career/reports?status=RESOLVED'))).json()

@@ -17,23 +17,59 @@
 //
 // Response styles (Exam-focused / Simple / Detailed) change presentation and
 // depth only — never the sources or factual correctness.
+//
+// Phase 3C adds two per-chat controls:
+//   Teaching mode  — how Riishe teaches (Explain/Socratic/Worked example/…)
+//   Response language — which language the reply is written in
+// Phase 3D makes them conversation-scoped and persistent: every assistant
+// turn stores the preference in force when it was produced, the chat-history
+// API returns it, and reloading a conversation re-initialises the controls
+// from the most recent stored assistant-turn settings (older conversations
+// without metadata fall back to the EXPLAIN / auto defaults). Settings stay
+// stable for the rest of the active conversation and never leak across
+// scopes — each scope (hub, document, question review) restores its own.
+// Both change teaching/presentation only; retrieval scope, citation
+// verification and source disclosure are computed server-side and unaffected.
+// They are hidden in research follow-up scope — that pathway (Phase 3A) has
+// its own dossier-grounded pipeline that intentionally stays unchanged.
+//
+// Phase 3E adds the Interactive Learning Studio as another Riishe capability:
+// a Studio launcher in this settings bar opens a dialog that generates
+// concept maps, step-by-step explanations, formula walkthroughs, flashcards
+// and mini-tests from the same grounding scope — server-validated, never
+// persisted, and never writing to learner records. Hidden in research
+// follow-up scope (same reasoning as above) and in compact per-question
+// review panels.
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { RiisheChatTurnDTO } from '@/lib/types'
+import {
+  RIISHE_TUTOR_MODES,
+  RIISHE_RESPONSE_LANGUAGES,
+  DEFAULT_TUTOR_MODE,
+  RIISHE_TUTOR_MODE_LABELS,
+  RIISHE_LANGUAGE_LABELS,
+  type RiisheTutorMode,
+  type RiisheResponseLanguage,
+} from '@/lib/riishe/tutor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Toggle } from '@/components/ui/toggle'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageRefChips } from '@/components/bean/riishe-bits'
+import { RiisheStudioLauncher } from '@/components/bean/riishe-studio'
 import { cn } from '@/lib/utils'
-import { BookOpen, Globe, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { BookOpen, Globe, GraduationCap, Languages, Loader2, Send, Sparkles, X } from 'lucide-react'
 
 export interface RiisheChatScope {
   documentId?: string
   attemptId?: string
   questionId?: string
+  /** Phase 3A: research follow-up scope — grounded on the session's dossier. */
+  researchSessionId?: string
 }
 
 const STYLE_OPTIONS: { value: 'exam-focused' | 'simple' | 'detailed'; label: string }[] = [
@@ -50,11 +86,11 @@ function pagesLabel(pages: number[]): string {
 }
 
 /** Explicit source-state badge — rendered on EVERY assistant reply. */
-function GroundingBadge({ grounding }: { grounding: 'document' | 'mixed' | 'general' | null }) {
+function GroundingBadge({ grounding, researchMode }: { grounding: 'document' | 'mixed' | 'general' | null; researchMode?: boolean }) {
   if (grounding === 'document') {
     return (
       <p className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold">
-        <BookOpen className="h-3 w-3" aria-hidden /> Document-grounded
+        <BookOpen className="h-3 w-3" aria-hidden /> {researchMode ? 'Research-grounded' : 'Document-grounded'}
       </p>
     )
   }
@@ -181,6 +217,7 @@ export function RiisheChatPanel({
    *  per-question review). */
   materials?: { id: string; title: string }[]
 }) {
+  const researchMode = !!scope.researchSessionId
   const beanSettings = useAppStore(s => s.beanSettings)
   const setBeanSettings = useAppStore(s => s.setBeanSettings)
   const showSources = beanSettings.showSourceContext
@@ -191,9 +228,14 @@ export function RiisheChatPanel({
   const [error, setError] = useState<string | null>(null)
   const [focus, setFocus] = useState<string | undefined>(topicFocus)
   const [scopeDocs, setScopeDocs] = useState<string[]>([])
+  // Phase 3C/3D — per-conversation teaching controls. Restored from the
+  // conversation's most recent stored assistant-turn preference when the
+  // scope loads (Phase 3D); stable for the rest of the active conversation.
+  const [tutorMode, setTutorMode] = useState<RiisheTutorMode>(DEFAULT_TUTOR_MODE)
+  const [responseLanguage, setResponseLanguage] = useState<RiisheResponseLanguage>('auto')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const scopeKey = `${scope.documentId ?? ''}|${scope.attemptId ?? ''}|${scope.questionId ?? ''}`
+  const scopeKey = `${scope.documentId ?? ''}|${scope.attemptId ?? ''}|${scope.questionId ?? ''}|${scope.researchSessionId ?? ''}`
 
   // Sync the focus when a new topic deep-link arrives
   const [lastFocusProp, setLastFocusProp] = useState(topicFocus)
@@ -206,17 +248,44 @@ export function RiisheChatPanel({
   useEffect(() => {
     if (!guestId) return
     let alive = true
-    api
-      .riisheChatHistory(guestId, {
-        documentId: scope.documentId,
-        attemptId: scope.attemptId,
-        questionId: scope.questionId,
-      })
+    const load = researchMode
+      ? api
+          .researchFollowUps(scope.researchSessionId as string, guestId)
+          .then(d => ({ turns: d.turns.map(t => ({ ...t, pagesCited: [], grounding: (t.grounding === 'document' ? 'document' : 'general') as 'document' | 'general' | null, tutorMode: null, responseLanguage: null })) }))
+      : api
+          .riisheChatHistory(guestId, {
+            documentId: scope.documentId,
+            attemptId: scope.attemptId,
+            questionId: scope.questionId,
+          })
+          .then(d => ({ turns: d.turns }))
+    load
       .then(d => {
-        if (alive) setTurns(d.turns)
+        if (!alive) return
+        setTurns(d.turns)
+        // Phase 3D — restore THIS conversation's preferences: the most recent
+        // assistant turn carrying preference metadata wins. Older conversa-
+        // tions without metadata fall back to the documented defaults
+        // (EXPLAIN / auto). Values are defensively re-validated client-side.
+        const withPrefs = [...d.turns]
+          .reverse()
+          .find(t => t.role === 'assistant' && (t.tutorMode != null || t.responseLanguage != null))
+        setTutorMode(
+          withPrefs && (RIISHE_TUTOR_MODES as readonly string[]).includes(withPrefs.tutorMode ?? '')
+            ? (withPrefs.tutorMode as RiisheTutorMode)
+            : DEFAULT_TUTOR_MODE,
+        )
+        setResponseLanguage(
+          withPrefs && (RIISHE_RESPONSE_LANGUAGES as readonly string[]).includes(withPrefs.responseLanguage ?? '')
+            ? (withPrefs.responseLanguage as RiisheResponseLanguage)
+            : 'auto',
+        )
       })
       .catch(() => {
-        if (alive) setTurns([]) // honest empty — the chat still works
+        if (!alive) return
+        setTurns([]) // honest empty — the chat still works
+        setTutorMode(DEFAULT_TUTOR_MODE)
+        setResponseLanguage('auto')
       })
     return () => {
       alive = false
@@ -237,17 +306,25 @@ export function RiisheChatPanel({
       ...(prev ?? []),
       { id: `local-${Date.now()}`, role: 'user', content: text, pagesCited: [], grounding: null, sources: [], createdAt: new Date().toISOString() },
     ])
-    api
-      .riisheChat({
-        guestId,
-        messages: [...(turns ?? []), { role: 'user' as const, content: text }].slice(-12).map(t => ({ role: t.role as 'user' | 'assistant', content: t.content })),
-        documentId: scope.documentId,
-        documentIds: scopeDocs.length > 0 ? scopeDocs : undefined,
-        attemptId: scope.attemptId,
-        questionId: scope.questionId,
-        topic: focus,
-        style: beanSettings.style,
-      })
+    const sendPromise = researchMode
+      ? api
+          .researchFollowUp(scope.researchSessionId as string, { guestId, content: text })
+          .then(r => ({ reply: r.reply, turnId: r.turnId, pagesCited: [] as number[], grounding: r.grounding, sources: r.sources ?? [] }))
+      : api
+          .riisheChat({
+            guestId,
+            messages: [...(turns ?? []), { role: 'user' as const, content: text }].slice(-12).map(t => ({ role: t.role as 'user' | 'assistant', content: t.content })),
+            documentId: scope.documentId,
+            documentIds: scopeDocs.length > 0 ? scopeDocs : undefined,
+            attemptId: scope.attemptId,
+            questionId: scope.questionId,
+            topic: focus,
+            style: beanSettings.style,
+            tutorMode,
+            responseLanguage,
+          })
+          .then(r => ({ reply: r.reply, turnId: r.turnId, pagesCited: r.pagesCited, grounding: r.grounding, sources: r.sources ?? [] }))
+    sendPromise
       .then(r => {
         setTurns(prev => [
           ...(prev ?? []),
@@ -256,8 +333,8 @@ export function RiisheChatPanel({
             role: 'assistant',
             content: r.reply,
             pagesCited: r.pagesCited,
-            grounding: r.grounding,
-            sources: r.sources ?? [],
+            grounding: (r.grounding === 'document' ? 'document' : r.grounding === 'mixed' ? 'mixed' : 'general') as 'document' | 'mixed' | 'general',
+            sources: r.sources,
             createdAt: new Date().toISOString(),
           },
         ])
@@ -304,6 +381,77 @@ export function RiisheChatPanel({
             </Toggle>
           ))}
         </div>
+        {/* Phase 3C — teaching mode + response language. Per-chat controls:
+            they change how Riishe teaches and which language it answers in;
+            retrieval scope, citations and source labels stay server-verified.
+            Hidden in research follow-up scope (separate pathway, unchanged). */}
+        {!researchMode && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={cn('mr-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground', compact && 'sr-only')}>
+              <GraduationCap className="h-3 w-3" aria-hidden />
+              Teach
+            </span>
+            <Select value={tutorMode} onValueChange={v => setTutorMode(v as RiisheTutorMode)}>
+              <SelectTrigger
+                aria-label="Teaching mode"
+                className={cn(
+                  'h-7 w-auto min-w-0 gap-1 border-border bg-transparent px-2 text-[11px]',
+                  tutorMode !== DEFAULT_TUTOR_MODE
+                    ? 'border-gold/50 bg-gold/10 text-gold'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {RIISHE_TUTOR_MODES.map(m => (
+                  <SelectItem key={m} value={m} className="text-[12px]">
+                    {RIISHE_TUTOR_MODE_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className={cn('mr-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground', compact && 'sr-only')}>
+              <Languages className="h-3 w-3" aria-hidden />
+              Language
+            </span>
+            <Select value={responseLanguage} onValueChange={v => setResponseLanguage(v as RiisheResponseLanguage)}>
+              <SelectTrigger
+                aria-label="Response language"
+                className={cn(
+                  'h-7 w-auto min-w-0 gap-1 border-border bg-transparent px-2 text-[11px]',
+                  responseLanguage !== 'auto'
+                    ? 'border-gold/50 bg-gold/10 text-gold'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {RIISHE_RESPONSE_LANGUAGES.map(l => (
+                  <SelectItem key={l} value={l} className="text-[12px]">
+                    {RIISHE_LANGUAGE_LABELS[l]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {/* Phase 3E — Interactive Learning Studio: concept maps, guided steps,
+            formula walkthroughs, flashcards and mini-tests generated from the
+            same grounding scope. Hidden in research scope (own pathway) and
+            compact per-question panels. */}
+        {!researchMode && !compact && (
+          <RiisheStudioLauncher
+            guestId={guestId}
+            documentId={scope.documentId}
+            documentIds={scopeDocs.length > 0 ? scopeDocs : undefined}
+            topicFocus={focus}
+            responseLanguage={responseLanguage}
+            onOpenPage={onOpenPage}
+            compact={compact}
+          />
+        )}
         <div className="flex items-center gap-2">
           <Switch
             checked={showSources}
@@ -407,7 +555,7 @@ export function RiisheChatPanel({
             >
               <p className="whitespace-pre-wrap">{t.content}</p>
             </div>
-            {t.role === 'assistant' && <GroundingBadge grounding={t.grounding} />}
+            {t.role === 'assistant' && <GroundingBadge grounding={t.grounding} researchMode={researchMode} />}
             {t.role === 'assistant' && showSources && (
               <SourcesPanel turn={t} onOpenPage={onOpenPage} />
             )}

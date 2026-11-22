@@ -42,11 +42,20 @@ export async function POST(req: NextRequest) {
   const { guestId } = parsed.data
 
   try {
-    const [attempts, documents, tests, chatTurns] = await db.$transaction([
+    const [attempts, documents, tests, chatTurns, researchSessions, researchCandidates, masteryRows, planTasks, revisionItems, mistakeRows, actionRows] = await db.$transaction([
       db.attempt.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.studyDocument.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.riisheTest.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
       db.riisheChatTurn.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      // Phase 3A: research sessions + discovery candidates join the claim too.
+      db.researchSession.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      db.researchPyqCandidate.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      // Phase 3B: personal learning intelligence state is claimed like everything else.
+      db.topicMastery.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      db.studyPlanTask.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      db.revisionScheduleItem.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      db.mistakeRecord.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
+      db.learningAction.updateMany({ where: { guestId, studentId: null }, data: { studentId: student.id } }),
     ])
 
     return NextResponse.json({
@@ -55,6 +64,7 @@ export async function POST(req: NextRequest) {
         documents: documents.count,
         tests: tests.count,
         chatTurns: chatTurns.count,
+        learningRows: masteryRows.count + planTasks.count + revisionItems.count + mistakeRows.count + actionRows.count,
       },
     })
   } catch (err) {

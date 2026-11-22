@@ -34,6 +34,7 @@ import type {
   EmployerApplicantsResponse,
   EmployerOpportunitiesResponse,
   MyApplicationsResponse,
+  ApplicationDetailResponse,
   OpportunitiesBrowseResponse,
   OwnSafetyReportDTO,
   PublicOpportunityClientDTO,
@@ -103,7 +104,35 @@ import type {
   AdminTrustComplaintsResponse,
   AdminTrustTeachersResponse,
   AdminTrustAppealsResponse,
+  ResearchInputDTO,
+  ResearchSessionListResponse,
+  ResearchSessionDetailDTO,
+  ResearchFollowUpTurnDTO,
+  PyqCandidatesResponse,
+  RiisheChatSourceDTO
 } from './types'
+import type { RiisheTutorMode, RiisheResponseLanguage } from '@/lib/riishe/tutor'
+// Phase 3E — Interactive Learning Studio activity contracts (client-safe).
+import type { StudioActivityKind, StudioGenerateResponseDTO } from '@/lib/riishe/studio-types'
+import type {
+  LearningOverviewDTO,
+  DiagnosticScopeType,
+  TopicMasteryDTO,
+  DayPlanDTO,
+  PlanTaskDTO,
+  RevisionResponseDTO,
+  MistakesResponseDTO,
+  MistakeItemDTO,
+  ActionsResponseDTO,
+} from './learning/dto'
+import type {
+  AdminOrganizationAuditResponse,
+  GroupDetailDTO,
+  OrgAnnouncementUpdateInput,
+  OrgAssignmentUpdateInput,
+  OrgGroupUpdateInput,
+  OrgResourceUpdateInput,
+} from './institution-dto'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -122,6 +151,17 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 // ─── Catalogue ───
+/** The browser's IANA timezone — sent as the explicit learner timezone for
+ *  day-keyed surfaces (daily plan, revision due state). Undefined when the
+ *  runtime cannot resolve one; the server then uses its documented default. */
+export function learnerTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const api = {
   catalog: () => jsonFetch<CatalogResponse>('/api/catalog'),
 
@@ -319,6 +359,10 @@ export const api = {
     questionId?: string
     topic?: string
     style?: 'exam-focused' | 'simple' | 'detailed'
+    /** Phase 3C — optional teaching mode; omitted = EXPLAIN default. */
+    tutorMode?: RiisheTutorMode
+    /** Phase 3C — optional response language; omitted/'auto' = existing default. */
+    responseLanguage?: RiisheResponseLanguage
   }) =>
     jsonFetch<RiisheChatResponseDTO>('/api/riishe/chat', {
       method: 'POST',
@@ -332,6 +376,20 @@ export const api = {
     if (scope.questionId) p.set('questionId', scope.questionId)
     return jsonFetch<{ turns: RiisheChatTurnDTO[] }>(`/api/riishe/chat?${p.toString()}`)
   },
+
+  // ─── Riishe — Interactive Learning Studio (Phase 3E) ───
+  riisheStudioGenerate: (body: {
+    guestId: string
+    kind: StudioActivityKind
+    topic?: string
+    documentId?: string
+    documentIds?: string[]
+    responseLanguage?: RiisheResponseLanguage
+  }) =>
+    jsonFetch<StudioGenerateResponseDTO>('/api/riishe/studio', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // ─── Riishe — topics discovered across the library ───
   riisheTopics: (guestId: string) =>
@@ -516,6 +574,11 @@ export const api = {
     capacity: number
     minimumStudents: number
     plannedPricePaise?: number
+    // Phase 7 — private institution classes (server already accepts these via
+    // teachClassCreateSchema; absent ⇒ PUBLIC, exactly as before).
+    audience?: 'PUBLIC' | 'ORGANIZATION' | 'GROUP'
+    organizationId?: string
+    organizationGroupId?: string
   }) => jsonFetch<{ class: PublicClassDTO }>('/api/teach/classes', { method: 'POST', body: JSON.stringify(body) }),
   teachUpdateClass: (id: string, patch: Partial<{
     title: string
@@ -764,6 +827,20 @@ export const api = {
       `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
       { method: 'DELETE' },
     ),
+  removeGroupMember: (orgId: string, groupId: string, membershipId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}/enrollments`,
+      { method: 'DELETE', body: JSON.stringify({ membershipId }) },
+    ),
+  organizationGroup: (orgId: string, groupId: string) =>
+    jsonFetch<GroupDetailDTO>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}`,
+    ),
+  updateOrganizationGroup: (orgId: string, groupId: string, body: OrgGroupUpdateInput) =>
+    jsonFetch<{ group: GroupDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
   organizationClasses: (id: string) =>
     jsonFetch<OrgClassesResponse>(`/api/organizations/${encodeURIComponent(id)}/classes`),
   organizationAssignments: (id: string) =>
@@ -797,7 +874,7 @@ export const api = {
     ),
   organizationAnnouncements: (id: string) =>
     jsonFetch<OrgAnnouncementsResponse>(`/api/organizations/${encodeURIComponent(id)}/announcements`),
-  createAnnouncement: (id: string, body: { groupId?: string; title: string; body: string; expiresAt?: string }) =>
+  createAnnouncement: (id: string, body: { groupId?: string; title: string; body: string; expiresAt?: string; status?: 'DRAFT' | 'PUBLISHED' }) =>
     jsonFetch<{ announcement: AnnouncementDTO }>(`/api/organizations/${encodeURIComponent(id)}/announcements`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -809,32 +886,30 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  revokeInvitation: (orgId: string, invitationId: string) =>
-    jsonFetch<{ ok: boolean }>(
-      `/api/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
-      { method: 'POST', body: '{}' },
-    ),
-  updateOrganizationGroup: (
-    orgId: string,
-    groupId: string,
-    body: { name?: string; academicYear?: string; programmeLabel?: string; batchLabel?: string; sectionLabel?: string; trackLabel?: string; startsAt?: string | null; endsAt?: string | null; capacity?: number | null; status?: 'ACTIVE' | 'ARCHIVED' },
-  ) =>
-    jsonFetch<{ group: GroupDTO }>(
-      `/api/organizations/${encodeURIComponent(orgId)}/groups/${encodeURIComponent(groupId)}`,
-      { method: 'PATCH', body: JSON.stringify(body) },
-    ),
-  updateAssignment: (
-    assignmentId: string,
-    body: { title?: string; instructions?: string; subjectLabel?: string; dueAt?: string | null; maxScore?: number | null; status?: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED' },
-  ) =>
+  updateAssignment: (assignmentId: string, body: OrgAssignmentUpdateInput) =>
     jsonFetch<{ assignment: AssignmentDTO }>(
       `/api/organizations/assignments/${encodeURIComponent(assignmentId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  updateResource: (orgId: string, resourceId: string, body: OrgResourceUpdateInput) =>
+    jsonFetch<{ resource: OrgResourceDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/resources/${encodeURIComponent(resourceId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  deleteResource: (orgId: string, resourceId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/resources/${encodeURIComponent(resourceId)}`,
+      { method: 'DELETE' },
+    ),
+  updateAnnouncement: (orgId: string, announcementId: string, body: OrgAnnouncementUpdateInput) =>
+    jsonFetch<{ announcement: AnnouncementDTO }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/announcements/${encodeURIComponent(announcementId)}`,
       { method: 'PATCH', body: JSON.stringify(body) },
     ),
 
   // ─── Phase 7 — Career portfolio & employer exchange ───
   careerProfile: () => jsonFetch<CareerProfileResponse>('/api/career/profile'),
-  saveCareerProfile: (body: Partial<{ headline: string; summary: string; preferredRoleTypes: string[]; preferredSkills: string[]; preferredLocations: string[]; workModes: string[]; publicSlug: string; visibility: string }>) =>
+  saveCareerProfile: (body: Partial<{ headline: string; summary: string; preferredRoleTypes: string[]; preferredSkills: string[]; preferredLocations: string[]; workModes: string[]; publicSlug: string | null; visibility: string }>) =>
     jsonFetch<{ profile: CareerProfileClientDTO }>('/api/career/profile', { method: 'PATCH', body: JSON.stringify(body) }),
   careerSkills: () => jsonFetch<{ skills: CareerSkillClientDTO[] }>('/api/career/skills'),
   addCareerSkill: (body: { skillName: string; proficiency?: string; description?: string }) =>
@@ -846,13 +921,20 @@ export const api = {
   careerProjects: () => jsonFetch<{ projects: CareerProjectClientDTO[] }>('/api/career/projects'),
   addCareerProject: (body: { title: string; description?: string; category?: string; skillsUsed?: string[]; projectUrl?: string; startsAt?: string; endsAt?: string; visibility?: string }) =>
     jsonFetch<{ project: CareerProjectClientDTO }>('/api/career/projects', { method: 'POST', body: JSON.stringify(body) }),
-  updateCareerProject: (id: string, body: Partial<{ title: string; description: string; category: string; skillsUsed: string[]; projectUrl: string; visibility: string; status: string; startsAt: string | null; endsAt: string | null }>) =>
+  updateCareerProject: (id: string, body: Partial<{ title: string; description: string; category: string; skillsUsed: string[]; projectUrl: string; visibility: string; status: string }>) =>
     jsonFetch<{ project: CareerProjectClientDTO }>(`/api/career/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteCareerProject: (id: string) =>
     jsonFetch<{ ok: boolean }>(`/api/career/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   careerCredentials: () => jsonFetch<{ credentials: CareerCredentialClientDTO[] }>('/api/career/credentials'),
   shareCredential: (id: string, portfolioShared: boolean) =>
     jsonFetch<{ credential: { id: string; portfolioShared: boolean; status: string } }>(`/api/career/credentials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ portfolioShared }) }),
+  // Phase 7 (institution/career branch): client helpers for routes main lacked —
+  // invitation revocation and credential issue/revoke (routes preserved by this merge).
+  revokeInvitation: (orgId: string, invitationId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
+      { method: 'POST', body: '{}' },
+    ),
   issueCredential: (body: { organizationId: string; studentId: string; credentialName: string; credentialDescription?: string; issuedDate: string; expiryDate?: string | null; credentialReference?: string }) =>
     jsonFetch<{ credential: CareerCredentialClientDTO }>('/api/career/credentials/issue', { method: 'POST', body: JSON.stringify(body) }),
   revokeCredential: (credentialId: string, body: { reason: string }) =>
@@ -860,11 +942,18 @@ export const api = {
   careerEligibility: () => jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility'),
   requestEligibilityReview: () =>
     jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility', { method: 'POST', body: JSON.stringify({ acknowledge: true }) }),
-  browseOpportunities: (params: { q?: string; type?: string; page?: number }) => {
+  browseOpportunities: (params: { q?: string; type?: string; workMode?: string; location?: string; skill?: string; employer?: string; deadlineBefore?: string; deadlineAfter?: string; page?: number; pageSize?: number } = {}) => {
     const qs = new URLSearchParams()
     if (params.q) qs.set('q', params.q)
     if (params.type) qs.set('type', params.type)
+    if (params.workMode) qs.set('workMode', params.workMode)
+    if (params.location) qs.set('location', params.location)
+    if (params.skill) qs.set('skill', params.skill)
+    if (params.employer) qs.set('employer', params.employer)
+    if (params.deadlineBefore) qs.set('deadlineBefore', params.deadlineBefore)
+    if (params.deadlineAfter) qs.set('deadlineAfter', params.deadlineAfter)
     if (params.page) qs.set('page', String(params.page))
+    if (params.pageSize) qs.set('pageSize', String(params.pageSize))
     const query = qs.toString()
     return jsonFetch<OpportunitiesBrowseResponse>(`/api/career/opportunities${query ? `?${query}` : ''}`)
   },
@@ -872,20 +961,34 @@ export const api = {
     jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/career/opportunities/${encodeURIComponent(id)}`),
   applyToOpportunity: (id: string, body: { snapshot: Record<string, unknown>; contactSharingConsent: boolean }) =>
     jsonFetch<{ application: { id: string; status: string; submittedAt: string } }>(`/api/career/opportunities/${encodeURIComponent(id)}/apply`, { method: 'POST', body: JSON.stringify(body) }),
-  myApplications: () => jsonFetch<MyApplicationsResponse>('/api/career/my-applications'),
+  myApplications: (status?: string) =>
+    jsonFetch<MyApplicationsResponse>(status && status !== 'ALL' ? `/api/career/my-applications?status=${encodeURIComponent(status)}` : '/api/career/my-applications'),
+  applicationDetail: (applicationId: string) =>
+    jsonFetch<ApplicationDetailResponse>(`/api/career/applications/${encodeURIComponent(applicationId)}`),
   withdrawApplication: (id: string) =>
     jsonFetch<{ application: { id: string; status: string } }>(`/api/career/applications/${encodeURIComponent(id)}/withdraw`, { method: 'PATCH', body: '{}' }),
   fileCareerReport: (body: { targetType: string; targetId: string; category: string; subject: string; description: string }) =>
     jsonFetch<{ report: { id: string; status: string } }>('/api/career/reports', { method: 'POST', body: JSON.stringify(body) }),
   myCareerReports: () => jsonFetch<{ reports: OwnSafetyReportDTO[] }>('/api/career/reports'),
-  employerOpportunities: (organizationId: string) =>
-    jsonFetch<EmployerOpportunitiesResponse>(`/api/career/employer/opportunities?organizationId=${encodeURIComponent(organizationId)}`),
+  employerOpportunities: (organizationId: string, opts: { status?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams({ organizationId })
+    if (opts.status && opts.status !== 'ALL') qs.set('status', opts.status)
+    if (opts.page) qs.set('page', String(opts.page))
+    if (opts.pageSize) qs.set('pageSize', String(opts.pageSize))
+    return jsonFetch<EmployerOpportunitiesResponse>(`/api/career/employer/opportunities?${qs.toString()}`)
+  },
   createEmployerOpportunity: (body: Record<string, unknown> & { organizationId: string }) =>
     jsonFetch<{ opportunity: PublicOpportunityClientDTO }>('/api/career/employer/opportunities', { method: 'POST', body: JSON.stringify(body) }),
   updateEmployerOpportunity: (id: string, body: Record<string, unknown>) =>
     jsonFetch<{ opportunity: PublicOpportunityClientDTO }>(`/api/career/employer/opportunities/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  employerApplicants: (opportunityId: string) =>
-    jsonFetch<EmployerApplicantsResponse>(`/api/career/employer/opportunities/${encodeURIComponent(opportunityId)}/applications`),
+  employerApplicants: (opportunityId: string, opts: { status?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams()
+    if (opts.status && opts.status !== 'ALL') qs.set('status', opts.status)
+    if (opts.page) qs.set('page', String(opts.page))
+    if (opts.pageSize) qs.set('pageSize', String(opts.pageSize))
+    const query = qs.toString()
+    return jsonFetch<EmployerApplicantsResponse>(`/api/career/employer/opportunities/${encodeURIComponent(opportunityId)}/applications${query ? `?${query}` : ''}`)
+  },
   employerApplicationStatus: (applicationId: string, body: { status: string; candidateVisibleStatusNote?: string; employerNotes?: string }) =>
     jsonFetch<{ application: { id: string; status: string; candidateVisibleStatusNote: string | null } }>(`/api/career/employer/applications/${encodeURIComponent(applicationId)}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
   searchCandidates: (organizationId: string, params: { q?: string; skill?: string; roleType?: string; location?: string; page?: number }) => {
@@ -901,6 +1004,8 @@ export const api = {
     jsonFetch<AdminOrganizationsResponse>(`/api/admin/organizations${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
   adminOrganizationDecision: (orgId: string, body: { action: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE'; reason?: string }) =>
     jsonFetch<{ organization: PublicOrganizationDTO }>(`/api/admin/organizations/${encodeURIComponent(orgId)}/verification`, { method: 'POST', body: JSON.stringify(body) }),
+  adminOrganizationAudit: (orgId: string) =>
+    jsonFetch<AdminOrganizationAuditResponse>(`/api/admin/organizations/${encodeURIComponent(orgId)}/audit`),
   adminCareerOpportunities: (status?: string) =>
     jsonFetch<{ opportunities: PublicOpportunityClientDTO[]; total: number }>(`/api/admin/career/opportunities${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
   adminOpportunityModeration: (id: string, body: { action: 'APPROVE' | 'REJECT' | 'PAUSE' | 'CLOSE' | 'RESUME'; reason?: string }) =>
@@ -913,4 +1018,82 @@ export const api = {
     jsonFetch<AdminEligibilityResponse>(`/api/admin/career/eligibility${status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '?status=ALL'}`),
   adminEligibilityDecision: (id: string, body: { decision: 'APPROVE' | 'DENY'; reason?: string }) =>
     jsonFetch<{ eligibility: { status: string } }>(`/api/admin/career/eligibility/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // ─── Riishe Deep Research (Phase 3A) ──────────────────────────────────────
+  researchStart: (body: ResearchInputDTO & { guestId: string }) =>
+    jsonFetch<{ sessionId: string }>('/api/riishe/research', { method: 'POST', body: JSON.stringify(body) }),
+  researchSessions: (guestId: string) => jsonFetch<ResearchSessionListResponse>(`/api/riishe/research?guestId=${encodeURIComponent(guestId)}`),
+  researchSession: (id: string, guestId: string) =>
+    jsonFetch<ResearchSessionDetailDTO>(`/api/riishe/research/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`),
+  researchDelete: (id: string, guestId: string) =>
+    jsonFetch<{ ok: boolean }>(`/api/riishe/research/${encodeURIComponent(id)}?guestId=${encodeURIComponent(guestId)}`, { method: 'DELETE' }),
+  researchFollowUps: (id: string, guestId: string) =>
+    jsonFetch<{ turns: ResearchFollowUpTurnDTO[] }>(`/api/riishe/research/${encodeURIComponent(id)}/followup?guestId=${encodeURIComponent(guestId)}`),
+  researchFollowUp: (id: string, body: { guestId: string; content: string }) =>
+    jsonFetch<{ reply: string; turnId: string; grounding: string; sources: RiisheChatSourceDTO[] }>(`/api/riishe/research/${encodeURIComponent(id)}/followup`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  pyqCandidates: (params: { status?: string; year?: number; q?: string; limit?: number; offset?: number } = {}) => {
+    const p = new URLSearchParams()
+    if (params.status) p.set('status', params.status)
+    if (params.year) p.set('year', String(params.year))
+    if (params.q) p.set('q', params.q)
+    if (params.limit) p.set('limit', String(params.limit))
+    if (params.offset) p.set('offset', String(params.offset))
+    const qs = p.toString()
+    return jsonFetch<PyqCandidatesResponse>(`/api/pyq/candidates${qs ? `?${qs}` : ''}`)
+  },
+  pyqCandidatePromote: (id: string, body: { text?: string; options?: string[]; correctIndex?: number; explanation?: string; difficulty?: string; language?: string; year?: number; examSlug?: string; stageId?: string; subjectId?: string; topicId?: string }) =>
+    jsonFetch<{ questionId: string; batchId: string }>(`/api/pyq/candidates/${encodeURIComponent(id)}/promote`, { method: 'POST', body: JSON.stringify(body) }),
+  pyqCandidateDiscard: (id: string, body: { guestId?: string } = {}) =>
+    jsonFetch<{ ok: boolean }>(`/api/pyq/candidates/${encodeURIComponent(id)}/discard`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // ─── Personal Learning Intelligence (Phase 3B) ──────────────────────────
+  learningOverview: (guestId: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<LearningOverviewDTO>(`/api/learning/overview?${qs.toString()}`)
+  },
+  learningMastery: (guestId: string) =>
+    jsonFetch<{ topics: TopicMasteryDTO[]; legend: Record<string, string> }>(`/api/learning/mastery?guestId=${encodeURIComponent(guestId)}`),
+  learningPlan: (guestId: string, date?: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (date) qs.set('date', date)
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<DayPlanDTO>(`/api/learning/plan?${qs.toString()}`)
+  },
+  regenerateLearningPlan: (guestId: string, tz?: string) =>
+    jsonFetch<DayPlanDTO>('/api/learning/plan', { method: 'POST', body: JSON.stringify(tz ? { guestId, tz } : { guestId }) }),
+  updatePlanTask: (
+    id: string,
+    body: { guestId: string; action: 'COMPLETE' | 'SKIP' | 'DEFER' | 'RESCHEDULE' | 'RESIZE'; date?: string; minutes?: number },
+  ) => jsonFetch<{ task: PlanTaskDTO }>(`/api/learning/plan/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  learningRevision: (guestId: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<RevisionResponseDTO>(`/api/learning/revision?${qs.toString()}`)
+  },
+  learningMistakes: (guestId: string, opts: { topicId?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams({ guestId })
+    if (opts.topicId) p.set('topicId', opts.topicId)
+    if (opts.limit) p.set('limit', String(opts.limit))
+    return jsonFetch<MistakesResponseDTO>(`/api/learning/mistakes?${p.toString()}`)
+  },
+  updateMistake: (
+    id: string,
+    body: { guestId: string; studentTag?: 'CONCEPT' | 'FACT' | 'FORMULA' | 'MISREAD' | null; note?: string | null },
+  ) => jsonFetch<{ mistake: MistakeItemDTO }>(`/api/learning/mistakes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  learningActions: (guestId: string, tz?: string) => {
+    const qs = new URLSearchParams({ guestId })
+    if (tz) qs.set('tz', tz)
+    return jsonFetch<ActionsResponseDTO>(`/api/learning/actions?${qs.toString()}`)
+  },
+  decideLearningAction: (body: { guestId: string; actionKey: string; decision: 'DISMISS' | 'SNOOZE' | 'COMPLETE'; snoozeDays?: number }) =>
+    jsonFetch<{ ok: true }>('/api/learning/actions', { method: 'POST', body: JSON.stringify(body) }),
+  startDiagnostic: (guestId: string, scope: { scopeType: DiagnosticScopeType; scopeId: string }) =>
+    jsonFetch<{ attemptId: string; resumed: boolean; count: number }>('/api/learning/diagnostic', {
+      method: 'POST',
+      body: JSON.stringify({ guestId, scopeType: scope.scopeType, scopeId: scope.scopeId }),
+    }),
 }

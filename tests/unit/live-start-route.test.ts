@@ -5,6 +5,7 @@
 // budget SQL itself is proven against real SQLite in live-usage.test.ts.
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 
 interface FakeClass {
@@ -156,7 +157,7 @@ const fakeDb = {
 // against the fake db (teacherProfile rows below), which keeps bun's global
 // mock registry compatible with the Phase 4A suites in the same process.
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.student,
   sameOrigin: () => true,
   getSessionStudent: async () => state.student,

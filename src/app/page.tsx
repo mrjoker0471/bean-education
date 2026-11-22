@@ -14,6 +14,7 @@ import { BeanView } from '@/components/bean/views/bean-view'
 import { ProgressView } from '@/components/bean/views/progress-view'
 import { MaterialsView } from '@/components/bean/views/materials-view'
 import { RiisheView } from '@/components/bean/views/riishe-view'
+import { RiisheResearchView } from '@/components/bean/views/riishe-research-view'
 import { PracticeView } from '@/components/bean/views/practice-view'
 import { TopicsView } from '@/components/bean/views/topics-view'
 import { SettingsView } from '@/components/bean/views/settings-view'
@@ -21,6 +22,7 @@ import { OnboardingView } from '@/components/bean/views/onboarding-view'
 import { DashboardView } from '@/components/bean/views/dashboard-view'
 import { WorkspaceView } from '@/components/bean/views/workspace-view'
 import { GoalsView } from '@/components/bean/views/goals-view'
+import { LearningView } from '@/components/bean/views/learning-view'
 import { PyqStudioView } from '@/components/bean/views/pyq-studio-view'
 import { ClassesView } from '@/components/bean/views/classes-view'
 import { ClassDetailView } from '@/components/bean/views/class-detail-view'
@@ -34,6 +36,7 @@ import { TrustPolicyView } from '@/components/bean/views/trust-policy-view'
 // Phase 7 — Institution & Career
 import { InstitutionView } from '@/components/bean/views/institution-view'
 import { InstitutionOrgView } from '@/components/bean/views/institution-org-view'
+import { InstitutionGroupView } from '@/components/bean/views/institution-group-view'
 import { CareerView } from '@/components/bean/views/career-view'
 import { CareerProfileView } from '@/components/bean/views/career-profile-view'
 import { CareerPortfolioView } from '@/components/bean/views/career-portfolio-view'
@@ -76,6 +79,8 @@ export default function Page() {
             {route.view === 'pdf' && route.resourceId && <PdfViewerPage resourceId={route.resourceId} />}
             {route.view === 'materials' && <MaterialsView />}
             {route.view === 'riishe' && <RiisheView docId={route.docId} page={route.page} topic={route.topic} />}
+            {route.view === 'riishe-research' && <RiisheResearchView />}
+            {route.view === 'riishe-research-session' && <RiisheResearchView sessionId={route.sessionId} />}
             {route.view === 'practice' && <PracticeView doc={route.doc} topics={route.topics} />}
             {route.view === 'topics' && <TopicsView />}
             {route.view === 'settings' && <SettingsView />}
@@ -83,6 +88,7 @@ export default function Page() {
             {route.view === 'dashboard' && <DashboardView />}
             {route.view === 'workspace' && <WorkspaceView />}
             {route.view === 'goals' && <GoalsView />}
+            {route.view === 'learning' && <LearningView />}
             {route.view === 'pyq-studio' && <PyqStudioView />}
             {route.view === 'classes' && <ClassesView initialTab={route.tab} />}
             {route.view === 'class' && route.classId && <ClassDetailView classId={route.classId} />}
@@ -96,6 +102,9 @@ export default function Page() {
             {/* Phase 7 — Institution & Career */}
             {route.view === 'institution' && <InstitutionView />}
             {route.view === 'institution-org' && route.orgId && <InstitutionOrgView orgId={route.orgId} section={route.section} />}
+            {route.view === 'institution-group' && route.orgId && route.groupId && (
+              <InstitutionGroupView orgId={route.orgId} groupId={route.groupId} tab={route.tab} />
+            )}
             {route.view === 'career' && <CareerView />}
             {route.view === 'career-profile' && <CareerProfileView />}
             {route.view === 'career-portfolio' && <CareerPortfolioView />}
@@ -103,6 +112,7 @@ export default function Page() {
             {route.view === 'career-opportunity' && route.opportunityId && <OpportunityDetailView opportunityId={route.opportunityId} />}
             {route.view === 'career-applications' && <CareerApplicationsView />}
             {route.view === 'career-employer' && <CareerEmployerView />}
+            {route.view === 'career-employer-org' && route.orgId && <CareerEmployerView />}
             {route.view === 'admin-organizations' && <AdminOrganizationsView />}
             {route.view === 'admin-career' && <AdminCareerView />}
             {route.view === 'auth' && (

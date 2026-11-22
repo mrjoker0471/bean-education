@@ -13,6 +13,7 @@
 //     never enforce, and filing a complaint alone restricts nobody.
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -160,7 +161,7 @@ const fakeDb = {
 }
 
 mock.module('@/lib/db', () => ({ db: fakeDb }))
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth', () => completeAuthMock({
   requireStudent: async () => state.currentStudent,
   sameOrigin: () => true,
   getSessionStudent: async () => state.currentStudent,

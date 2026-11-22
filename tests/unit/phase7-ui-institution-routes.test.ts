@@ -124,10 +124,17 @@ const fakeDb = {
   organizationGroup: {
     findUnique: async ({ where }: { where: { id: string } }) =>
       state.groups.find(g => g.id === where.id) ?? null,
-    update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+    update: async ({ where, data, include }: { where: { id: string }; data: Record<string, unknown>; include?: { _count?: unknown } }) => {
       const idx = state.groups.findIndex(g => g.id === where.id)
       const updated = { ...state.groups[idx], ...data }
       state.groups[idx] = updated
+      // Main's PATCH re-reads the group with the ACTIVE-enrollment _count include;
+      // mirror that contract so toGroupDTO.activeEnrollmentCount is populated.
+      if (include && typeof include === 'object' && '_count' in include) {
+        updated._count = {
+          enrollments: state.groupEnrollments.filter(e => e.groupId === where.id && e.enrollmentState === 'ACTIVE').length,
+        }
+      }
       return updated
     },
   },
@@ -274,14 +281,14 @@ describe('PATCH /api/organizations/assignments/:assignmentId', () => {
     expect(state.orgAudit.some(a => a.action === 'ASSIGNMENT_PUBLISHED')).toBe(true)
   })
 
-  it('an illegal transition is rejected with 409 (DRAFT cannot jump to ARCHIVED)', async () => {
+  it('an illegal transition is rejected (DRAFT cannot skip to CLOSED — publish first; main returns 400)', async () => {
     state.student = instructorSession
     seedAssignment()
     const res = await assignmentRoute.PATCH(
-      req('/api/organizations/assignments/as-1', 'PATCH', { status: 'ARCHIVED' }),
+      req('/api/organizations/assignments/as-1', 'PATCH', { status: 'CLOSED' }),
       { params: Promise.resolve({ assignmentId: 'as-1' }) },
     )
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(400)
     expect(state.assignments[0].status).toBe('DRAFT')
   })
 

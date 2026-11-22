@@ -59,6 +59,11 @@ export async function GET(req: NextRequest) {
       visibility: CAREER_VISIBILITY.DISCOVERABLE,
       student: { careerEligibilityReview: { status: ELIGIBILITY_STATUS.APPROVED } },
       ...(skill ? { preferredSkills: { contains: skill } } : {}),
+      // roleType matches the candidate's preferred role labels; location matches
+      // their preferred work locations (both are JSON string lists stored on the
+      // real profile columns — substring match, same semantics as skill).
+      ...(roleType ? { preferredRoleTypes: { contains: roleType } } : {}),
+      ...(location ? { preferredLocations: { contains: location } } : {}),
       ...(q ? { OR: [{ headline: { contains: q } }, { summary: { contains: q } }, { preferredSkills: { contains: q } }] } : {}),
     }
 
