@@ -458,23 +458,30 @@
       "branch": "feat/bean-riishe-phase3h-history-retention",
       "baseMainSha": "3534f41451c2ed0eccb5f92a665b5c7db27f4435",
       "commits": [
-        "aa453bf6a17b10fef6edf633b514d2b93c1be047"
+        "aa453bf6a17b10fef6edf633b514d2b93c1be047",
+        "80a95659c0b360183c81f206af26faaa28de6ec6"
       ],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "80a95659c0b360183c81f206af26faaa28de6ec6",
+      "pushVerifiedAt": "2026-11-22T09:05:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
         "url": null
       },
       "mergeCommitSha": null,
-      "ci": [],
-      "ciNote": "CI runs pending: this entry was written before the first push; the branch-push run IDs and conclusions will be recorded from the live Actions history after the push, never assumed.",
+      "ci": [
+        {
+          "runId": "44999716363",
+          "conclusion": "SUCCESS",
+          "subject": "branch-push run on feat/bean-riishe-phase3h-history-retention tip 80a9565 (verified on the live Actions page: completed successfully)"
+        }
+      ],
+      "ciNote": "Run 44999716363 was triggered by the first push of the branch and verified on the live GitHub Actions page (aria-label 'completed successfully', success icon, branch name and commit 80a9565 present in the run page HTML). This entry trails the branch tip by one commit by construction: the final tip verified via ls-remote at ledger-write time is 80a95659c0b360183c81f206af26faaa28de6ec6, recorded as remoteFeatureSha; the commit containing THIS ledger update follows it on the branch. PR state NONE: PR creation requires GitHub web/API authentication which is unavailable in the implementation environment — the owner can open the PR from the branch page; every other publication and verification step is complete and independently verified (ls-remote tip match, CI run success). Status PUSHED is therefore honest; COMPLETE stays blocked by the gate until the PR is opened, merged, and the branch is synchronized.",
       "finalMainSha": null,
       "syncStatus": "PENDING",
-      "status": "IN_PROGRESS",
-      "evidence": "docs/PHASE-3H-RIISHE-STUDIO-HISTORY-RETENTION.md",
-      "updatedAt": "2026-11-22T08:20:00Z"
+      "status": "PUSHED",
+      "evidence": "docs/PHASE-3H-RIISHE-STUDIO-HISTORY-RETENTION.md; branch-push CI run 44999716363 (SUCCESS); compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3h-history-retention",
+      "updatedAt": "2026-11-22T09:10:00Z"
     }
   ]
 }

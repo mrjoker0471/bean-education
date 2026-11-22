@@ -77,6 +77,8 @@ read-only: it never pushes, merges, deletes, rewrites or updates anything.
 | Phase 3F — continuity | feat/bean-riishe-phase3f-learning-continuity | #19 | `e5d4165` | COMPLETE |
 | Branch hygiene | chore/git-branch-hygiene | #21 | `d3b39f6` | COMPLETE |
 | Branch-health fix | fix/branch-health-runtime-compat | #22 | `e93cdef` | COMPLETE |
+| Phase 3G — graded recall | feat/bean-riishe-phase3g-next-milestone | #23 | `806c835` | MERGED (ledger-sync commits preserved on the branch behind PR #24; branch synchronized to main) |
+| Phase 3H — history & retention | feat/bean-riishe-phase3h-history-retention | — (pending owner PR) | — | PUSHED (tip `80a9565`, CI 44999716363 SUCCESS) |
 
 Pre-ledger entries (`commits: []`, `ci: []` + notes) document only what is
 verified from main's merge history; nothing is inferred.
