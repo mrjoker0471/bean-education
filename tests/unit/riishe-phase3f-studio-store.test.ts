@@ -76,10 +76,34 @@ const fakeDb = {
     },
     findFirst: async ({ where }: { where: { id: string; guestId: string } }) =>
       rows.find(r => r.id === where.id && r.guestId === where.guestId) ?? null,
-    findMany: async ({ where, orderBy, take }: { where: { guestId: string }; orderBy?: { updatedAt: string }; take?: number }) => {
+    findMany: async ({ where, orderBy, take }: { where: { guestId: string }; orderBy?: { updatedAt: string } | Record<string, unknown>[]; take?: number }) => {
       const out = rows.filter(r => r.guestId === where.guestId)
-      if (orderBy?.updatedAt === 'desc') out.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      // Phase 3H lock-step: orderBy may be the composite array
+      // [(updatedAt desc), (id desc)] — sort deterministically in that case.
+      const order = Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : []
+      if (order.some(o => (o as { updatedAt?: string }).updatedAt === 'desc')) {
+        out.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || String(b.id).localeCompare(String(a.id)))
+      }
       return out.slice(0, take ?? out.length)
+    },
+    count: async ({ where }: { where: Record<string, unknown> }) => {
+      // Phase 3H lock-step: evaluate the count-only where shapes the store emits.
+      const w = where ?? {}
+      return rows.filter(r => {
+        if (w.guestId !== undefined && r.guestId !== w.guestId) return false
+        if (w.status !== undefined && r.status !== w.status) return false
+        if (w.kind !== undefined) {
+          const k = w.kind as { in?: string[] } | string
+          if (typeof k === 'string') {
+            if (r.kind !== k) return false
+          } else if (k.in && !k.in.includes(r.kind)) return false
+        }
+        if (w.resultJson !== undefined) {
+          const cond = w.resultJson as { not?: unknown }
+          if (cond && cond.not === null && r.resultJson == null) return false
+        }
+        return true
+      }).length
     },
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = rows.find(r => r.id === where.id)

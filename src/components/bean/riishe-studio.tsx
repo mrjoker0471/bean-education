@@ -45,6 +45,8 @@ import {
   STUDIO_ACTIVITY_HINTS,
   STUDIO_FLASHCARD_KIND_LABELS,
   STUDIO_GRADED_RECALL_NOTE,
+  STUDIO_RETENTION_DAYS,
+  STUDIO_STATUSES,
   STUDIO_STATUS_LABELS,
   conceptChildrenMap,
   conceptDepthOf,
@@ -57,6 +59,7 @@ import {
   type StudioActivityResponses,
   type StudioActivityResult,
   type StudioActivityStatus,
+  type StudioCleanupPreviewDTO,
   type StudioConceptMapDTO,
   type StudioEvidenceSummaryDTO,
   type StudioFlashcardsDTO,
@@ -67,17 +70,30 @@ import {
   type StudioRecallVerdict,
   type StudioStepsDTO,
 } from '@/lib/riishe/studio-types'
+import { useAppStore } from '@/lib/store'
 import { RIISHE_LANGUAGE_LABELS, type RiisheResponseLanguage } from '@/lib/riishe/tutor'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Toggle } from '@/components/ui/toggle'
 import { PageRefChips } from '@/components/bean/riishe-bits'
 import { cn } from '@/lib/utils'
 import {
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -91,8 +107,10 @@ import {
   Plus,
   Minus,
   RotateCcw,
+  Search,
   Shuffle,
   Sigma,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   X,
@@ -1224,7 +1242,8 @@ function EvidenceStrip({ evidence }: { evidence: StudioEvidenceSummaryDTO }) {
   }
   return (
     <p className="rounded-lg border border-border bg-elevated px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-      <span className="font-semibold text-foreground">Studio practice so far:</span> {parts.join(' · ')}. Self-study
+      <span className="font-semibold text-foreground">Studio practice so far:</span> {parts.join(' · ')}
+      {evidence.truncated ? ' — practice aggregates reflect your most recent records' : ''}. Self-study
       evidence only — it never changes your mastery or attempt records.
     </p>
   )
@@ -1232,10 +1251,32 @@ function EvidenceStrip({ evidence }: { evidence: StudioEvidenceSummaryDTO }) {
 
 // ─── Dialog + launcher ────────────────────────────────────────────────────────
 
+/** One server page of history (Phase 3H cursor pagination). */
+interface HistoryPageData {
+  items: StudioHistoryItemDTO[]
+  evidence: StudioEvidenceSummaryDTO
+  nextCursor: string | null
+  totalMatching: number
+}
+
 type HistoryState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; items: StudioHistoryItemDTO[]; evidence: StudioEvidenceSummaryDTO }
+  | { kind: 'ready'; page: HistoryPageData; loadingMore: boolean; moreError: string | null }
+
+type HistoryKindFilter = 'all' | StudioActivityKind
+type HistoryStatusFilter = 'all' | StudioActivityStatus
+type RetentionChoice = 'forever' | '30' | '90' | '180' | '365'
+type CleanupDayChoice = '30' | '90' | '180' | '365'
+
+function retentionChoiceToPreference(value: RetentionChoice): 30 | 90 | 180 | 365 | null {
+  return value === 'forever' ? null : (Number(value) as 30 | 90 | 180 | 365)
+}
+
+function cutoffDateLabel(iso: string): string {
+  // Client-only rendering inside the interaction-opened dialog (hydration-safe).
+  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
 
 /** The active activity "session" inside the dialog. */
 interface ActivitySession {
@@ -1324,6 +1365,295 @@ function ActivitySessionRenderer({
   }
 }
 
+/**
+ * Phase 3H — retention preference + user-initiated cleanup (preview → confirm).
+ * The preference is account-bound (signed-in students, stored via the existing
+ * profile preferences). Guests get the same cleanup tool with keep-forever
+ * semantics: nothing is ever deleted automatically, and every cleanup requires
+ * a reviewed preview plus an explicit confirmation button carrying the exact
+ * affected count.
+ */
+function RetentionCleanupPanel({
+  guestId,
+  signedIn,
+  onCleaned,
+}: {
+  guestId: string
+  signedIn: boolean
+  onCleaned: () => void
+}) {
+  const [retention, setRetention] = useState<RetentionChoice>('forever')
+  const [retentionChecked, setRetentionChecked] = useState(false)
+  const [retentionSaving, setRetentionSaving] = useState(false)
+  const [retentionError, setRetentionError] = useState<string | null>(null)
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleanupDays, setCleanupDays] = useState<CleanupDayChoice>('90')
+  const [preview, setPreview] = useState<(StudioCleanupPreviewDTO & { batchMax: number }) | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
+
+  // Loaded flag: guests need no fetch — the keep-forever default is final.
+  const retentionLoaded = !signedIn || retentionChecked
+
+  // Load the saved preference once (signed-in only; guests stay keep-forever).
+  useEffect(() => {
+    if (!signedIn) return
+    let alive = true
+    api
+      .studentProfile()
+      .then(r => {
+        if (!alive) return
+        const raw = (r.student.preferences as Record<string, unknown> | undefined)?.studioRetentionDays
+        setRetention(
+          typeof raw === 'number' && (STUDIO_RETENTION_DAYS as readonly number[]).includes(raw)
+            ? (String(raw) as CleanupDayChoice)
+            : 'forever',
+        )
+      })
+      .catch(() => {
+        // Non-fatal: the keep-forever default stays; the preference can be
+        // set again at any time.
+      })
+      .finally(() => {
+        if (alive) setRetentionChecked(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [signedIn])
+
+  const saveRetention = (value: RetentionChoice) => {
+    setRetention(value)
+    if (!signedIn) return
+    setRetentionSaving(true)
+    setRetentionError(null)
+    api
+      .updateStudentProfile({ preferences: { studioRetentionDays: retentionChoiceToPreference(value) } })
+      .catch((e: unknown) => {
+        setRetentionError(e instanceof Error ? e.message : 'Could not save your retention preference.')
+      })
+      .finally(() => setRetentionSaving(false))
+  }
+
+  const runPreview = (days: CleanupDayChoice) => {
+    setPreviewLoading(true)
+    setPreviewError(null)
+    setPreview(null)
+    api
+      .riisheStudioCleanup({ guestId, olderThanDays: Number(days) as 30 | 90 | 180 | 365 })
+      .then(r => {
+        if ('preview' in r && r.preview === true) setPreview(r)
+        else setPreviewError('Unexpected response — please try again.')
+      })
+      .catch((e: unknown) => {
+        setPreviewError(e instanceof Error ? e.message : 'Could not load the cleanup preview.')
+      })
+      .finally(() => setPreviewLoading(false))
+  }
+
+  const openCleanup = () => {
+    setResult(null)
+    setCleanupError(null)
+    setCleanupOpen(true)
+    runPreview(cleanupDays)
+  }
+
+  const changeCleanupDays = (value: CleanupDayChoice) => {
+    setCleanupDays(value)
+    setResult(null)
+    setCleanupError(null)
+    runPreview(value)
+  }
+
+  const confirmCleanup = () => {
+    if (!preview || preview.affected === 0 || confirming) return
+    setConfirming(true)
+    setCleanupError(null)
+    api
+      .riisheStudioCleanup({ guestId, olderThanDays: Number(cleanupDays) as 30 | 90 | 180 | 365, confirm: 'CLEANUP' })
+      .then(r => {
+        if ('ok' in r && r.ok === true) {
+          const noun = r.deleted === 1 ? 'activity' : 'activities'
+          const more =
+            r.remaining > 0
+              ? ` ${r.remaining} older ${r.remaining === 1 ? 'activity remains' : 'activities remain'} in this scope — run the cleanup again to continue.`
+              : ''
+          setResult(`Deleted ${r.deleted} ${noun}.${more}`)
+          setPreview(null)
+          onCleaned()
+        } else {
+          setCleanupError('Unexpected response — please try again.')
+        }
+      })
+      .catch((e: unknown) => {
+        setCleanupError(e instanceof Error ? e.message : 'Could not complete the cleanup.')
+      })
+      .finally(() => setConfirming(false))
+  }
+
+  const policyLine = !signedIn
+    ? 'Your Studio history is kept until you delete it. Retention preferences are available after you sign in.'
+    : retention !== 'forever'
+      ? `Cleanup targets completed and discarded activities not updated in the last ${retention} days. Nothing is deleted automatically — cleanup runs only when you review the preview and confirm it.`
+      : 'Your Studio history is kept until you delete it. Choose a cutoff below to make old completed and discarded activities easy to clean up — nothing is ever deleted automatically.'
+
+  return (
+    <section aria-label="History retention and cleanup" className="space-y-2 border-t border-border pt-3">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <SlidersHorizontal className="h-3 w-3" aria-hidden /> Keep &amp; clean up
+      </p>
+      {retentionLoaded && <p className="text-[11px] leading-relaxed text-muted-foreground">{policyLine}</p>}
+      {signedIn && (
+        <div className="flex items-center gap-2">
+          <Select value={retention} onValueChange={v => saveRetention(v as RetentionChoice)}>
+            <SelectTrigger
+              aria-label="Studio history retention"
+              className="h-8 w-full max-w-56 text-xs text-muted-foreground"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="forever" className="text-xs">
+                Keep forever (default)
+              </SelectItem>
+              {STUDIO_RETENTION_DAYS.map(d => (
+                <SelectItem key={d} value={String(d)} className="text-xs">
+                  Clean up after {d} days
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {retentionSaving && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" aria-hidden />}
+        </div>
+      )}
+      {retentionError && (
+        <p
+          className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive"
+          role="alert"
+        >
+          {retentionError}
+        </p>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={openCleanup}
+        className="h-8 gap-1.5 border-border text-xs text-muted-foreground hover:text-destructive"
+        aria-label="Clean up old Studio activities"
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden /> Clean up old activities
+      </Button>
+
+      <AlertDialog open={cleanupOpen} onOpenChange={setCleanupOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-base">Clean up old activities</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs leading-relaxed">
+              Pick a cutoff and review the preview — the count below is exactly what a confirmed cleanup would remove.
+              Nothing is deleted until you confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Select value={cleanupDays} onValueChange={v => changeCleanupDays(v as CleanupDayChoice)}>
+              <SelectTrigger aria-label="Cleanup cutoff" className="h-9 w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STUDIO_RETENTION_DAYS.map(d => (
+                  <SelectItem key={d} value={String(d)} className="text-xs">
+                    Not updated in the last {d} days
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {previewLoading && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" aria-hidden /> Counting matching activities…
+              </p>
+            )}
+            {previewError && (
+              <div className="space-y-1.5">
+                <p
+                  className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive"
+                  role="alert"
+                >
+                  {previewError}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => runPreview(cleanupDays)}
+                  className="h-8 gap-1.5 border-border text-xs"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Retry preview
+                </Button>
+              </div>
+            )}
+            {preview && (
+              <div className="space-y-1.5 rounded-lg border border-border bg-elevated px-3 py-2.5 text-[11px] leading-relaxed">
+                <p>
+                  <span className="font-semibold text-foreground">{preview.affected}</span>{' '}
+                  {preview.affected === 1 ? 'activity matches' : 'activities match'} the cutoff (before{' '}
+                  {cutoffDateLabel(preview.cutoff)}).
+                </p>
+                <p className="text-muted-foreground">{preview.scopeNote}</p>
+                {preview.affected > preview.batchMax && (
+                  <p className="text-muted-foreground">
+                    Large scopes are removed in batches of {preview.batchMax}; the result tells you what remains, and
+                    you can repeat the cleanup until nothing is left.
+                  </p>
+                )}
+                {preview.affected === 0 && (
+                  <p className="text-muted-foreground">Nothing matches this cutoff yet — nothing will be deleted.</p>
+                )}
+              </div>
+            )}
+            {result && (
+              <p
+                className="rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-xs leading-relaxed text-success"
+                role="status"
+              >
+                {result}
+              </p>
+            )}
+            {cleanupError && (
+              <p
+                className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive"
+                role="alert"
+              >
+                {cleanupError}
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={e => {
+                // Keep the dialog open so the truthful result (deleted /
+                // remaining counts) stays visible after the operation.
+                e.preventDefault()
+                confirmCleanup()
+              }}
+              disabled={previewLoading || confirming || !preview || preview.affected === 0}
+              className="gap-1.5 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {confirming && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+              {preview && preview.affected > 0
+                ? `Delete ${preview.affected} ${preview.affected === 1 ? 'activity' : 'activities'}`
+                : 'Delete matched activities'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
+  )
+}
+
 export function RiisheStudioLauncher({
   guestId,
   documentId,
@@ -1399,29 +1729,73 @@ function RiisheStudioDialog({
   const [session, setSession] = useState<ActivitySession | null>(null)
   const [rowBusy, setRowBusy] = useState(false)
 
+  // ── Phase 3H: history discovery state (search + filters + paging) ──
+  const authedStudent = useAppStore(s => s.authedStudent)
+  const [searchInput, setSearchInput] = useState('')
+  const [filters, setFilters] = useState<{ kind: HistoryKindFilter; status: HistoryStatusFilter; search: string }>({
+    kind: 'all',
+    status: 'all',
+    search: '',
+  })
+  const [historyNonce, setHistoryNonce] = useState(0)
+  const filtersRef = useRef(filters)
+
   // ── Progress/response sync (debounced; never blocks the UI) ──
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRef = useRef<{ progress?: StudioActivityProgress; responses?: StudioActivityResponses }>({})
 
-  const fetchHistory = useCallback(() => api.riisheStudioHistory(guestId), [guestId])
+  /** One server page with the current filters applied (cursor optional). */
+  const fetchHistoryPage = useCallback(
+    (f: { kind: HistoryKindFilter; status: HistoryStatusFilter; search: string }, cursor?: string) =>
+      api.riisheStudioHistory(guestId, {
+        ...(f.kind !== 'all' ? { kind: f.kind } : {}),
+        ...(f.status !== 'all' ? { status: f.status } : {}),
+        ...(f.search ? { search: f.search } : {}),
+        ...(cursor ? { cursor } : {}),
+      }),
+    [guestId],
+  )
 
+  /** Reload page 1 (mutations call this; the effect below owns actual fetching). */
   const loadHistory = useCallback(() => {
     setHistory({ kind: 'loading' })
-    fetchHistory()
-      .then(r => setHistory({ kind: 'ready', items: r.items, evidence: r.evidence }))
-      .catch((e: unknown) => {
-        setHistory({ kind: 'error', message: e instanceof Error ? e.message : 'Could not load your Studio history.' })
-      })
-  }, [fetchHistory])
+    setHistoryNonce(n => n + 1)
+  }, [])
+
+  /** Event-path filter change: new filters + loading state, then the effect fetches. */
+  const changeFilters = (patch: { kind?: HistoryKindFilter; status?: HistoryStatusFilter; search?: string }) => {
+    setFilters(prev => ({ ...prev, ...patch }))
+    setHistory({ kind: 'loading' })
+  }
 
   useEffect(() => {
+    filtersRef.current = filters
+  }, [filters])
+
+  // Debounced search → filter state (300ms, like the progress sync cadence).
+  // The state updates run inside the timer callback (async, never in the
+  // effect body itself).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = searchInput.trim()
+      if (q === filtersRef.current.search) return
+      setFilters(prev => ({ ...prev, search: q }))
+      setHistory({ kind: 'loading' })
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  // Page-1 history fetch: runs when the dialog opens, when filters change, or
+  // when a mutation bumps the nonce. No synchronous setState in the effect
+  // body — the initial state starts as 'loading' and event handlers enter it
+  // before bumping; results land in the promise handlers. In-flight responses
+  // are discarded when a newer fetch starts (alive flag).
+  useEffect(() => {
     if (!open) return
-    // Initial history load: the state already starts as 'loading', so no
-    // synchronous setState here — results land in the promise handlers.
     let alive = true
-    fetchHistory()
+    fetchHistoryPage(filters)
       .then(r => {
-        if (alive) setHistory({ kind: 'ready', items: r.items, evidence: r.evidence })
+        if (alive) setHistory({ kind: 'ready', page: r, loadingMore: false, moreError: null })
       })
       .catch((e: unknown) => {
         if (alive) {
@@ -1431,7 +1805,39 @@ function RiisheStudioDialog({
     return () => {
       alive = false
     }
-  }, [open, fetchHistory])
+  }, [open, filters, fetchHistoryPage, historyNonce])
+
+  /** Load the next cursor page and APPEND it to the already-visible items. */
+  const loadMoreHistory = () => {
+    if (history.kind !== 'ready' || !history.page.nextCursor || history.loadingMore) return
+    const cursor = history.page.nextCursor
+    setHistory({ ...history, loadingMore: true, moreError: null })
+    fetchHistoryPage(filtersRef.current, cursor)
+      .then(r => {
+        setHistory(cur =>
+          cur.kind === 'ready'
+            ? {
+                ...cur,
+                page: {
+                  items: [...cur.page.items, ...r.items],
+                  evidence: r.evidence,
+                  nextCursor: r.nextCursor,
+                  totalMatching: r.totalMatching,
+                },
+                loadingMore: false,
+                moreError: null,
+              }
+            : cur,
+        )
+      })
+      .catch((e: unknown) => {
+        setHistory(cur =>
+          cur.kind === 'ready'
+            ? { ...cur, loadingMore: false, moreError: e instanceof Error ? e.message : 'Could not load more history.' }
+            : cur,
+        )
+      })
+  }
 
   const flushSync = useCallback(() => {
     if (syncTimer.current) {
@@ -1588,8 +1994,14 @@ function RiisheStudioDialog({
       .finally(() => setGenerating(false))
   }
 
-  const inProgressItems = history.kind === 'ready' ? history.items.filter(i => i.status === 'IN_PROGRESS').slice(0, 3) : []
-  const olderItems = history.kind === 'ready' ? history.items.filter(i => !inProgressItems.includes(i)) : []
+  const pageItems = history.kind === 'ready' ? history.page.items : []
+  const inProgressItems = pageItems.filter(i => i.status === 'IN_PROGRESS').slice(0, 3)
+  const olderItems = pageItems.filter(i => !inProgressItems.includes(i))
+  const filtersActive = filters.kind !== 'all' || filters.status !== 'all' || filters.search !== ''
+  const clearFilters = () => {
+    changeFilters({ kind: 'all', status: 'all', search: '' })
+    setSearchInput('')
+  }
 
   return (
     <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (v) setError(null) }}>
@@ -1736,7 +2148,7 @@ function RiisheStudioDialog({
                 </p>
               )}
 
-              {/* History — compact, reopenable, honest statuses. */}
+              {/* History — paged, searchable, reopenable, honest statuses (3H). */}
               <section aria-label="Your Studio history" className="space-y-1.5 border-t border-border pt-3">
                 <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   <History className="h-3 w-3" aria-hidden /> Your Studio history
@@ -1758,11 +2170,82 @@ function RiisheStudioDialog({
                 )}
                 {history.kind === 'ready' && (
                   <>
-                    {history.items.length === 0 ? (
-                      <p className="rounded-lg border border-border bg-elevated px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-                        Nothing here yet — generate an activity above and it will be saved so you can resume or
-                        revisit it any time.
+                    {/* Search + filters (server-side; the browser never loads the whole history). */}
+                    <div className="flex flex-col gap-1.5 sm:flex-row">
+                      <div className="relative flex-1">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                        <Input
+                          value={searchInput}
+                          onChange={e => setSearchInput(e.target.value)}
+                          placeholder="Search topic or material"
+                          aria-label="Search your Studio history"
+                          maxLength={120}
+                          className="h-9 pl-8 text-xs"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 sm:flex">
+                        <Select value={filters.kind} onValueChange={v => changeFilters({ kind: v as HistoryKindFilter })}>
+                          <SelectTrigger aria-label="Filter by activity type" className="h-9 w-full text-xs text-muted-foreground sm:w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all" className="text-xs">All types</SelectItem>
+                            {STUDIO_ACTIVITY_KINDS.map(k => (
+                              <SelectItem key={k} value={k} className="text-xs">{STUDIO_ACTIVITY_LABELS[k]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select value={filters.status} onValueChange={v => changeFilters({ status: v as HistoryStatusFilter })}>
+                          <SelectTrigger aria-label="Filter by status" className="h-9 w-full text-xs text-muted-foreground sm:w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all" className="text-xs">All statuses</SelectItem>
+                            {STUDIO_STATUSES.map(s => (
+                              <SelectItem key={s} value={s} className="text-xs">{STUDIO_STATUS_LABELS[s]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {(filtersActive || history.page.items.length > 0) && (
+                      <p className="text-[11px] text-muted-foreground" aria-live="polite">
+                        Showing {history.page.items.length} of {history.page.totalMatching}{' '}
+                        {history.page.totalMatching === 1 ? 'activity' : 'activities'}
+                        {filtersActive ? ' matching' : ''}
+                        {filtersActive && (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              onClick={clearFilters}
+                              className="font-semibold text-gold underline-offset-2 hover:underline"
+                              aria-label="Clear history search and filters"
+                            >
+                              clear
+                            </button>
+                          </>
+                        )}
                       </p>
+                    )}
+
+                    {history.page.items.length === 0 ? (
+                      filtersActive ? (
+                        <div className="space-y-1.5">
+                          <p className="rounded-lg border border-border bg-elevated px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                            No activities match your search or filters.
+                          </p>
+                          <Button type="button" variant="outline" size="sm" onClick={clearFilters} aria-label="Clear history search and filters" className="h-8 gap-1.5 border-border text-xs text-muted-foreground hover:text-gold">
+                            <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Clear search &amp; filters
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="rounded-lg border border-border bg-elevated px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                          Nothing here yet — generate an activity above and it will be saved so you can resume or
+                          revisit it any time.
+                        </p>
+                      )
                     ) : (
                       <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-0.5">
                         {olderItems.map(item => (
@@ -1770,9 +2253,44 @@ function RiisheStudioDialog({
                         ))}
                       </ul>
                     )}
-                    {history.items.length > 0 && <EvidenceStrip evidence={history.evidence} />}
+
+                    {history.moreError && (
+                      <div className="space-y-1.5">
+                        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive" role="alert">
+                          {history.moreError}
+                        </p>
+                        <Button type="button" variant="outline" size="sm" onClick={loadMoreHistory} aria-label="Retry loading older activities" className="h-8 gap-1.5 border-border text-xs text-muted-foreground hover:text-gold">
+                          <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Retry
+                        </Button>
+                      </div>
+                    )}
+                    {history.kind === 'ready' && history.page.nextCursor && history.page.items.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={loadMoreHistory}
+                        disabled={history.loadingMore}
+                        aria-label="Load older activities"
+                        className="h-8 w-full gap-1.5 border-border text-xs text-muted-foreground hover:text-gold"
+                      >
+                        {history.loadingMore ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" aria-hidden />
+                        ) : (
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                        Show older activities
+                        {history.page.totalMatching > history.page.items.length
+                          ? ` (${history.page.totalMatching - history.page.items.length} more)`
+                          : ''}
+                      </Button>
+                    )}
+
+                    {history.page.evidence.total > 0 && <EvidenceStrip evidence={history.page.evidence} />}
                   </>
                 )}
+
+                <RetentionCleanupPanel guestId={guestId} signedIn={authedStudent != null} onCleaned={loadHistory} />
               </section>
 
               <p className="text-[10px] leading-relaxed text-muted-foreground">

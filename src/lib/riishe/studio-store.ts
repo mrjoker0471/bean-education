@@ -38,6 +38,8 @@ import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
 import { gradeTypedRecall, scoreMiniTest } from '@/lib/riishe/studio-types'
 import {
+  STUDIO_HISTORY_PAGE_SIZE_DEFAULT,
+  STUDIO_HISTORY_PAGE_SIZE_MAX,
   STUDIO_SCHEMA_VERSION,
   type StudioActivity,
   type StudioActivityResult,
@@ -47,6 +49,7 @@ import {
   type StudioHistoryItemDTO,
   type StudioActivityRecordDTO,
   type StudioActivityStatus,
+  type StudioActivityKind,
 } from '@/lib/riishe/studio-types'
 
 /** Typed error the API routes map straight to a response status. */
@@ -454,15 +457,276 @@ export async function saveGeneratedActivity(input: {
   return row.id
 }
 
-/** Compact history (most recently updated first) + honest evidence roll-up. */
-export async function listStudioActivities(guestId: string, take = 50): Promise<{ items: StudioHistoryItemDTO[]; evidence: StudioEvidenceSummaryDTO }> {
-  const rows = await db.riisheStudioActivity.findMany({
-    where: { guestId },
-    orderBy: { updatedAt: 'desc' },
-    take,
+/**
+ * Encode an opaque pagination cursor. The cursor pins a position in the
+ * (updatedAt desc, id desc) ordering; decoding validates the shape so a
+ * hostile cursor can never inject query fragments.
+ */
+function encodeHistoryCursor(u: Date, i: string): string {
+  return Buffer.from(JSON.stringify({ u: u.toISOString(), i }), 'utf8').toString('base64url')
+}
+
+function decodeHistoryCursor(raw: string): { u: Date; i: string } {
+  let parsed: unknown
+  try {
+    const json = Buffer.from(raw, 'base64url').toString('utf8')
+    parsed = JSON.parse(json)
+  } catch {
+    throw new StudioStoreError(400, 'Invalid request')
+  }
+  const shape = z.object({ u: z.string().datetime({ offset: true }), i: z.string().min(1).max(64) }).safeParse(parsed)
+  const u = shape.success ? new Date(shape.data.u) : null
+  if (!shape.success || !u || Number.isNaN(u.getTime())) {
+    throw new StudioStoreError(400, 'Invalid request')
+  }
+  return { u, i: shape.data.i }
+}
+
+export interface ListStudioActivitiesOptions {
+  /** Page size (default 50, hard-capped at 100). */
+  limit?: number
+  /** Opaque cursor from the previous page's `nextCursor`. */
+  cursor?: string | null
+  /** Filter by activity kind. */
+  kind?: StudioActivityKind | null
+  /** Filter by lifecycle status. */
+  status?: StudioActivityStatus | null
+  /** Case-insensitive substring match on topic or document title. */
+  search?: string | null
+}
+
+export interface StudioHistoryPage {
+  items: StudioHistoryItemDTO[]
+  evidence: StudioEvidenceSummaryDTO
+  nextCursor: string | null
+  totalMatching: number
+}
+
+/**
+ * Build the WHERE clause shared by the history page query and the exact
+ * matching count: ownership scope + optional kind/status/search filters + the
+ * "strictly after the cursor" condition of the stable (updatedAt desc,
+ * id desc) ordering.
+ */
+function historyWhere(guestId: string, options: ListStudioActivitiesOptions, afterCursor: { u: Date; i: string } | null): Record<string, unknown> {
+  const search = options.search?.trim()
+  const flat: Record<string, unknown> = { guestId }
+  if (options.kind) flat.kind = options.kind
+  if (options.status) flat.status = options.status
+  const orParts: Record<string, unknown>[] = []
+  if (search) {
+    orParts.push({ OR: [{ topic: { contains: search } }, { documentTitle: { contains: search } }] })
+  }
+  if (afterCursor) {
+    // Deterministic continuation of (updatedAt desc, id desc): rows strictly
+    // older than the cursor's updatedAt, plus rows sharing that exact
+    // timestamp whose id sorts after the cursor id. Deleted cursor rows are
+    // harmless — the position is a (timestamp, id) coordinate, not a live row.
+    orParts.push({
+      OR: [
+        { updatedAt: { lt: afterCursor.u } },
+        { AND: [{ updatedAt: afterCursor.u }, { id: { lt: afterCursor.i } }] },
+      ],
+    })
+  }
+  // No OR parts → the exact flat shape the Phase 3F queries used (and the
+  // existing test fakes assert against); OR parts compose additively via AND.
+  if (orParts.length === 0) return flat
+  return { AND: [flat, ...orParts] }
+}
+
+/**
+ * How many evidence-scan rows to inspect for the per-kind aggregates. The scan
+ * touches ONLY the small columns needed (status, kind, resultJson) and never
+ * leaves the server — the browser receives the aggregate, not the rows.
+ * Status counts and the matching total are ALWAYS exact SQL counts.
+ */
+const EVIDENCE_SCAN_CAP = 200
+
+/**
+ * Accurate evidence roll-up for the whole history (Phase 3H).
+ * - total / inProgress / completed / abandoned: exact SQL counts.
+ * - mini-test and flashcard aggregates: computed server-side from a bounded
+ *   scan of the most recent result-carrying rows; `truncated` reports
+ *   truthfully when matching rows exist beyond the scan cap.
+ */
+async function computeEvidenceSummary(guestId: string): Promise<StudioEvidenceSummaryDTO> {
+  const [total, inProgress, completed, abandoned, scanCount] = await Promise.all([
+    db.riisheStudioActivity.count({ where: { guestId } }),
+    db.riisheStudioActivity.count({ where: { guestId, status: 'IN_PROGRESS' } }),
+    db.riisheStudioActivity.count({ where: { guestId, status: 'COMPLETED' } }),
+    db.riisheStudioActivity.count({ where: { guestId, status: 'ABANDONED' } }),
+    db.riisheStudioActivity.count({
+      where: { guestId, kind: { in: ['mini-test', 'flashcards'] }, resultJson: { not: null } },
+    }),
+  ])
+
+  const summary: StudioEvidenceSummaryDTO = {
+    total,
+    inProgress,
+    completed,
+    abandoned,
+    miniTestsCompleted: 0,
+    miniTestPercentAvg: null,
+    cardsReviewed: 0,
+    cardsRecalled: 0,
+  }
+  if (scanCount === 0) return summary
+
+  const scanned = (await db.riisheStudioActivity.findMany({
+    where: { guestId, kind: { in: ['mini-test', 'flashcards'] }, resultJson: { not: null } },
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    take: EVIDENCE_SCAN_CAP,
+    select: { status: true, kind: true, resultJson: true },
+  })) as Pick<StudioActivityRow, 'status' | 'kind' | 'resultJson'>[]
+
+  // Reuse the honest per-item summarizer over the scanned rows, then override
+  // the status counts with the exact SQL numbers above.
+  const scannedItems: StudioHistoryItemDTO[] = scanned.map(r => {
+    const kind = normalizeKind(r.kind)
+    return {
+      id: '',
+      kind: kind ?? 'concept-map',
+      topic: '',
+      status: normalizeStatus(r.status),
+      grounding: 'general',
+      createdAt: '',
+      updatedAt: '',
+      result: safeParse<StudioActivityResult | null>(r.resultJson, null),
+    }
   })
-  const items = rows.map(r => toHistoryItem(r as StudioActivityRow, parseActivitySnapshot(r as StudioActivityRow)))
-  return { items, evidence: summarizeEvidence(items) }
+  const scannedSummary = summarizeEvidence(scannedItems)
+  summary.miniTestsCompleted = scannedSummary.miniTestsCompleted
+  summary.miniTestPercentAvg = scannedSummary.miniTestPercentAvg
+  summary.cardsReviewed = scannedSummary.cardsReviewed
+  summary.cardsRecalled = scannedSummary.cardsRecalled
+  summary.truncated = scanCount > scanned.length
+  return summary
+}
+
+/**
+ * Paged Studio history (most recently updated first, deterministic
+ * (updatedAt desc, id desc) ordering) + accurate evidence roll-up.
+ *
+ * Phase 3H replaces the fixed latest-50 list: pages are fetched by opaque
+ * cursor, optional filters narrow the set, and `totalMatching` is the EXACT
+ * count of records matching the filters. The evidence summary describes the
+ * WHOLE history (not just the page) with exact status counts and bounded,
+ * truthfully-labelled per-kind aggregates.
+ */
+export async function listStudioActivities(guestId: string, options: ListStudioActivitiesOptions = {}): Promise<StudioHistoryPage> {
+  const limit = Math.min(Math.max(Math.floor(options.limit ?? STUDIO_HISTORY_PAGE_SIZE_DEFAULT), 1), STUDIO_HISTORY_PAGE_SIZE_MAX)
+  const afterCursor = options.cursor ? decodeHistoryCursor(options.cursor) : null
+  const where = historyWhere(guestId, options, afterCursor)
+
+  // Fetch one row beyond the page size to detect whether a next page exists
+  // — no extra count query, no full-history load.
+  const rows = (await db.riisheStudioActivity.findMany({
+    where,
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+  })) as StudioActivityRow[]
+  const pageRows = rows.slice(0, limit)
+  const items = pageRows.map(r => toHistoryItem(r, parseActivitySnapshot(r)))
+  const nextCursor = rows.length > limit && pageRows.length > 0
+    ? encodeHistoryCursor(pageRows[pageRows.length - 1].updatedAt, pageRows[pageRows.length - 1].id)
+    : null
+  const totalMatching = await db.riisheStudioActivity.count({ where: historyWhere(guestId, options, null) })
+  const evidence = await computeEvidenceSummary(guestId)
+  return { items, evidence, nextCursor, totalMatching }
+}
+
+// ─── Phase 3H: user-initiated history cleanup ─────────────────────────────────
+
+/** Named retention choices (days) accepted by the cleanup scope. */
+export const CLEANUP_DAY_CHOICES = [30, 90, 180, 365] as const
+export type CleanupDayChoice = (typeof CLEANUP_DAY_CHOICES)[number]
+
+/** One bounded delete batch — repeated requests drain the scope safely. */
+export const CLEANUP_BATCH_MAX = 500
+
+/** Fixed honesty note returned with every preview (never a hidden scope). */
+export const CLEANUP_SCOPE_NOTE =
+  'Only completed and discarded activities older than the cutoff are removed. In-progress activities are never cleaned up, and records that do not belong to this learning profile are never touched.'
+
+/** Validate a retention-day choice (defense in depth behind the route zod). */
+function cleanupDayOrThrow(olderThanDays: number): number {
+  const n = Number(olderThanDays)
+  if (!(CLEANUP_DAY_CHOICES as readonly number[]).includes(n) || !Number.isInteger(n)) {
+    throw new StudioStoreError(400, 'Invalid request')
+  }
+  return n
+}
+
+function cleanupCutoff(days: number): Date {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+}
+
+function cleanupWhere(guestId: string, cutoff: Date): Record<string, unknown> {
+  // Scope fixed by design: COMPLETED and ABANDONED rows only, owned by this
+  // guestId, not updated since the cutoff. IN_PROGRESS is NEVER cleaned.
+  return {
+    AND: [
+      { guestId },
+      { status: { in: ['COMPLETED', 'ABANDONED'] } },
+      { updatedAt: { lt: cutoff } },
+    ],
+  }
+}
+
+/**
+ * Preview how many of the owner's records a cleanup with the given retention
+ * cutoff would affect. Pure read — deletes nothing.
+ */
+export async function previewStudioCleanup(guestId: string, olderThanDays: CleanupDayChoice): Promise<{
+  preview: true
+  olderThanDays: number
+  cutoff: Date
+  affected: number
+  scopeNote: string
+}> {
+  const days = cleanupDayOrThrow(olderThanDays)
+  const cutoff = cleanupCutoff(days)
+  const affected = await db.riisheStudioActivity.count({ where: cleanupWhere(guestId, cutoff) })
+  return { preview: true, olderThanDays: days, cutoff, affected, scopeNote: CLEANUP_SCOPE_NOTE }
+}
+
+/**
+ * Confirm a cleanup: delete AT MOST CLEANUP_BATCH_MAX matching records. The
+ * delete re-asserts the FULL scope (ownership + status + cutoff) in its WHERE
+ * clause, so it can never delete out-of-scope rows — including under
+ * concurrent requests. Repeated requests are safe: the scope drains to zero
+ * and `remaining` reports what is left. Truthful on failure: a thrown delete
+ * surfaces as an error, never as a success with guessed counts.
+ */
+export async function confirmStudioCleanup(guestId: string, olderThanDays: CleanupDayChoice): Promise<{
+  ok: true
+  deleted: number
+  remaining: number
+  cutoff: Date
+  olderThanDays: number
+}> {
+  const days = cleanupDayOrThrow(olderThanDays)
+  const cutoff = cleanupCutoff(days)
+  const scope = cleanupWhere(guestId, cutoff)
+
+  // Bounded batch: select ids first (small columns only), then delete with the
+  // scope conditions REPEATED in the delete WHERE — the id list can never
+  // widen what the statement is allowed to remove.
+  const batch = (await db.riisheStudioActivity.findMany({
+    where: scope,
+    orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+    take: CLEANUP_BATCH_MAX,
+    select: { id: true },
+  })) as { id: string }[]
+
+  const deleted = await db.riisheStudioActivity.deleteMany({
+    where: {
+      AND: [{ id: { in: batch.map(r => r.id) } }, scope],
+    },
+  })
+  const remaining = await db.riisheStudioActivity.count({ where: scope })
+  return { ok: true, deleted: deleted.count, remaining, cutoff, olderThanDays: days }
 }
 
 /** Full record for resume/review. Returns null when the id is not this guest's. */

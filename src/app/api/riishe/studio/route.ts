@@ -41,7 +41,8 @@ import {
 import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
 import { SectionIndex } from '@/lib/riishe/index'
 import { safeParse } from '@/lib/serialize'
-import { saveGeneratedActivity, listStudioActivities } from '@/lib/riishe/studio-store'
+import { saveGeneratedActivity, listStudioActivities, StudioStoreError } from '@/lib/riishe/studio-store'
+import { STUDIO_STATUSES } from '@/lib/riishe/studio-types'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -60,12 +61,30 @@ const bodySchema = z.object({
   responseLanguage: z.enum(RIISHE_RESPONSE_LANGUAGES).optional(),
 })
 
-// GET — compact Studio history + honest evidence roll-up (Phase 3F).
+// GET — paged Studio history + honest evidence roll-up (Phase 3F + 3H).
 // Same guarded contract as the chat-history GET: ownership is verified BEFORE
 // any database read; rows are guestId-scoped; errors never carry activity data.
+// Phase 3H query params (all optional, all server-validated):
+//   cursor  — opaque page cursor from the previous response's nextCursor
+//   limit   — page size 1..100 (default 50)
+//   kind    — filter by activity kind
+//   status  — filter by lifecycle status
+//   search  — case-insensitive substring match on topic / document title
+// Response: { items, evidence, nextCursor, totalMatching } — items is ONE
+// page; totalMatching is the exact count of records matching the filters;
+// evidence describes the whole history with exact status counts.
+const historyQuerySchema = z.object({
+  guestId: z.string().min(8).max(64),
+  cursor: z.string().max(256).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  kind: z.enum(STUDIO_ACTIVITY_KINDS).optional(),
+  status: z.enum(STUDIO_STATUSES).optional(),
+  search: z.string().max(120).optional(),
+})
+
 export async function GET(req: NextRequest) {
   const params = Object.fromEntries(new URL(req.url).searchParams)
-  const parsed = z.object({ guestId: z.string().min(8).max(64) }).safeParse(params)
+  const parsed = historyQuerySchema.safeParse(params)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
@@ -76,9 +95,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { items, evidence } = await listStudioActivities(parsed.data.guestId)
-    return NextResponse.json({ items, evidence })
+    const { items, evidence, nextCursor, totalMatching } = await listStudioActivities(parsed.data.guestId, {
+      cursor: parsed.data.cursor ?? null,
+      limit: parsed.data.limit,
+      kind: parsed.data.kind ?? null,
+      status: parsed.data.status ?? null,
+      search: parsed.data.search ?? null,
+    })
+    return NextResponse.json({ items, evidence, nextCursor, totalMatching })
   } catch (err) {
+    if (err instanceof StudioStoreError) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
     console.error('[api/riishe/studio GET]', err)
     return NextResponse.json({ error: 'Could not load your Studio history. Please try again.' }, { status: 500 })
   }
