@@ -101,8 +101,17 @@ for (const head of remoteHeads) {
   if (row.behind === 0 && row.ahead === 0) row.classification = 'IN SYNC'
   else if (row.behind === 0) row.classification = 'AHEAD-ONLY'
   else if (row.ahead === 0) {
-    // ahead=0 + behind>0 ⇒ tip must be an ancestor of main; prove it explicitly
-    const isAncestor = git(['merge-base', '--is-ancestor', head.sha, mainSha], { stdio: ['ignore', 'ignore', 'pipe'] }) === ''
+    // ahead=0 + behind>0 ⇒ tip must be an ancestor of main; prove it explicitly.
+    // stdio: [stdin, stdout, stderr] — stdout MUST be piped for execFileSync to
+    // return output; `merge-base --is-ancestor` exits 0 (ancestor, empty stdout)
+    // or 1 (not an ancestor), which execFileSync surfaces as a throw.
+    let isAncestor = false
+    try {
+      git(['merge-base', '--is-ancestor', head.sha, mainSha], { stdio: ['ignore', 'pipe', 'ignore'] })
+      isAncestor = true
+    } catch {
+      isAncestor = false
+    }
     row.classification = isAncestor ? 'FAST-FORWARD CANDIDATE' : 'UNPROVABLE (ancestry check failed)'
   } else row.classification = 'DIVERGENT'
   rows.push(row)
