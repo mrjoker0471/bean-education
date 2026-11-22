@@ -318,13 +318,16 @@
       "pushVerifiedAt": "2026-11-22T07:12:00Z",
       "pr": { "number": null, "state": "NONE", "url": null },
       "mergeCommitSha": null,
-      "ci": [],
-      "ciNote": "Lifecycle in progress — the enforcement carrier commit and push/PR/CI SHAs are recorded by ledger-sync commits as each step is verified. Ledger-sync commits are docs-only accounting records (the accounting mechanism), not milestone feature work.",
+      "ci": [
+        { "runId": "44993087901", "conclusion": "SUCCESS", "subject": "quality job on branch tip 8630522 (ledger-sync push)" },
+        { "runId": "44993066412", "conclusion": "CANCELLED", "subject": "superseded by the workflow's own concurrency policy (cancel-in-progress) when the ledger-sync push landed" }
+      ],
+      "ciNote": "Run 44993087901 on the pushed tip completed successfully. Run 44993066412 (commit 7020b0a) was cancelled BY the workflow's own cancel-in-progress concurrency rule when the newer push superseded it — by-design behaviour, not a failure. PR creation is the remaining authorization gate: no gh CLI, no authenticated GitHub session and no API token exist in the implementation environment (the SSH deploy key is git transport only); the branch is published and PR-ready at the verified compare URL.",
       "finalMainSha": null,
       "syncStatus": "PENDING",
-      "status": "IN_PROGRESS",
-      "evidence": "docs/PHASE-3G-RIISHE-GRADED-RECALL.md",
-      "updatedAt": "2026-11-22T07:05:00Z"
+      "status": "PUSHED",
+      "evidence": "docs/PHASE-3G-RIISHE-GRADED-RECALL.md; compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3g-next-milestone",
+      "updatedAt": "2026-11-22T07:25:00Z"
     }
   ]
 }
