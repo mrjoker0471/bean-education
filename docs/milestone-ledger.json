@@ -314,8 +314,8 @@
       "branch": "feat/bean-riishe-phase3g-next-milestone",
       "baseMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
       "commits": ["997fabd05141eb85bbef5d6d7228a48f2a678b34", "7020b0a71415939461bb3339ee08609d0ff066f2", "863052237a879e1dd0353e2f29a7803bd8d535e4", "63bcfbbd736150640f3397a76ac5d02ac1f05f1a"],
-      "remoteFeatureSha": "574ef9a",
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "bf79a43718c5561c7af0cf66bf31e4a58546e095",
+      "pushVerifiedAt": "2026-11-22T07:50:00Z",
       "pr": { "number": 23, "state": "MERGED", "url": "https://github.com/mrjoker0471/bean-education/pull/23" },
       "mergeCommitSha": "806c835de2ebf75cb85f72365bf98a860c477d12",
       "ci": [
@@ -324,7 +324,7 @@
         { "runId": "44993273729", "conclusion": "SUCCESS", "subject": "main run after PR #23 merge (806c835)" },
         { "runId": "44993358851", "conclusion": "SUCCESS", "subject": "quality job on branch tip 63bcfbb (post-merge ledger sync)" }
       ],
-      "ciNote": "All milestone feature work is integrated: PR #23 (merge 806c835) carried 997fabd, 7020b0a and 8630522 into main — all verified ancestors. Run 44993066412 was cancelled BY the workflow's own cancel-in-progress rule when a newer push superseded it (by design, not a failure). The ledger-sync commit 63bcfbb landed AFTER the merge (it was pushed while the owner merged) and is preserved on the branch behind a reconciliation merge — the branch is ahead-only pending the follow-up PR for the ledger-closing docs (same authorization gate: PR creation requires GitHub web/API authentication unavailable in the implementation environment).",
+      "ciNote": "All milestone feature work is integrated: PR #23 (merge 806c835) carried 997fabd, 7020b0a and 8630522 into main — all verified ancestors. Run 44993066412 was cancelled BY the workflow's own cancel-in-progress rule when a newer push superseded it (by design, not a failure). The ledger-sync commit 63bcfbb landed AFTER the merge (pushed while the owner merged) and is preserved on the branch behind a reconciliation merge — the branch is ahead-only pending the follow-up PR for the ledger-closing docs (same authorization gate: PR creation requires GitHub web/API authentication unavailable in the implementation environment). Ledger-sync commits trail the branch tip by one commit by construction: the final tip independently verified via ls-remote at report time is bf79a43718c5561c7af0cf66bf31e4a58546e095; the authoritative integration evidence is PR #23 + commit ancestry, which is static.",
       "finalMainSha": "806c835de2ebf75cb85f72365bf98a860c477d12",
       "syncStatus": "PENDING",
       "status": "MERGED",
