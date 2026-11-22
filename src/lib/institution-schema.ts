@@ -107,19 +107,6 @@ export const groupCreateSchema = z.object({
   capacity: z.number().int().min(1).max(GROUP_CAPACITY_MAX).optional().nullable(),
 })
 
-export const groupUpdateSchema = z.object({
-  name: plainText(2, GROUP_NAME_MAX).optional(),
-  academicYear: optionalText(40),
-  programmeLabel: optionalText(80),
-  batchLabel: optionalText(80),
-  sectionLabel: optionalText(80),
-  trackLabel: optionalText(80),
-  startsAt: z.string().datetime({ offset: true }).optional().nullable(),
-  endsAt: z.string().datetime({ offset: true }).optional().nullable(),
-  capacity: z.number().int().min(1).max(GROUP_CAPACITY_MAX).optional().nullable(),
-  status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
-})
-
 export const enrollmentActionSchema = z.object({
   membershipId: z.string().min(6).max(64),
 })
@@ -162,6 +149,24 @@ export const gradeSubmissionSchema = z.object({
   gradeValue: optionalText(40),
   teacherFeedback: optionalText(2000),
   markReturned: z.boolean().optional().default(false),
+})
+
+/**
+ * PATCH /api/organizations/:id/groups/:groupId — any subset of the editable
+ * group fields. Status flips are limited to ACTIVE ⇄ ARCHIVED (archived groups
+ * simply stop appearing in "active" surfaces; their history is never deleted).
+ */
+export const groupUpdateSchema = z.object({
+  name: plainText(2, GROUP_NAME_MAX).optional(),
+  academicYear: optionalText(40),
+  programmeLabel: optionalText(80),
+  batchLabel: optionalText(80),
+  sectionLabel: optionalText(80),
+  trackLabel: optionalText(80),
+  startsAt: z.string().datetime({ offset: true }).optional().nullable(),
+  endsAt: z.string().datetime({ offset: true }).optional().nullable(),
+  capacity: z.number().int().min(1).max(GROUP_CAPACITY_MAX).optional().nullable(),
+  status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
 })
 
 export const announcementCreateSchema = z.object({

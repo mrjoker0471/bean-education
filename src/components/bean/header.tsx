@@ -56,6 +56,7 @@ const GUEST_NAV: NavItem[] = [
   { key: 'catalog', label: 'Exams', icon: BookOpen, hash: '#/catalog', activeFor: ['catalog', 'exam', 'topic', 'test', 'result'] },
   { key: 'learning', label: 'Learning', icon: Compass, hash: '#/learning', activeFor: ['learning'] },
   { key: 'classes', label: 'Classes', icon: GraduationCap, hash: '#/classes', activeFor: ['classes', 'class'] },
+  { key: 'opportunities', label: 'Opportunities', icon: Briefcase, hash: '#/career/opportunities', activeFor: ['career-opportunities', 'career-opportunity'] },
   { key: 'materials', label: 'My Materials', icon: FolderOpen, hash: '#/materials', activeFor: ['materials', 'riishe'] },
   { key: 'progress', label: 'My Progress', icon: TrendingUp, hash: '#/progress', activeFor: ['progress'] },
 ]

@@ -67,6 +67,7 @@ export function toOwnOrganization(org: Organization): PublicOrganizationDTO & { 
 
 export interface MemberDTO {
   id: string
+  studentId: string
   role: string
   status: string
   student: { displayName: string | null }
@@ -79,6 +80,9 @@ export interface MemberDTO {
 export function toMemberDTO(m: OrganizationMembership & { student: { displayName: string | null } }): MemberDTO {
   return {
     id: m.id,
+    // Staff workflows (e.g. credential issuance) target the student, not the
+    // membership row — the id is roster-safe (opaque cuid, no private data).
+    studentId: m.studentId,
     role: m.role,
     status: m.status,
     student: { displayName: m.student.displayName },

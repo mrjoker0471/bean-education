@@ -1,10 +1,10 @@
-// ─── Phase 7: Admin — adult-eligibility reviews (safeguarding) ────────────────
-// GET lists eligibility requests (PENDING_REVIEW default). POST records the
-// admin decision (approve / deny with required reason). No identity documents
-// are collected or stored anywhere in this flow — the decision is based on
-// the documented, privacy-minimizing review process. Every decision is
-// audited; denial keeps private career planning available but continues to
-// block discovery and applications.
+// ─── Phase 7: Admin — adult-eligibility review decision (safeguarding) ────────
+// POST records the admin decision (approve / deny with required reason).
+// No identity documents are collected or stored anywhere in this flow — the
+// decision is based on the documented, privacy-minimizing review process.
+// Every decision is audited; denial keeps private career planning available
+// but continues to block discovery and applications. The reviews listing
+// lives at /api/admin/career/eligibility.
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/teach'
@@ -16,41 +16,6 @@ import { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-
-export async function GET(req: NextRequest) {
-  try {
-    const guard = await requireAdmin()
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status })
-
-    const url = new URL(req.url)
-    const status = (url.searchParams.get('status') ?? 'PENDING_REVIEW').toUpperCase()
-    const allowed = ['PENDING_REVIEW', 'APPROVED', 'DENIED', 'NOT_ELIGIBLE', 'ALL']
-    const where = allowed.includes(status) && status !== 'ALL' ? { status } : {}
-
-    const reviews = await db.careerEligibilityReview.findMany({
-      where,
-      include: { student: { select: { displayName: true, email: true } } },
-      orderBy: { updatedAt: 'desc' },
-      take: 100,
-    })
-    return NextResponse.json(
-      {
-        reviews: reviews.map(r => ({
-          id: r.id,
-          student: { displayName: r.student.displayName },
-          status: r.status,
-          requestedAt: r.requestedAt?.toISOString() ?? null,
-          reviewedAt: r.reviewedAt?.toISOString() ?? null,
-          decisionReason: r.decisionReason,
-        })),
-      },
-      { headers: { 'Cache-Control': 'no-store' } },
-    )
-  } catch (err) {
-    console.error('[api/admin/career/eligibility GET]', err)
-    return NextResponse.json({ error: 'Could not load eligibility reviews.' }, { status: 500 })
-  }
-}
 
 type Params = { params: Promise<{ reviewId: string }> }
 

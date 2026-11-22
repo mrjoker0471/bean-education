@@ -14,6 +14,7 @@
 //     the student and never stored in app state beyond the dialog.
 
 import { useCallback, useEffect, useState } from 'react'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,7 +36,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { EmptyState } from '@/components/bean/empty-state'
-import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type { MyOrganizationsResponse, PublicOrganizationDTO } from '@/lib/types'
 import { toast } from '@/hooks/use-toast'
@@ -165,43 +165,13 @@ export function InstitutionView() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {data.organizations.map(({ organization, membership }) => (
-              <button
-                key={organization.id}
-                type="button"
-                className="exam-card-hover flex h-full flex-col rounded-xl border border-border bg-card p-5 text-left transition-colors hover:border-gold/40"
-                onClick={() => navigate({ view: 'institution-org', orgId: organization.id })}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-lg" aria-hidden>
-                      {organization.logoText || '🏛'}
-                    </span>
-                    <div>
-                      <h2 className="font-display text-base font-semibold text-foreground">
-                        {organization.displayName || organization.name}
-                      </h2>
-                      <p className="text-xs text-muted-foreground">
-                        {ORG_TYPE_OPTIONS.find(t => t.value === organization.orgType)?.label ?? organization.orgType}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className={verificationBadgeClass(organization.verificationStatus)}>
-                    {organization.verificationStatus === 'APPROVED' && <ShieldCheck className="mr-1 h-3 w-3" aria-hidden />}
-                    {verificationLabel(organization.verificationStatus)}
-                  </Badge>
-                </div>
-                {organization.description ? (
-                  <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{organization.description}</p>
-                ) : null}
-                <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant="outline" className="border-border text-muted-foreground">
-                    You: {membership.role.toLowerCase()}
-                  </Badge>
-                  <Badge variant="outline" className="border-border text-muted-foreground">
-                    {membership.status.toLowerCase()}
-                  </Badge>
-                </div>
-              </button>
+              <OrgCard
+                key={`${organization.id}-${membership.id}`}
+                organization={organization}
+                membership={membership}
+                onOpen={() => navigate({ view: 'institution-org', orgId: organization.id })}
+                onNewApplication={() => setCreateOpen(true)}
+              />
             ))}
           </div>
         )}
@@ -228,6 +198,116 @@ export function InstitutionView() {
   )
 }
 
+/** One organization card — honest state copy for pending/rejected/suspended. */
+function OrgCard({
+  organization,
+  membership,
+  onOpen,
+  onNewApplication,
+}: {
+  organization: PublicOrganizationDTO
+  membership: { id: string; role: string; status: string }
+  onOpen: () => void
+  onNewApplication: () => void
+}) {
+  // REJECTED orgs learn the decision reason from their own workspace
+  // (OwnOrganizationDTO) — fetched only when relevant, never faked.
+  const [rejectionReason, setRejectionReason] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (organization.verificationStatus !== 'REJECTED') return
+    let cancelled = false
+    api.organizationDetail(organization.id)
+      .then(res => { if (!cancelled) setRejectionReason(res.organization.rejectionReason) })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [organization.id, organization.verificationStatus])
+
+  const stateCopy: { text: string; tone: 'gold' | 'destructive' | 'muted' } | null = (() => {
+    if (organization.verificationStatus === 'PENDING_REVIEW') {
+      return { text: 'Pending review — a BEAN administrator is verifying this application. Workspace functions stay gated until approval.', tone: 'gold' }
+    }
+    if (organization.verificationStatus === 'REJECTED') {
+      return { text: 'Application declined. You can review the decision inside the workspace, or start a fresh application with corrected details.', tone: 'destructive' }
+    }
+    if (organization.verificationStatus === 'SUSPENDED') {
+      return { text: 'Suspended by BEAN — access is paused while the review is resolved.', tone: 'destructive' }
+    }
+    if (membership.status === 'INVITED') {
+      return { text: 'Pending review — an administrator must approve your membership before workspace functions appear.', tone: 'gold' }
+    }
+    return null
+  })()
+
+  return (
+    <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5">
+      <button
+        type="button"
+        className="exam-card-hover flex flex-1 flex-col rounded-lg text-left transition-colors hover:text-gold"
+        onClick={onOpen}
+        aria-label={`Open ${organization.displayName || organization.name}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-lg" aria-hidden>
+              {organization.logoText || '🏛'}
+            </span>
+            <div>
+              <h2 className="font-display text-base font-semibold text-foreground">
+                {organization.displayName || organization.name}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {ORG_TYPE_OPTIONS.find(t => t.value === organization.orgType)?.label ?? organization.orgType}
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className={verificationBadgeClass(organization.verificationStatus)}>
+            {organization.verificationStatus === 'APPROVED' && <ShieldCheck className="mr-1 h-3 w-3" aria-hidden />}
+            {verificationLabel(organization.verificationStatus)}
+          </Badge>
+        </div>
+        {organization.description ? (
+          <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{organization.description}</p>
+        ) : null}
+        <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="border-border text-muted-foreground">
+            You: {membership.role.toLowerCase()}
+          </Badge>
+          <Badge variant="outline" className="border-border text-muted-foreground">
+            {membership.status.toLowerCase()}
+          </Badge>
+        </div>
+      </button>
+      {stateCopy ? (
+        <p
+          className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+            stateCopy.tone === 'gold'
+              ? 'border-gold/30 bg-gold/5 text-gold'
+              : stateCopy.tone === 'destructive'
+                ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                : 'border-border bg-elevated text-muted-foreground'
+          }`}
+        >
+          {stateCopy.text}
+          {organization.verificationStatus === 'REJECTED' && rejectionReason ? (
+            <span className="mt-1 block text-muted-foreground">Reason on record: {rejectionReason}</span>
+          ) : null}
+        </p>
+      ) : null}
+      {organization.verificationStatus === 'REJECTED' ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={onOpen}>
+            Review decision
+          </Button>
+          <Button size="sm" variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={onNewApplication}>
+            Start another application
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function CreateOrganizationDialog({
   open,
   onOpenChange,
@@ -238,12 +318,24 @@ function CreateOrganizationDialog({
   onCreated: (orgId: string) => void
 }) {
   const [name, setName] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [orgType, setOrgType] = useState('')
   const [description, setDescription] = useState('')
   const [website, setWebsite] = useState('')
+  const [publicContact, setPublicContact] = useState('')
+  const [country, setCountry] = useState('')
+  const [state, setState] = useState('')
   const [city, setCity] = useState('')
+  const [logoText, setLogoText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Inline, field-local validation — typed content is never cleared on failure.
+  const websiteInvalid = website.trim().length > 0 && !/^https:\/\/\S+$/i.test(website.trim())
+  const websiteError = websiteInvalid ? 'Use a full https:// address (e.g. https://example.edu).' : null
+  const contactHint = orgType === 'EMPLOYER'
+    ? 'A public contact (email or phone) helps candidates confirm the listing is genuine.'
+    : null
 
   const submit = async () => {
     setError(null)
@@ -251,14 +343,23 @@ function CreateOrganizationDialog({
       setError('Choose an organization type and give the official name (at least 4 characters).')
       return
     }
+    if (websiteInvalid) {
+      setError('Fix the highlighted field before continuing.')
+      return
+    }
     setBusy(true)
     try {
       const res = await api.createOrganization({
         name: name.trim(),
+        displayName: displayName.trim() || undefined,
         orgType,
         description: description.trim() || undefined,
         website: website.trim() || undefined,
+        publicContact: publicContact.trim() || undefined,
+        country: country.trim() || undefined,
+        state: state.trim() || undefined,
         city: city.trim() || undefined,
+        logoText: logoText.trim() || undefined,
       })
       toast({ title: 'Organization registered — submit it for BEAN verification to unlock the workspace.' })
       onCreated(res.organization.id)
@@ -285,6 +386,11 @@ function CreateOrganizationDialog({
             <Input id="org-name" value={name} onChange={e => setName(e.target.value)} maxLength={120} placeholder="Springfield College of Commerce" />
           </div>
           <div className="grid gap-2">
+            <Label htmlFor="org-display-name">Public display name (optional)</Label>
+            <Input id="org-display-name" value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={120} placeholder="Springfield College" />
+            <p className="text-xs text-muted-foreground">Shown to members and visitors when it differs from the registered name.</p>
+          </div>
+          <div className="grid gap-2">
             <Label htmlFor="org-type">Organization type</Label>
             <Select value={orgType} onValueChange={setOrgType}>
               <SelectTrigger id="org-type" aria-label="Organization type">
@@ -304,11 +410,50 @@ function CreateOrganizationDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="org-website">Website (optional)</Label>
-              <Input id="org-website" value={website} onChange={e => setWebsite(e.target.value)} placeholder="https://" />
+              <Input
+                id="org-website"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                placeholder="https://"
+                aria-invalid={websiteInvalid}
+                className={websiteInvalid ? 'border-destructive' : undefined}
+              />
+              {websiteError ? <p className="text-xs text-destructive" role="alert">{websiteError}</p> : null}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="org-contact">Public contact (optional)</Label>
+              <Input id="org-contact" value={publicContact} onChange={e => setPublicContact(e.target.value)} maxLength={300} placeholder="admissions@example.edu" />
+              {contactHint ? <p className="text-xs text-muted-foreground">{contactHint}</p> : null}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-2">
+              <Label htmlFor="org-country">Country (optional)</Label>
+              <Input id="org-country" value={country} onChange={e => setCountry(e.target.value)} maxLength={80} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="org-state">State (optional)</Label>
+              <Input id="org-state" value={state} onChange={e => setState(e.target.value)} maxLength={80} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="org-city">City (optional)</Label>
               <Input id="org-city" value={city} onChange={e => setCity(e.target.value)} maxLength={80} />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="org-logo">Logo letters (optional, up to 8)</Label>
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-base" aria-hidden>
+                {logoText.trim() || '🏛'}
+              </span>
+              <Input
+                id="org-logo"
+                value={logoText}
+                onChange={e => setLogoText(e.target.value.replace(/[\u0000-\u001F\u007F]/g, ''))}
+                maxLength={8}
+                placeholder="SC"
+                className="w-32"
+              />
             </div>
           </div>
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
@@ -348,9 +493,14 @@ function JoinInvitationDialog({
     }
     setBusy(true)
     try {
-      // Accept either a bare token or a full invite URL pasted by the student.
+      // Accept a bare token, a full invite URL (#/institution?invite=…) or any
+      // URL carrying token= — whichever way the link was shared.
       const raw = token.trim()
-      const bare = raw.includes('token=') ? raw.split('token=')[1].split('&')[0] : raw
+      const bare = raw.includes('token=')
+        ? raw.split('token=')[1].split('&')[0]
+        : raw.includes('invite=')
+          ? raw.split('invite=')[1].split('&')[0]
+          : raw
       const res = await api.acceptInvitation(bare)
       toast({
         title:

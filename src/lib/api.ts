@@ -981,6 +981,17 @@ export const api = {
   careerCredentials: () => jsonFetch<{ credentials: CareerCredentialClientDTO[] }>('/api/career/credentials'),
   shareCredential: (id: string, portfolioShared: boolean) =>
     jsonFetch<{ credential: { id: string; portfolioShared: boolean; status: string } }>(`/api/career/credentials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ portfolioShared }) }),
+  // Phase 7 (institution/career branch): client helpers for routes main lacked —
+  // invitation revocation and credential issue/revoke (routes preserved by this merge).
+  revokeInvitation: (orgId: string, invitationId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
+      { method: 'POST', body: '{}' },
+    ),
+  issueCredential: (body: { organizationId: string; studentId: string; credentialName: string; credentialDescription?: string; issuedDate: string; expiryDate?: string | null; credentialReference?: string }) =>
+    jsonFetch<{ credential: CareerCredentialClientDTO }>('/api/career/credentials/issue', { method: 'POST', body: JSON.stringify(body) }),
+  revokeCredential: (credentialId: string, body: { reason: string }) =>
+    jsonFetch<{ credential: { id: string; status: string; revokedAt: string | null } }>(`/api/career/credentials/${encodeURIComponent(credentialId)}/revoke`, { method: 'POST', body: JSON.stringify(body) }),
   careerEligibility: () => jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility'),
   requestEligibilityReview: () =>
     jsonFetch<{ eligibility: CareerEligibilityClientDTO }>('/api/career/eligibility', { method: 'POST', body: JSON.stringify({ acknowledge: true }) }),
