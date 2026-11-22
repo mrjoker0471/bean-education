@@ -18,10 +18,13 @@
 //   - honest failures: provider/validation problems are 502s with human text,
 //     never a fabricated activity
 //
-// Persistence: none. Activities are generated on demand and rendered client-
-// side; review progress (revealed flashcards, mini-test answers) is ephemeral
-// UI state and never written to learner records (Phase 3E Part 5 decision —
-// see docs/PHASE-3E-RIISHE-INTERACTIVE-LEARNING-STUDIO.md).
+// Persistence (Phase 3F): every successfully generated + validated activity is
+// saved as one RiisheStudioActivity row (status IN_PROGRESS) carrying the
+// validated snapshot, so the student can resume it and find it in their
+// Studio history. Resume NEVER reruns generation — the stored snapshot is
+// rendered as-is. Persistence is a continuity hook: a store failure degrades
+// to the Phase 3E ephemeral behaviour (logged, activity still returned), it
+// never fails the generation response.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -38,6 +41,7 @@ import {
 import { sectionPages, type ExtractedPage } from '@/lib/riishe/extract'
 import { SectionIndex } from '@/lib/riishe/index'
 import { safeParse } from '@/lib/serialize'
+import { saveGeneratedActivity, listStudioActivities } from '@/lib/riishe/studio-store'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -55,6 +59,30 @@ const bodySchema = z.object({
   documentIds: z.array(z.string().min(1).max(64)).max(8).optional(),
   responseLanguage: z.enum(RIISHE_RESPONSE_LANGUAGES).optional(),
 })
+
+// GET — compact Studio history + honest evidence roll-up (Phase 3F).
+// Same guarded contract as the chat-history GET: ownership is verified BEFORE
+// any database read; rows are guestId-scoped; errors never carry activity data.
+export async function GET(req: NextRequest) {
+  const params = Object.fromEntries(new URL(req.url).searchParams)
+  const parsed = z.object({ guestId: z.string().min(8).max(64) }).safeParse(params)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+
+  const owner = await assertLearningOwner(parsed.data.guestId)
+  if (!owner.ok) {
+    return NextResponse.json({ error: owner.error }, { status: owner.status })
+  }
+
+  try {
+    const { items, evidence } = await listStudioActivities(parsed.data.guestId)
+    return NextResponse.json({ items, evidence })
+  } catch (err) {
+    console.error('[api/riishe/studio GET]', err)
+    return NextResponse.json({ error: 'Could not load your Studio history. Please try again.' }, { status: 500 })
+  }
+}
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) {
@@ -160,12 +188,34 @@ export async function POST(req: NextRequest) {
 
     const result = await generateStudioActivity({ kind, topic, grounding: groundingContext, responseLanguage })
 
+    // ── Phase 3F continuity: persist the validated snapshot (best-effort) ──
+    // The single primary document is recorded for history traceability when
+    // the scope was exactly one document (multi-doc and hub scopes stay
+    // unattributed — the same honesty rule as docTitle above).
+    let activityId: string | undefined
+    try {
+      activityId = await saveGeneratedActivity({
+        guestId,
+        activity: result.activity,
+        topic,
+        grounding: result.grounding,
+        documentId: requestedIds.length === 1 ? requestedIds[0] : null,
+        documentTitle: result.docTitle ?? null,
+        responseLanguage,
+      })
+    } catch (persistErr) {
+      // Continuity must never break generation: degrade to the Phase 3E
+      // ephemeral behaviour and log — no fabricated activityId is returned.
+      console.error('[api/riishe/studio] activity persistence failed (non-fatal)', persistErr)
+    }
+
     return NextResponse.json({
       activity: result.activity,
       grounding: result.grounding,
       ...(result.docTitle ? { docTitle: result.docTitle } : {}),
       responseLanguage,
       topic,
+      ...(activityId ? { activityId } : {}),
     })
   } catch (err) {
     if (err instanceof StudioGenerationError) {

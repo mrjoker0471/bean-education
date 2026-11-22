@@ -185,6 +185,8 @@ const fakeDb = {
   revisionScheduleItem: crudFor('revisionScheduleItem', () => [], () => undefined),
   mistakeRecord: crudFor('mistakeRecord', () => [], () => undefined),
   learningAction: crudFor('learningAction', () => [], () => undefined),
+  // Phase 3F: Studio activity records join the claim / export / delete flows.
+  riisheStudioActivity: crudFor('riisheStudioActivity', () => [], () => undefined),
   riisheQuestion: {
     findUnique: async ({ where }: { where: { id: string } }) => {
       call('riisheQuestion.findUnique')

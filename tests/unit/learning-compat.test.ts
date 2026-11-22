@@ -23,12 +23,14 @@ const state = {
   students: new Map<string, Record<string, unknown>>(),
   research: new Map<string, Record<string, unknown>>(),
   pyqCandidates: new Map<string, Record<string, unknown>>(),
+  // Phase 3F: Studio activity records (claim / export / delete flows).
+  studioActivities: new Map<string, Record<string, unknown>>(),
   files: [] as { storedPath: string }[],
 }
 
 function resetState() {
   state.student = null
-  for (const key of ['attempts', 'mastery', 'planTasks', 'revision', 'mistakes', 'actions', 'goals', 'docs', 'tests', 'chatTurns', 'sessions', 'students', 'research', 'pyqCandidates'] as const) {
+  for (const key of ['attempts', 'mastery', 'planTasks', 'revision', 'mistakes', 'actions', 'goals', 'docs', 'tests', 'chatTurns', 'sessions', 'students', 'research', 'pyqCandidates', 'studioActivities'] as const) {
     ;(state as unknown as Record<string, Map<string, Record<string, unknown>>>)[key].clear()
   }
   state.files = []
@@ -101,6 +103,8 @@ const fakeDb = {
   riisheExplanation: { deleteMany: async () => ({ count: 0 }) },
   researchSession: stampableModel('research'),
   researchPyqCandidate: stampableModel('pyqCandidates'),
+  // Phase 3F: Studio activity records join claim / export / delete flows.
+  riisheStudioActivity: { ...stampableModel('studioActivities'), findMany: async ({ where }: { where: { studentId?: string } }) => findManyModel('studioActivities').findMany({ where }) },
   $transaction: async (arg: unknown) => (Array.isArray(arg) ? Promise.all(arg) : await (arg as (tx: unknown) => Promise<unknown>)(fakeDb)),
 }
 
