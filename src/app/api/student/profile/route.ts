@@ -166,6 +166,14 @@ const patchSchema = z.object({
       goalExam: z.string().trim().min(1).max(120).nullable().optional(),
       educationCategory: z.enum(EDUCATION_CATEGORIES).nullable().optional(),
       learningStyle: z.enum(LEARNING_STYLES).nullable().optional(),
+      // Phase 3H — Riishe Studio history retention choice, in days. null
+      // clears the key (= keep history forever, the default for every user).
+      // The preference NEVER deletes anything by itself: it feeds the
+      // explicit, user-initiated Studio cleanup workflow only.
+      studioRetentionDays: z
+        .union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)])
+        .nullable()
+        .optional(),
     })
     .optional(),
   onboardingComplete: z.boolean().optional(),

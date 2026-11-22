@@ -116,12 +116,14 @@ import type { RiisheTutorMode, RiisheResponseLanguage } from '@/lib/riishe/tutor
 // Phase 3F — continuity DTOs (history, resume, evidence) share the same module.
 import type {
   StudioActivityKind,
+  StudioActivityStatus,
   StudioGenerateResponseDTO,
   StudioActivityProgress,
   StudioActivityResponses,
   StudioActivityRecordDTO,
   StudioEvidenceSummaryDTO,
   StudioHistoryItemDTO,
+  StudioCleanupResponseDTO,
 } from '@/lib/riishe/studio-types'
 import type {
   LearningOverviewDTO,
@@ -401,10 +403,31 @@ export const api = {
     }),
 
   // ─── Riishe Studio continuity (Phase 3F) — history, resume, lifecycle ───
-  riisheStudioHistory: (guestId: string) =>
-    jsonFetch<{ items: StudioHistoryItemDTO[]; evidence: StudioEvidenceSummaryDTO }>(
-      `/api/riishe/studio?guestId=${encodeURIComponent(guestId)}`,
-    ),
+  // Phase 3H: paged history with optional filters/search; one page per call.
+  riisheStudioHistory: (
+    guestId: string,
+    opts: { cursor?: string; limit?: number; kind?: StudioActivityKind; status?: StudioActivityStatus; search?: string } = {},
+  ) => {
+    const p = new URLSearchParams({ guestId })
+    if (opts.cursor) p.set('cursor', opts.cursor)
+    if (opts.limit) p.set('limit', String(opts.limit))
+    if (opts.kind) p.set('kind', opts.kind)
+    if (opts.status) p.set('status', opts.status)
+    if (opts.search && opts.search.trim()) p.set('search', opts.search.trim())
+    return jsonFetch<{
+      items: StudioHistoryItemDTO[]
+      evidence: StudioEvidenceSummaryDTO
+      nextCursor: string | null
+      totalMatching: number
+    }>(`/api/riishe/studio?${p.toString()}`)
+  },
+
+  // ─── Riishe Studio cleanup (Phase 3H) — preview, or confirm with 'CLEANUP' ──
+  riisheStudioCleanup: (body: { guestId: string; olderThanDays: 30 | 90 | 180 | 365; confirm?: 'CLEANUP' }) =>
+    jsonFetch<StudioCleanupResponseDTO & { batchMax: number }>('/api/riishe/studio/cleanup', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   riisheStudioActivity: (guestId: string, activityId: string) =>
     jsonFetch<{ record: StudioActivityRecordDTO }>(
@@ -504,6 +527,7 @@ export const api = {
       goalExam?: string | null
       educationCategory?: EducationCategory | null
       learningStyle?: LearningStyle | null
+      studioRetentionDays?: 30 | 90 | 180 | 365 | null
     }
     onboardingComplete?: boolean
   }) => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile', { method: 'PATCH', body: JSON.stringify(patch) }),

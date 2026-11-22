@@ -161,6 +161,23 @@ function filterActivities(where: Record<string, unknown>): Record<string, unknow
   })
 }
 
+/** Phase 3H lock-step: evaluate the count-only where shapes the store emits. */
+function matchCountWhere(r: Record<string, unknown>, w: Record<string, unknown>): boolean {
+  if (w.guestId !== undefined && r.guestId !== w.guestId) return false
+  if (w.status !== undefined && r.status !== w.status) return false
+  if (w.kind !== undefined) {
+    const k = w.kind as { in?: string[] } | string
+    if (typeof k === 'string') {
+      if (r.kind !== k) return false
+    } else if (k.in && !k.in.includes(r.kind as string)) return false
+  }
+  if (w.resultJson !== undefined) {
+    const cond = w.resultJson as { not?: unknown }
+    if (cond && cond.not === null && r.resultJson == null) return false
+  }
+  return true
+}
+
 const fakeDb = {
   studyDocument: {
     findMany: async (args: { where?: Record<string, unknown>; orderBy?: unknown; take?: number }) => {
@@ -208,11 +225,19 @@ const fakeDb = {
       call('riisheStudioActivity.findFirst')
       return filterActivities(where)[0] ?? null
     },
-    findMany: async ({ where, orderBy, take }: { where: { guestId: string }; orderBy?: { updatedAt: string }; take?: number }) => {
+    findMany: async ({ where, orderBy, take }: { where: { guestId: string }; orderBy?: { updatedAt: string } | Record<string, unknown>[]; take?: number }) => {
       call('riisheStudioActivity.findMany')
       const out = filterActivities(where)
-      if (orderBy?.updatedAt === 'desc') out.sort((a, b) => (b.updatedAt as Date).getTime() - (a.updatedAt as Date).getTime())
+      // Phase 3H: orderBy may be the composite array [(updatedAt desc), (id desc)].
+      const order = Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : []
+      if (order.some(o => (o as { updatedAt?: string }).updatedAt === 'desc')) {
+        out.sort((a, b) => (b.updatedAt as Date).getTime() - (a.updatedAt as Date).getTime() || String(b.id).localeCompare(String(a.id)))
+      }
       return out.slice(0, take ?? out.length)
+    },
+    count: async ({ where }: { where: Record<string, unknown> }) => {
+      call('riisheStudioActivity.count')
+      return state.activities.filter(r => matchCountWhere(r, where ?? {})).length
     },
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       call('riisheStudioActivity.update')

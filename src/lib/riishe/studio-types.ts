@@ -563,4 +563,70 @@ export interface StudioEvidenceSummaryDTO {
   miniTestPercentAvg: number | null
   cardsReviewed: number
   cardsRecalled: number
+  /**
+   * Phase 3H: true when the per-kind evidence aggregates were computed from a
+   * bounded server-side scan (more matching records exist than were scanned).
+   * Status counts and the total are ALWAYS exact (SQL counts) — only the
+   * mini-test/flashcard aggregates can be bounded, and the UI says so.
+   */
+  truncated?: boolean
 }
+
+// ─── Phase 3H: history discovery, retention, cleanup ──────────────────────────
+
+/** Default page size for the history list (same bound as the Phase 3F list). */
+export const STUDIO_HISTORY_PAGE_SIZE_DEFAULT = 50
+/** Hard server-side cap on the requested page size. */
+export const STUDIO_HISTORY_PAGE_SIZE_MAX = 100
+
+/**
+ * Named retention choices (days). `null` / absent = keep history forever
+ * (the default for every existing user — nothing is deleted automatically).
+ * The preference never deletes anything by itself: it only feeds the explicit
+ * user-initiated cleanup workflow (preview → confirm).
+ */
+export const STUDIO_RETENTION_DAYS = [30, 90, 180, 365] as const
+export type StudioRetentionDays = (typeof STUDIO_RETENTION_DAYS)[number]
+
+/** Opaque pagination cursor: base64url JSON `{ u: updatedAtISO, i: id }`. */
+export interface StudioHistoryCursor {
+  u: string
+  i: string
+}
+
+/**
+ * One page of the Studio history list (Phase 3H). `items` is a single page
+ * (most recently updated first, deterministic `(updatedAt desc, id desc)`
+ * ordering); `totalMatching` is the EXACT count of the owner's records that
+ * match the current filters; `nextCursor` is null on the last page.
+ */
+export interface StudioHistoryPageDTO {
+  items: StudioHistoryItemDTO[]
+  evidence: StudioEvidenceSummaryDTO
+  nextCursor: string | null
+  totalMatching: number
+}
+
+/** Preview payload for the user-initiated cleanup (no deletion happened). */
+export interface StudioCleanupPreviewDTO {
+  preview: true
+  olderThanDays: number
+  /** ISO cutoff actually used — activities not updated since this moment. */
+  cutoff: string
+  /** Exact number of records the confirmed cleanup would delete. */
+  affected: number
+  /** Fixed honesty note about the scope (in-progress is never cleaned). */
+  scopeNote: string
+}
+
+/** Confirmed cleanup result — truthful counts, including partial batches. */
+export interface StudioCleanupResultDTO {
+  ok: true
+  deleted: number
+  /** Records still matching the scope after this batch (repeat is safe). */
+  remaining: number
+  olderThanDays: number
+  cutoff: string
+}
+
+export type StudioCleanupResponseDTO = StudioCleanupPreviewDTO | StudioCleanupResultDTO
