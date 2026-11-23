@@ -608,6 +608,51 @@
       "status": "COMPLETE",
       "evidence": "docs/BRAND-REDESIGN-2026-11.md; PR #28 MERGED (merge commit c585db4, verified in main history); 7 branch commits verified as ancestors of main; branch synchronized to main (c585db4) via --ff-only push",
       "updatedAt": "2026-11-23T05:31:26Z"
+    },
+    {
+      "id": "bean-legal-pages-redesign",
+      "title": "Legal pages document redesign — Terms & Privacy as premium legal documents: version/last-updated/effective-date chips (owner-configurable, honest fallbacks), classified sections (rights/responsibilities/privacy practice/notices/operator & grievance), desktop sticky TOC + mobile collapsible panel, Notice callouts, back-to-top; all privacy/data-handling statements re-verified against the actual code",
+      "branch": "feat/bean-legal-pages-redesign",
+      "baseMainSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765",
+      "commits": [
+        "abd7308639d66008a0a7d3775c62cf346cbf5a6a",
+        "bf65888e7e202597240c09a672c16678e11dbd76",
+        "0d98a107ca9764176de7c61e3d10257a1c337e68"
+      ],
+      "remoteFeatureSha": "0d98a107ca9764176de7c61e3d10257a1c337e68",
+      "pushVerifiedAt": "2026-11-23T05:44:00Z",
+      "pr": {
+        "number": null,
+        "state": "NOT_CREATED",
+        "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-legal-pages-redesign"
+      },
+      "ci": [
+        {
+          "runId": "45119660769",
+          "conclusion": "SUCCESS",
+          "subject": "quality job on 0d98a10 (push build on feat/bean-legal-pages-redesign, branch tip) — verified via GitHub Actions HTML (all steps green, no annotations)"
+        },
+        {
+          "runId": "45119363386",
+          "conclusion": "CANCELLED",
+          "subject": "push build on abd7308 — superseded by the workflow's concurrency policy (cancel-in-progress)"
+        },
+        {
+          "runId": "45119387770",
+          "conclusion": "CANCELLED",
+          "subject": "push build on bf65888 — superseded by the workflow's concurrency policy (cancel-in-progress)"
+        }
+      ],
+      "ciNote": [
+        "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; REST rate-limited at check time). PR creation is a recorded gate per ADR-008: GitHub PRs require the owner session (deploy keys cannot create PRs); the owner opened and merged PRs #27 and #28 this way. Compare URL recorded above — no PR number is invented. Local verification before push: eslint clean, tsc --noEmit clean, 1241/1241 tests pass, production build OK, browser-verified at 1440 and 390 (meta chips, mobile TOC, Notice callouts, back-to-top, zero console errors).",
+        "Privacy/data-handling statements re-verified against the code during this milestone: scrypt password hashing (N=16384,r=8,p=1, 16-byte salt, 64-byte key), 30-day sliding sessions on an httpOnly cookie with only a SHA-256 token hash stored, Google OAuth limited to 'openid email profile' scopes with no access/refresh token storage, no email/analytics/advertising SDKs, random device-local guest identifiers, JSON export attachment, typed-DELETE + password re-authentication for deletion.",
+        "Post-merge state (mergeCommitSha/finalMainSha/syncStatus/status COMPLETE) must only be recorded after a real PR is opened and merged."
+      ],
+      "finalMainSha": null,
+      "syncStatus": "PENDING",
+      "status": "PUSHED",
+      "evidence": "docs/LEGAL-PAGES-REDESIGN-2026-11.md",
+      "updatedAt": "2026-11-23T05:47:00Z"
     }
   ]
 }

@@ -81,6 +81,7 @@ read-only: it never pushes, merges, deletes, rewrites or updates anything.
 | Phase 3H — history & retention | feat/bean-riishe-phase3h-history-retention | #25 | `c4579a5` | COMPLETE (PR #25 MERGED, verified via GitHub REST API; feature branch fast-forwarded and synchronized to main; ledger reconciled by `chore/phase3h-ledger-reconciliation`) |
 | Public experience, auth & legal | feat/bean-public-experience-auth-legal | #27 | `fcf7418` | COMPLETE (PR #27 MERGED; all 5 branch commits verified as ancestors of main) |
 | Premium brand & UI redesign | feat/bean-premium-brand-ui-redesign | #28 | `c585db4` | COMPLETE (PR #28 MERGED; 7 branch commits verified; feature branch synchronized to main via `--ff-only`; CI de-flaked with `bun test --isolate`) |
+| Legal pages document redesign | feat/bean-legal-pages-redesign | (recorded at publication) | (recorded at publication) | PUSHED (tip `0d98a10` CI-verified; PR gate recorded per ADR-008) |
 
 Pre-ledger entries (`commits: []`, `ci: []` + notes) document only what is
 verified from main's merge history; nothing is inferred.
