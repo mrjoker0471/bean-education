@@ -503,7 +503,7 @@
         "c2b5e7ae1423eacfa1c211272d5092ddf6d72c7c",
         "6a1c1d2e1243aec02b0a392393012bb85f715887"
       ],
-      "remoteFeatureSha": "6a1c1d2e1243aec02b0a392393012bb85f715887",
+      "remoteFeatureSha": "b0cda7d751faf497f0cb74ded6df64c11cfbcfe9",
       "pushVerifiedAt": "2026-11-23T04:33:00Z",
       "pr": {
         "number": null,
@@ -511,6 +511,11 @@
         "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-public-experience-auth-legal"
       },
       "ci": [
+        {
+          "runId": "45112158210",
+          "conclusion": "SUCCESS",
+          "subject": "quality job on branch tip b0cda7d (push build on feat/bean-public-experience-auth-legal) — verified via GitHub Actions HTML"
+        },
         {
           "runId": "45111775273",
           "conclusion": "SUCCESS",
@@ -529,7 +534,7 @@
       "syncStatus": "PENDING",
       "status": "PUSHED",
       "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md",
-      "updatedAt": "2026-11-23T04:45:00Z"
+      "updatedAt": "2026-11-23T05:05:00Z"
     }
   ]
 }
