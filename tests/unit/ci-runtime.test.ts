@@ -28,6 +28,8 @@ mock.module('@/lib/db', () => ({ db: client }))
 const { gatherEvidence, buildEvidenceRefs, toEvidenceView } = await import('@/lib/ci/evidence')
 const { enqueueEvaluation, claimNextCiJob, runCiJob, recoverExpiredCiLeases, registerCiEvaluationPipeline, hasCiConsent, lastGatheredEvidence } = await import('@/lib/ci/queue')
 const { grantCiConsent, withdrawCiConsent, getCiConsentState } = await import('@/lib/ci/trigger')
+const { evaluateClass } = await import('@/lib/ci/pipeline')
+const { setCiModelAdapterForProcess } = await import('@/lib/ci/model-adapter')
 const { CI_JOB_STATUS, CI_STAGE, CI_TRIGGER, CI_AGENT, CI_EVIDENCE_KIND } = await import('@/lib/ci/constants')
 
 beforeAll(() => {
@@ -331,25 +333,27 @@ describe('CI evaluation queue (real DB)', () => {
       // Evidence was actually gathered during the run and is inspectable.
       expect(lastGatheredEvidence()?.classSessionId).toBe(seeded.classId)
     } finally {
-      registerCiEvaluationPipeline(null as never)
+      registerCiEvaluationPipeline(evaluateClass) // restore the real pipeline
       await cleanupTeacher(seeded.teacherId)
     }
   })
 
-  it('Q7: unregistered pipeline → honest FAILED with a clear error; lease recovery re-queues expired runs; exhausted retries FAIL', async () => {
+  it('Q7: unavailable model adapter → honest FAILED with a clear error; lease recovery re-queues expired runs; exhausted retries FAIL', async () => {
     const seeded = await seedTeacherAndClass({ liveStatus: 'ENDED', liveEnded: true })
     try {
       await grantCiConsent(seeded.teacherId)
-      // Q7a: no pipeline registered → honest failure, no retry loop possible.
+      // Q7a: real pipeline + no model adapter → honest failure, no fabrication.
+      registerCiEvaluationPipeline(evaluateClass)
+      setCiModelAdapterForProcess(null)
       await enqueueEvaluation({ classSessionId: seeded.classId, trigger: CI_TRIGGER.SESSION_END })
       const claimed = (await claimNextCiJob())!
       const jobBefore = await client.classroomEvaluationJob.findUniqueOrThrow({ where: { classSessionId: seeded.classId } })
-      // Force exhaustion so the unregistered-pipeline failure is terminal.
+      // Force exhaustion so the failure is terminal (bounded-retry semantics verified in Q6).
       await client.classroomEvaluationJob.update({ where: { id: jobBefore.id }, data: { attempts: jobBefore.maxAttempts } })
       await runCiJob(claimed)
       const failed = await client.classroomEvaluationJob.findUniqueOrThrow({ where: { classSessionId: seeded.classId } })
       expect(failed.status).toBe(CI_JOB_STATUS.FAILED)
-      expect(failed.error).toContain('pipeline is not registered')
+      expect(failed.error).toContain('model adapter')
 
       // Q7b: lease recovery re-queues an expired RUNNING job under the retry cap.
       await enqueueEvaluation({ classSessionId: seeded.classId, trigger: CI_TRIGGER.TEACHER_REQUEST, requestedById: seeded.teacherId })

@@ -39,6 +39,7 @@ class ServerProviderAdapter implements CiModelAdapter {
 }
 
 let defaultAdapter: CiModelAdapter | null = null
+let adapterOverridden = false
 
 /**
  * Resolve the adapter for one pipeline run. Returns null when no backend is
@@ -49,13 +50,23 @@ let defaultAdapter: CiModelAdapter | null = null
  */
 export function getCiModelAdapter(): CiModelAdapter | null {
   if (process.env.CI_MODEL_ADAPTER_DISABLED === '1') return null
+  if (adapterOverridden) return defaultAdapter
   if (!defaultAdapter) defaultAdapter = new ServerProviderAdapter()
   return defaultAdapter
 }
 
-/** Test/alternative-provider hook — installs a custom adapter for this process. */
+/** Test/alternative-provider hook — installs a custom adapter for this process.
+ *  Passing null DISABLES the adapter (honest "unavailable" failures); use
+ *  resetCiModelAdapterForTests() to restore the default afterwards. */
 export function setCiModelAdapterForProcess(adapter: CiModelAdapter | null): void {
+  adapterOverridden = true
   defaultAdapter = adapter
+}
+
+/** Restore the default provider adapter (tests only). */
+export function resetCiModelAdapterForTests(): void {
+  adapterOverridden = false
+  defaultAdapter = null
 }
 
 // ─── Structured output plumbing ────────────────────────────────────────────────
@@ -75,25 +86,32 @@ export class CiModelOutputError extends Error {
 }
 
 /**
- * Run one completion and parse the reply as JSON with the tolerant extractor.
- * One strict retry on malformed output (the usual failure), honest throw on
- * provider failure — the queue classifies and retries with backoff.
+ * Run one completion, parse the reply as JSON, and optionally validate/normalise
+ * it with a caller-supplied validator (typically a Zod schema parse). Parse and
+ * validation failures get ONE strict retry (the usual failure mode); provider
+ * failures propagate immediately — the queue classifies and retries with backoff.
  */
 export async function completeJson<T>(opts: {
   adapter: CiModelAdapter
   system: string
   user: string
+  /** Optional schema validation (e.g. schema.parse) — failures count as malformed output. */
+  validate?: (value: unknown) => T
 }): Promise<T> {
-  const attempt = async (user: string): Promise<T> =>
-    extractJson<T>(await opts.adapter.complete({ system: opts.system, user }))
+  const attempt = async (user: string): Promise<T> => {
+    const value: unknown = extractJson(await opts.adapter.complete({ system: opts.system, user }))
+    return opts.validate ? opts.validate(value) : (value as T)
+  }
   try {
     return await attempt(opts.user)
   } catch (err) {
-    // Distinguish parse failures (worth one stricter retry) from provider
-    // failures (retry with backoff is the queue's job).
-    if (err instanceof Error && /JSON|parse|no JSON|unterminated/i.test(err.message) && !isRateLimitError(err)) {
+    // Distinguish malformed-output failures (worth one stricter retry) from
+    // provider failures (retry with backoff is the queue's job).
+    const msg = err instanceof Error ? err.message : String(err)
+    const isMalformed = /JSON|parse|Expected|invalid_type|required|unterminated|no JSON/i.test(msg) && !isRateLimitError(err)
+    if (isMalformed) {
       return await attempt(
-        `${opts.user}\n\nIMPORTANT: Your previous reply was not parseable as JSON. Return ONLY the JSON value matching the requested shape — no markdown fences, no commentary.`,
+        `${opts.user}\n\nIMPORTANT: Your previous reply was not usable: ${msg.slice(0, 200)}. Return ONLY the JSON value matching the requested shape — no markdown fences, no commentary.`,
       )
     }
     throw err

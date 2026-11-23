@@ -15,6 +15,11 @@ import { db } from '@/lib/db'
 import { CI_CONSENT_PURPOSE, CI_TRIGGER } from './constants'
 import { enqueueEvaluation } from './queue'
 import { ensureCiWorker } from './queue'
+// Register the real multi-agent pipeline as a side effect of importing this
+// module: every route that touches the classroom lifecycle (both import this
+// trigger module) therefore has the evaluation pipeline available. The
+// pipeline module never imports back here — no circular dependency.
+import './pipeline'
 
 export interface CiConsentState {
   granted: boolean

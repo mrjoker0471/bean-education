@@ -169,6 +169,10 @@ const workerG = globalThis as unknown as { __ciWorker?: { busy: boolean; timer: 
 
 /** Start the singleton worker loop. Safe to call repeatedly. */
 export function ensureCiWorker(): void {
+  // Under `bun test` the tests drive claims and runs directly and deterministically;
+  // a live in-test worker would race them (and could reach the real provider).
+  // The Next.js server never sets NODE_ENV=test — the loop starts there as usual.
+  if (process.env.NODE_ENV === 'test' && process.env.CI_ENABLE_WORKER !== '1') return
   if (workerG.__ciWorker) return
   const state = { busy: false, timer: undefined as unknown as NodeJS.Timeout }
   state.timer = setInterval(() => {
