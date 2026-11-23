@@ -82,6 +82,7 @@ read-only: it never pushes, merges, deletes, rewrites or updates anything.
 | Public experience, auth & legal | feat/bean-public-experience-auth-legal | #27 | `fcf7418` | COMPLETE (PR #27 MERGED; all 5 branch commits verified as ancestors of main) |
 | Premium brand & UI redesign | feat/bean-premium-brand-ui-redesign | #28 | `c585db4` | COMPLETE (PR #28 MERGED; 7 branch commits verified; feature branch synchronized to main via `--ff-only`; CI de-flaked with `bun test --isolate`) |
 | Legal pages document redesign | feat/bean-legal-pages-redesign | (recorded at publication) | (recorded at publication) | PUSHED (tip `0d98a10` CI-verified; PR gate recorded per ADR-008) |
+| Classroom Intelligence CI-1 | feat/bean-classroom-intelligence | (opened by owner per ADR-008) | (pending merge) | PUSHED (tip `2e56481`; 6 milestone commits + this ledger entry; 7/7 CI runs SUCCESS; full suite 1288/0; live end-to-end evaluation verified — see docs/CLASSROOM-INTELLIGENCE-RESULTS.md) |
 
 Pre-ledger entries (`commits: []`, `ci: []` + notes) document only what is
 verified from main's merge history; nothing is inferred.

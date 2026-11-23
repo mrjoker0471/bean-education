@@ -1,658 +1,716 @@
 {
-  "version": 1,
-  "description": "BEAN Education permanent milestone commit ledger. One entry per milestone; every approved commit is accounted for exactly once. A milestone is COMPLETE only when its status is COMPLETE and every field is verified — a local commit is not a published commit, a local test is not a CI run. Verified by scripts/branch-health.mjs --gate <milestone-id>.",
-  "fieldNotes": {
-    "commits": "Feature-branch commit SHAs (not merge commits) that carry the approved milestone work.",
-    "remoteFeatureSha": "Feature-branch tip SHA independently verified via git ls-remote after the push.",
-    "pr": "state: NONE | OPEN | MERGED. number/url null when not created yet.",
-    "ci": "GitHub Actions run IDs with conclusions for the milestone commits. Empty array with a note when runs were not recorded (pre-ledger milestones).",
-    "finalMainSha": "main SHA after the milestone merge, verified via git ls-remote.",
-    "syncStatus": "PENDING | SYNCHRONIZED — feature branch vs main after the merge (repo policy: merged branches must not drift).",
-    "status": "IN_PROGRESS | PUSHED | PR_OPEN | MERGED | COMPLETE"
+ "version": 1,
+ "description": "BEAN Education permanent milestone commit ledger. One entry per milestone; every approved commit is accounted for exactly once. A milestone is COMPLETE only when its status is COMPLETE and every field is verified — a local commit is not a published commit, a local test is not a CI run. Verified by scripts/branch-health.mjs --gate <milestone-id>.",
+ "fieldNotes": {
+  "commits": "Feature-branch commit SHAs (not merge commits) that carry the approved milestone work.",
+  "remoteFeatureSha": "Feature-branch tip SHA independently verified via git ls-remote after the push.",
+  "pr": "state: NONE | OPEN | MERGED. number/url null when not created yet.",
+  "ci": "GitHub Actions run IDs with conclusions for the milestone commits. Empty array with a note when runs were not recorded (pre-ledger milestones).",
+  "finalMainSha": "main SHA after the milestone merge, verified via git ls-remote.",
+  "syncStatus": "PENDING | SYNCHRONIZED — feature branch vs main after the merge (repo policy: merged branches must not drift).",
+  "status": "IN_PROGRESS | PUSHED | PR_OPEN | MERGED | COMPLETE"
+ },
+ "milestones": [
+  {
+   "id": "phase1-audit",
+   "title": "Phase 1 — Audit and preserve",
+   "branch": null,
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": null,
+    "state": "NONE",
+    "url": null
+   },
+   "mergeCommitSha": null,
+   "ci": [],
+   "ciNote": "Read-only audit milestone; no feature commits, no PR, no CI (documented in docs/PHASE1_AUDIT.md).",
+   "finalMainSha": null,
+   "syncStatus": "PENDING",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE1_AUDIT.md",
+   "updatedAt": "2026-11-18T00:00:00Z"
   },
-  "milestones": [
+  {
+   "id": "phase2a-student-platform-foundation",
+   "title": "Phase 2A — Universal student platform foundation",
+   "branch": "feat/bean-learn-phase-2a",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 1,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/1"
+   },
+   "mergeCommitSha": "1b57633",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded; merge commit verified as ancestor of main.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE2A_IMPLEMENTATION.md",
+   "updatedAt": "2026-11-18T00:00:00Z"
+  },
+  {
+   "id": "phase2b-student-experience",
+   "title": "Phase 2B — Student experience layer",
+   "branch": "feat/bean-learn-phase-2b",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 2,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/2"
+   },
+   "mergeCommitSha": "f573b54",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded; PR #10 (ba80d98) was a later zero-content re-merge of the same branch.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE2B_IMPLEMENTATION.md",
+   "updatedAt": "2026-11-18T00:00:00Z"
+  },
+  {
+   "id": "phase4a-teach-marketplace",
+   "title": "Phase 4A — BEAN Teach marketplace foundation",
+   "branch": "feat/bean-teach-marketplace",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 3,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/3"
+   },
+   "mergeCommitSha": "4dbc4d0",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/BEAN_TEACH_RESULTS.md",
+   "updatedAt": "2026-11-18T00:00:00Z"
+  },
+  {
+   "id": "phase5-live-classroom",
+   "title": "Phase 5 — Live classroom (LiveKit)",
+   "branch": "feat/bean-live-classroom-phase-5",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 4,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/4"
+   },
+   "mergeCommitSha": "aefd4d9",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE5_RESULTS.md",
+   "updatedAt": "2026-11-18T00:00:00Z"
+  },
+  {
+   "id": "phase6-trust-quality",
+   "title": "Phase 6 — Trust and quality",
+   "branch": "feat/bean-trust-quality-phase-6",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 5,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/5"
+   },
+   "mergeCommitSha": "f162ff4",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE6_RESULTS.md",
+   "updatedAt": "2026-11-19T00:00:00Z"
+  },
+  {
+   "id": "phase7-institution-career",
+   "title": "Phase 7 — Institution and career features",
+   "branch": "feat/bean-institution-career-phase-7",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 6,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/6"
+   },
+   "mergeCommitSha": "129ab09",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded. The 2026-11-22 re-integration (PR #20, merge dceed88) re-delivered the audited missing commits of this branch into main.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE7_UI_COMPLETION_RESULTS.md; docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md",
+   "updatedAt": "2026-11-20T00:00:00Z"
+  },
+  {
+   "id": "phase7-ui-completion",
+   "title": "Phase 7 — Website UI completion",
+   "branch": "feat/bean-phase7-ui-completion",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 7,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/7"
+   },
+   "mergeCommitSha": "26dd3b8",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE7_UI_COMPLETION_RESULTS.md",
+   "updatedAt": "2026-11-20T00:00:00Z"
+  },
+  {
+   "id": "phase3a-deep-research",
+   "title": "Phase 3A — Riishe deep research & verified PYQ discovery",
+   "branch": "feat/bean-riishe-phase3a-deep-research",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 8,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/8"
+   },
+   "mergeCommitSha": "716d55f",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded. Follow-up PRs #9 (78688f5) and #10 (ba80d98) were zero-content tree-identical re-merges (git diff 716d55f..ba80d98 empty).",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE3A_RESULTS.md",
+   "updatedAt": "2026-11-20T00:00:00Z"
+  },
+  {
+   "id": "phase3b-personal-learning-intelligence",
+   "title": "Phase 3B (+3B.1) — Personal learning intelligence and ownership hardening",
+   "branch": "feat/bean-personal-learning-intelligence",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 14,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/14"
+   },
+   "mergeCommitSha": "ec1f8a8",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded. The milestone landed through PR #11 (0955269), PR #12 (0e48a1c) and PR #14 (ec1f8a8); the 3B.1 security hardening landed via PR #15 (4852ef7) on fix/bean-education-phase3b-hardening.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE3B_PERSONAL_LEARNING_INTELLIGENCE.md; docs/PHASE3B_CORRECTIONS_RELEASE_REVIEW.md",
+   "updatedAt": "2026-11-21T00:00:00Z"
+  },
+  {
+   "id": "phase3c-advanced-tutor",
+   "title": "Phase 3C — Advanced tutor (teaching modes, multilingual responses)",
+   "branch": "feat/bean-riishe-phase3c-advanced-tutor",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 16,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/16"
+   },
+   "mergeCommitSha": "65f30bd",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md §2 (baseline table)",
+   "updatedAt": "2026-11-21T00:00:00Z"
+  },
+  {
+   "id": "phase3d-conversation-continuity",
+   "title": "Phase 3D (+3D.1) — Conversation continuity and history ownership",
+   "branch": "feat/bean-riishe-phase3d-conversation-continuity",
+   "baseMainSha": null,
+   "commits": [],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 17,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/17"
+   },
+   "mergeCommitSha": "ba144c0",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md §2 (baseline table)",
+   "updatedAt": "2026-11-21T00:00:00Z"
+  },
+  {
+   "id": "phase3e-interactive-learning-studio",
+   "title": "Phase 3E — Interactive learning studio",
+   "branch": "feat/bean-riishe-phase3e-interactive-learning-studio",
+   "baseMainSha": null,
+   "commits": [
+    "2ae966caa590aef7ca0c941020a593df57182450"
+   ],
+   "remoteFeatureSha": "2ae966caa590aef7ca0c941020a593df57182450",
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": 18,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/18"
+   },
+   "mergeCommitSha": "f80b6869941db40e0d85bd7d779617505e79746e",
+   "ci": [],
+   "ciNote": "Pre-ledger milestone — CI run IDs not recorded. Implementation commit 2ae966c verified as ancestor of main.",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE-3E-RIISHE-INTERACTIVE-LEARNING-STUDIO.md",
+   "updatedAt": "2026-11-22T00:00:00Z"
+  },
+  {
+   "id": "phase3f-learning-continuity",
+   "title": "Phase 3F — Learning studio continuity & evidence-based progress",
+   "branch": "feat/bean-riishe-phase3f-learning-continuity",
+   "baseMainSha": "2ae966caa590aef7ca0c941020a593df57182450",
+   "commits": [
+    "a9e8694596f254796b9a6a3d1b70a3c5f31fe35e"
+   ],
+   "remoteFeatureSha": "65d3286395796f03e6711801524c12ef09073dca",
+   "pushVerifiedAt": "2026-11-22T05:20:00Z",
+   "pr": {
+    "number": 19,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/19"
+   },
+   "mergeCommitSha": "e5d4165289ca46be78612e7b70ec9f767a9e9c19",
+   "ci": [
     {
-      "id": "phase1-audit",
-      "title": "Phase 1 — Audit and preserve",
-      "branch": null,
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": null,
-        "state": "NONE",
-        "url": null
-      },
-      "mergeCommitSha": null,
-      "ci": [],
-      "ciNote": "Read-only audit milestone; no feature commits, no PR, no CI (documented in docs/PHASE1_AUDIT.md).",
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE1_AUDIT.md",
-      "updatedAt": "2026-11-18T00:00:00Z"
+     "runId": "44987692039",
+     "conclusion": "SUCCESS",
+     "subject": "push build on feature branch (pre-merge)"
     },
     {
-      "id": "phase2a-student-platform-foundation",
-      "title": "Phase 2A — Universal student platform foundation",
-      "branch": "feat/bean-learn-phase-2a",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 1,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/1"
-      },
-      "mergeCommitSha": "1b57633",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded; merge commit verified as ancestor of main.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE2A_IMPLEMENTATION.md",
-      "updatedAt": "2026-11-18T00:00:00Z"
-    },
-    {
-      "id": "phase2b-student-experience",
-      "title": "Phase 2B — Student experience layer",
-      "branch": "feat/bean-learn-phase-2b",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 2,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/2"
-      },
-      "mergeCommitSha": "f573b54",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded; PR #10 (ba80d98) was a later zero-content re-merge of the same branch.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE2B_IMPLEMENTATION.md",
-      "updatedAt": "2026-11-18T00:00:00Z"
-    },
-    {
-      "id": "phase4a-teach-marketplace",
-      "title": "Phase 4A — BEAN Teach marketplace foundation",
-      "branch": "feat/bean-teach-marketplace",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 3,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/3"
-      },
-      "mergeCommitSha": "4dbc4d0",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/BEAN_TEACH_RESULTS.md",
-      "updatedAt": "2026-11-18T00:00:00Z"
-    },
-    {
-      "id": "phase5-live-classroom",
-      "title": "Phase 5 — Live classroom (LiveKit)",
-      "branch": "feat/bean-live-classroom-phase-5",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 4,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/4"
-      },
-      "mergeCommitSha": "aefd4d9",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE5_RESULTS.md",
-      "updatedAt": "2026-11-18T00:00:00Z"
-    },
-    {
-      "id": "phase6-trust-quality",
-      "title": "Phase 6 — Trust and quality",
-      "branch": "feat/bean-trust-quality-phase-6",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 5,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/5"
-      },
-      "mergeCommitSha": "f162ff4",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE6_RESULTS.md",
-      "updatedAt": "2026-11-19T00:00:00Z"
-    },
-    {
-      "id": "phase7-institution-career",
-      "title": "Phase 7 — Institution and career features",
-      "branch": "feat/bean-institution-career-phase-7",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 6,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/6"
-      },
-      "mergeCommitSha": "129ab09",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded. The 2026-11-22 re-integration (PR #20, merge dceed88) re-delivered the audited missing commits of this branch into main.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE7_UI_COMPLETION_RESULTS.md; docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md",
-      "updatedAt": "2026-11-20T00:00:00Z"
-    },
-    {
-      "id": "phase7-ui-completion",
-      "title": "Phase 7 — Website UI completion",
-      "branch": "feat/bean-phase7-ui-completion",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 7,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/7"
-      },
-      "mergeCommitSha": "26dd3b8",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE7_UI_COMPLETION_RESULTS.md",
-      "updatedAt": "2026-11-20T00:00:00Z"
-    },
-    {
-      "id": "phase3a-deep-research",
-      "title": "Phase 3A — Riishe deep research & verified PYQ discovery",
-      "branch": "feat/bean-riishe-phase3a-deep-research",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 8,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/8"
-      },
-      "mergeCommitSha": "716d55f",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded. Follow-up PRs #9 (78688f5) and #10 (ba80d98) were zero-content tree-identical re-merges (git diff 716d55f..ba80d98 empty).",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE3A_RESULTS.md",
-      "updatedAt": "2026-11-20T00:00:00Z"
-    },
-    {
-      "id": "phase3b-personal-learning-intelligence",
-      "title": "Phase 3B (+3B.1) — Personal learning intelligence and ownership hardening",
-      "branch": "feat/bean-personal-learning-intelligence",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 14,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/14"
-      },
-      "mergeCommitSha": "ec1f8a8",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded. The milestone landed through PR #11 (0955269), PR #12 (0e48a1c) and PR #14 (ec1f8a8); the 3B.1 security hardening landed via PR #15 (4852ef7) on fix/bean-education-phase3b-hardening.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE3B_PERSONAL_LEARNING_INTELLIGENCE.md; docs/PHASE3B_CORRECTIONS_RELEASE_REVIEW.md",
-      "updatedAt": "2026-11-21T00:00:00Z"
-    },
-    {
-      "id": "phase3c-advanced-tutor",
-      "title": "Phase 3C — Advanced tutor (teaching modes, multilingual responses)",
-      "branch": "feat/bean-riishe-phase3c-advanced-tutor",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 16,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/16"
-      },
-      "mergeCommitSha": "65f30bd",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md §2 (baseline table)",
-      "updatedAt": "2026-11-21T00:00:00Z"
-    },
-    {
-      "id": "phase3d-conversation-continuity",
-      "title": "Phase 3D (+3D.1) — Conversation continuity and history ownership",
-      "branch": "feat/bean-riishe-phase3d-conversation-continuity",
-      "baseMainSha": null,
-      "commits": [],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 17,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/17"
-      },
-      "mergeCommitSha": "ba144c0",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md §2 (baseline table)",
-      "updatedAt": "2026-11-21T00:00:00Z"
-    },
-    {
-      "id": "phase3e-interactive-learning-studio",
-      "title": "Phase 3E — Interactive learning studio",
-      "branch": "feat/bean-riishe-phase3e-interactive-learning-studio",
-      "baseMainSha": null,
-      "commits": [
-        "2ae966caa590aef7ca0c941020a593df57182450"
-      ],
-      "remoteFeatureSha": "2ae966caa590aef7ca0c941020a593df57182450",
-      "pushVerifiedAt": null,
-      "pr": {
-        "number": 18,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/18"
-      },
-      "mergeCommitSha": "f80b6869941db40e0d85bd7d779617505e79746e",
-      "ci": [],
-      "ciNote": "Pre-ledger milestone — CI run IDs not recorded. Implementation commit 2ae966c verified as ancestor of main.",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE-3E-RIISHE-INTERACTIVE-LEARNING-STUDIO.md",
-      "updatedAt": "2026-11-22T00:00:00Z"
-    },
-    {
-      "id": "phase3f-learning-continuity",
-      "title": "Phase 3F — Learning studio continuity & evidence-based progress",
-      "branch": "feat/bean-riishe-phase3f-learning-continuity",
-      "baseMainSha": "2ae966caa590aef7ca0c941020a593df57182450",
-      "commits": [
-        "a9e8694596f254796b9a6a3d1b70a3c5f31fe35e"
-      ],
-      "remoteFeatureSha": "65d3286395796f03e6711801524c12ef09073dca",
-      "pushVerifiedAt": "2026-11-22T05:20:00Z",
-      "pr": {
-        "number": 19,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/19"
-      },
-      "mergeCommitSha": "e5d4165289ca46be78612e7b70ec9f767a9e9c19",
-      "ci": [
-        {
-          "runId": "44987692039",
-          "conclusion": "SUCCESS",
-          "subject": "push build on feature branch (pre-merge)"
-        },
-        {
-          "runId": "44987701364",
-          "conclusion": "SUCCESS",
-          "subject": "main run after PR #19 merge"
-        }
-      ],
-      "ciNote": "Run IDs from the 2026-11-22 close-out Actions sweep; all runs at the merge completed successfully.",
-      "finalMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md; docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md",
-      "updatedAt": "2026-11-22T05:45:00Z"
-    },
-    {
-      "id": "branch-hygiene-reconciliation",
-      "title": "Git branch hygiene — reconciliation policy, script and global sync",
-      "branch": "chore/git-branch-hygiene",
-      "baseMainSha": "f80b6869941db40e0d85bd7d779617505e79746e",
-      "commits": [
-        "f43f1d788834ca2e30124680c969bff4ad6ecbd8"
-      ],
-      "remoteFeatureSha": "f43f1d788834ca2e30124680c969bff4ad6ecbd8",
-      "pushVerifiedAt": "2026-11-22T05:20:00Z",
-      "pr": {
-        "number": 21,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/21"
-      },
-      "mergeCommitSha": "d3b39f6977abb913b7b83eebbafcaf13da84fc2d",
-      "ci": [
-        {
-          "runId": "44987745862",
-          "conclusion": "SUCCESS",
-          "subject": "push build on feature branch (pre-merge)"
-        },
-        {
-          "runId": "44987755941",
-          "conclusion": "SUCCESS",
-          "subject": "main run at d3b39f6"
-        }
-      ],
-      "ciNote": "Run IDs from the 2026-11-22 close-out Actions sweep.",
-      "finalMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/GIT-BRANCH-HYGIENE.md; docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md",
-      "updatedAt": "2026-11-22T05:45:00Z"
-    },
-    {
-      "id": "branch-health-runtime-compat",
-      "title": "Tooling fix — branch-health ancestry check stdout/exit-code handling",
-      "branch": "fix/branch-health-runtime-compat",
-      "baseMainSha": "d3b39f6977abb913b7b83eebbafcaf13da84fc2d",
-      "commits": [
-        "753624d96b050027d9b2bf08f7dfc152366cb58e"
-      ],
-      "remoteFeatureSha": "753624d96b050027d9b2bf08f7dfc152366cb58e",
-      "pushVerifiedAt": "2026-11-22T05:26:00Z",
-      "pr": {
-        "number": 22,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/22"
-      },
-      "mergeCommitSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
-      "ci": [
-        {
-          "runId": "44988485912",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on fix branch push (CI #35)"
-        },
-        {
-          "runId": "44990042096",
-          "conclusion": "SUCCESS",
-          "subject": "main run after PR #22 merge"
-        }
-      ],
-      "ciNote": "Run IDs from the 2026-11-22 close-out Actions sweep.",
-      "finalMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md; close-out report 2026-11-22",
-      "updatedAt": "2026-11-22T05:45:00Z"
-    },
-    {
-      "id": "phase3g-graded-recall",
-      "title": "Phase 3G — Riishe Studio graded recall (type-the-answer flashcards) + permanent commit publication enforcement",
-      "branch": "feat/bean-riishe-phase3g-next-milestone",
-      "baseMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
-      "commits": [
-        "997fabd05141eb85bbef5d6d7228a48f2a678b34",
-        "7020b0a71415939461bb3339ee08609d0ff066f2",
-        "863052237a879e1dd0353e2f29a7803bd8d535e4",
-        "63bcfbbd736150640f3397a76ac5d02ac1f05f1a"
-      ],
-      "remoteFeatureSha": "bf79a43718c5561c7af0cf66bf31e4a58546e095",
-      "pushVerifiedAt": "2026-11-22T07:50:00Z",
-      "pr": {
-        "number": 23,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/23"
-      },
-      "mergeCommitSha": "806c835de2ebf75cb85f72365bf98a860c477d12",
-      "ci": [
-        {
-          "runId": "44993087901",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on branch tip 8630522 (pre-merge)"
-        },
-        {
-          "runId": "44993066412",
-          "conclusion": "CANCELLED",
-          "subject": "superseded by the workflow's own concurrency policy (cancel-in-progress) when the ledger-sync push landed"
-        },
-        {
-          "runId": "44993273729",
-          "conclusion": "SUCCESS",
-          "subject": "main run after PR #23 merge (806c835)"
-        },
-        {
-          "runId": "44993358851",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on branch tip 63bcfbb (post-merge ledger sync)"
-        }
-      ],
-      "ciNote": "All milestone feature work is integrated: PR #23 (merge 806c835) carried 997fabd, 7020b0a and 8630522 into main — all verified ancestors. Run 44993066412 was cancelled BY the workflow's own cancel-in-progress rule when a newer push superseded it (by design, not a failure). The ledger-sync commit 63bcfbb landed AFTER the merge (pushed while the owner merged) and is preserved on the branch behind a reconciliation merge — the branch is ahead-only pending the follow-up PR for the ledger-closing docs (same authorization gate: PR creation requires GitHub web/API authentication unavailable in the implementation environment). Ledger-sync commits trail the branch tip by one commit by construction: the final tip independently verified via ls-remote at report time is bf79a43718c5561c7af0cf66bf31e4a58546e095; the authoritative integration evidence is PR #23 + commit ancestry, which is static.",
-      "finalMainSha": "806c835de2ebf75cb85f72365bf98a860c477d12",
-      "syncStatus": "PENDING",
-      "status": "MERGED",
-      "evidence": "docs/PHASE-3G-RIISHE-GRADED-RECALL.md; PR #23 (merged, merge 806c835); compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3g-next-milestone",
-      "updatedAt": "2026-11-22T07:45:00Z"
-    },
-    {
-      "id": "phase3h-studio-history-retention",
-      "title": "Phase 3H — Riishe Studio history discovery, retention preferences & safe cleanup",
-      "branch": "feat/bean-riishe-phase3h-history-retention",
-      "baseMainSha": "3534f41451c2ed0eccb5f92a665b5c7db27f4435",
-      "commits": [
-        "aa453bf6a17b10fef6edf633b514d2b93c1be047",
-        "80a95659c0b360183c81f206af26faaa28de6ec6",
-        "f6d07097f9f0e929b20195129957c0c38a4012ab"
-      ],
-      "remoteFeatureSha": "f6d07097f9f0e929b20195129957c0c38a4012ab",
-      "pushVerifiedAt": "2026-11-22T09:05:00Z",
-      "pr": {
-        "number": 25,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/25"
-      },
-      "mergeCommitSha": "c4579a52f4aa5552938c4f5b86401df811761e46",
-      "ci": [
-        {
-          "runId": "44999716363",
-          "conclusion": "SUCCESS",
-          "subject": "push run on ledger-entry commit 80a9565 (run #107; verified via GitHub REST API during the 2026-11-23 reconciliation: status completed, conclusion success)"
-        },
-        {
-          "runId": "45000441624",
-          "conclusion": "SUCCESS",
-          "subject": "push run on branch tip f6d0709 = PR #25 head (run #108; verified via GitHub REST API during the 2026-11-23 reconciliation: status completed, conclusion success)"
-        },
-        {
-          "runId": "45003188257",
-          "conclusion": "SUCCESS",
-          "subject": "pull_request run for PR #25 on head f6d0709 (run #109; verified via GitHub REST API during the 2026-11-23 reconciliation: status completed, conclusion success)"
-        }
-      ],
-      "ciNote": "Reconciliation (2026-11-23, chore/phase3h-ledger-reconciliation): all three milestone commits (aa453bf, 80a9565, f6d0709) verified as ancestors of origin/main via git merge-base --is-ancestor; PR #25 verified MERGED via the GitHub REST API (merged: true, merge_commit_sha c4579a52f4aa5552938c4f5b86401df811761e46, merged_at 2026-11-22T08:31:19Z); all three CI runs verified completed/success via the same API. The earlier PUSHED entry (2 commits, remoteFeatureSha 80a9565, PR NONE) was stale: commit f6d0709 (the ledger tip it described) and PR #25's merge happened after that entry was written. The feature branch was fast-forwarded from f6d0709 to the verified post-merge main c4579a52 during this reconciliation (normal push, ls-remote verified, rev-list --left-right --count = 0 0); all 18 remote branches were fast-forwarded to c4579a52 in the same verified round (branch-health: 18 in sync). remoteFeatureSha intentionally keeps the as-pushed tip f6d07097 (the gate also accepts the branch sitting at main after synchronization). finalMainSha stays null by design: this documentation PR's own merge SHA cannot be known at write time and the gate checks live origin/main directly; main after the Phase 3H merge was independently verified as c4579a52 via ls-remote. status COMPLETE is asserted as part of this reconciliation: PR #25 — the milestone's required PR — is merged and fully verified, and upon THIS documentation PR merging, the recorded routine fast-forward round synchronizes all branches to the new main and scripts/branch-health.mjs --gate phase3h-studio-history-retention is run immediately afterward to machine-verify the COMPLETE state (the gate is the authority).",
-      "finalMainSha": null,
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PHASE-3H-RIISHE-STUDIO-HISTORY-RETENTION.md; PR #25 (MERGED via GitHub REST API, merge commit c4579a5); CI runs 44999716363/45000441624/45003188257 (SUCCESS via GitHub REST API); compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3h-history-retention",
-      "updatedAt": "2026-11-23T02:27:37Z"
-    },
-    {
-      "id": "public-experience-auth-legal",
-      "title": "Public Experience, Authentication & Legal Foundation — homepage overhaul, audience-first auth, real Google OAuth (PKCE/JWKS), Terms + Privacy, versioned legal acceptance, privacy rights & account-deletion review",
-      "branch": "feat/bean-public-experience-auth-legal",
-      "baseMainSha": "65d51c2b003eda92f2443ce187761e0eddf16238",
-      "commits": [
-        "c2b5e7ae1423eacfa1c211272d5092ddf6d72c7c",
-        "6a1c1d2e1243aec02b0a392393012bb85f715887"
-      ],
-      "remoteFeatureSha": "b0cda7d751faf497f0cb74ded6df64c11cfbcfe9",
-      "pushVerifiedAt": "2026-11-23T04:33:00Z",
-      "pr": {
-        "number": 27,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/27"
-      },
-      "ci": [
-        {
-          "runId": "45112158210",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on branch tip b0cda7d (push build on feat/bean-public-experience-auth-legal) — verified via GitHub Actions HTML"
-        },
-        {
-          "runId": "45111775273",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on branch tip dac46e5 (push build on feat/bean-public-experience-auth-legal, pre-merge) — verified via GitHub Actions HTML"
-        },
-        {
-          "runId": "45111739544",
-          "conclusion": "CANCELLED",
-          "subject": "superseded by the workflow's own concurrency policy (cancel-in-progress) when the ledger-sync push landed"
-        }
-      ],
-      "ciNote": [
-        "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; unauthenticated REST was rate-limited, HTML used). PR #27 was opened by the owner session (ADR-008 — OAuth device-flow blocked in sandbox; deploy keys cannot create PRs) and merged after CI verification. Post-merge state recorded from verified main history."
-      ],
-      "finalMainSha": "fcf7418044df8ead7a449648268d90a1956be4b7",
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md; PR #27 MERGED (merge commit fcf7418, verified in main history); all 5 branch commits verified as ancestors of main",
-      "updatedAt": "2026-11-23T05:31:26Z"
-    },
-    {
-      "id": "bean-premium-brand-ui-redesign",
-      "title": "Premium Brand & UI Redesign — BEAN Education identity (obsidian/metallic gold/champagne/ivory), glass design system, gold-bean brand mark, header/footer/home/auth/Trust&Safety/Terms/Privacy redesign, public-facing rename, Trust & Safety factual alignment with the enforced backend",
-      "branch": "feat/bean-premium-brand-ui-redesign",
-      "baseMainSha": "fcf7418044df8ead7a449648268d90a1956be4b7",
-      "commits": [
-        "d74b6935b99873570960c127805e08788f4ad38a",
-        "eee5ee6737812e4c5b4277045de7db146cead5cc",
-        "8c9c6075db5e0a3fd9d2b70ddf38d3efa572e75c",
-        "c895f8231cd3600ffa48a7235e865a3c974f523a",
-        "973a6bcc5e290ca79af6f4b61d8d57107c82a02b",
-        "f8633f3392e0d57f190a3351f3b1abc69b51b956",
-        "38a5f62cde706198d8714b4bcf19d5aebdb84284"
-      ],
-      "remoteFeatureSha": "38a5f62cde706198d8714b4bcf19d5aebdb84284",
-      "pushVerifiedAt": "2026-11-23T05:02:00Z",
-      "pr": {
-        "number": 28,
-        "state": "MERGED",
-        "url": "https://github.com/mrjoker0471/bean-education/pull/28"
-      },
-      "ci": [
-        {
-          "runId": "45116678858",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on 38a5f62 (push build on feat/bean-premium-brand-ui-redesign, with bun test --isolate) — verified via GitHub Actions HTML"
-        },
-        {
-          "runId": "45116949273",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on 38a5f62 (pull_request event for PR #28) — verified via GitHub Actions HTML"
-        },
-        {
-          "runId": "45115421072",
-          "conclusion": "FAILURE",
-          "subject": "push build on 973a6bcc — Tests step failed: oauth-google.test.ts received the oauth-routes.test.ts mock verifyGoogleIdToken (sub 'google-sub-1'); cross-file mock.module leakage under bun's concurrent file execution; diagnosed, not reproducible locally, fixed by --isolate (38a5f62)"
-        },
-        {
-          "runId": "45115982716",
-          "conclusion": "FAILURE",
-          "subject": "push build on f8633f3 — same cross-file mock.module leakage as 45115421072 (10 annotations, same test file); fixed by the --isolate CI change"
-        },
-        {
-          "runId": "45114953351",
-          "conclusion": "CANCELLED",
-          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
-        },
-        {
-          "runId": "45115079518",
-          "conclusion": "CANCELLED",
-          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
-        },
-        {
-          "runId": "45115218987",
-          "conclusion": "CANCELLED",
-          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
-        },
-        {
-          "runId": "45115342959",
-          "conclusion": "CANCELLED",
-          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
-        }
-      ],
-      "ciNote": [
-        "Both completed runs on the merged tip 38a5f62 (push event + pull_request event for PR #28) are green with bun test --isolate: 1241 tests pass. The two earlier FAILURES are recorded honestly: they were caused by a pre-existing flaky test-infra pattern (mock.module in oauth-routes.test.ts leaking into oauth-google.test.ts when bun schedules files concurrently against one shared module registry) — the identical files passed on main's CI twice, confirming flakiness rather than content. Fixed in-commit by running the CI test step with --isolate.",
-        "PR #28 was opened by the owner session (ADR-008 — sandbox deploy keys cannot create PRs) and merged after the CI runs on 38a5f62 were verified green. Feature branch fast-forwarded to the merge commit c585db4 and re-verified via git ls-remote; zero drift."
-      ],
-      "finalMainSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765",
-      "syncStatus": "SYNCHRONIZED",
-      "status": "COMPLETE",
-      "evidence": "docs/BRAND-REDESIGN-2026-11.md; PR #28 MERGED (merge commit c585db4, verified in main history); 7 branch commits verified as ancestors of main; branch synchronized to main (c585db4) via --ff-only push",
-      "updatedAt": "2026-11-23T05:31:26Z"
-    },
-    {
-      "id": "bean-legal-pages-redesign",
-      "title": "Legal pages document redesign — Terms & Privacy as premium legal documents: version/last-updated/effective-date chips (owner-configurable, honest fallbacks), classified sections (rights/responsibilities/privacy practice/notices/operator & grievance), desktop sticky TOC + mobile collapsible panel, Notice callouts, back-to-top; all privacy/data-handling statements re-verified against the actual code",
-      "branch": "feat/bean-legal-pages-redesign",
-      "baseMainSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765",
-      "commits": [
-        "abd7308639d66008a0a7d3775c62cf346cbf5a6a",
-        "bf65888e7e202597240c09a672c16678e11dbd76",
-        "0d98a107ca9764176de7c61e3d10257a1c337e68"
-      ],
-      "remoteFeatureSha": "0d98a107ca9764176de7c61e3d10257a1c337e68",
-      "pushVerifiedAt": "2026-11-23T05:44:00Z",
-      "pr": {
-        "number": null,
-        "state": "NOT_CREATED",
-        "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-legal-pages-redesign"
-      },
-      "ci": [
-        {
-          "runId": "45119660769",
-          "conclusion": "SUCCESS",
-          "subject": "quality job on 0d98a10 (push build on feat/bean-legal-pages-redesign, branch tip) — verified via GitHub Actions HTML (all steps green, no annotations)"
-        },
-        {
-          "runId": "45119363386",
-          "conclusion": "CANCELLED",
-          "subject": "push build on abd7308 — superseded by the workflow's concurrency policy (cancel-in-progress)"
-        },
-        {
-          "runId": "45119387770",
-          "conclusion": "CANCELLED",
-          "subject": "push build on bf65888 — superseded by the workflow's concurrency policy (cancel-in-progress)"
-        }
-      ],
-      "ciNote": [
-        "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; REST rate-limited at check time). PR creation is a recorded gate per ADR-008: GitHub PRs require the owner session (deploy keys cannot create PRs); the owner opened and merged PRs #27 and #28 this way. Compare URL recorded above — no PR number is invented. Local verification before push: eslint clean, tsc --noEmit clean, 1241/1241 tests pass, production build OK, browser-verified at 1440 and 390 (meta chips, mobile TOC, Notice callouts, back-to-top, zero console errors).",
-        "Privacy/data-handling statements re-verified against the code during this milestone: scrypt password hashing (N=16384,r=8,p=1, 16-byte salt, 64-byte key), 30-day sliding sessions on an httpOnly cookie with only a SHA-256 token hash stored, Google OAuth limited to 'openid email profile' scopes with no access/refresh token storage, no email/analytics/advertising SDKs, random device-local guest identifiers, JSON export attachment, typed-DELETE + password re-authentication for deletion.",
-        "Post-merge state (mergeCommitSha/finalMainSha/syncStatus/status COMPLETE) must only be recorded after a real PR is opened and merged."
-      ],
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "PUSHED",
-      "evidence": "docs/LEGAL-PAGES-REDESIGN-2026-11.md",
-      "updatedAt": "2026-11-23T05:47:00Z"
+     "runId": "44987701364",
+     "conclusion": "SUCCESS",
+     "subject": "main run after PR #19 merge"
     }
-  ]
+   ],
+   "ciNote": "Run IDs from the 2026-11-22 close-out Actions sweep; all runs at the merge completed successfully.",
+   "finalMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE-3F-RIISHE-LEARNING-CONTINUITY.md; docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md",
+   "updatedAt": "2026-11-22T05:45:00Z"
+  },
+  {
+   "id": "branch-hygiene-reconciliation",
+   "title": "Git branch hygiene — reconciliation policy, script and global sync",
+   "branch": "chore/git-branch-hygiene",
+   "baseMainSha": "f80b6869941db40e0d85bd7d779617505e79746e",
+   "commits": [
+    "f43f1d788834ca2e30124680c969bff4ad6ecbd8"
+   ],
+   "remoteFeatureSha": "f43f1d788834ca2e30124680c969bff4ad6ecbd8",
+   "pushVerifiedAt": "2026-11-22T05:20:00Z",
+   "pr": {
+    "number": 21,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/21"
+   },
+   "mergeCommitSha": "d3b39f6977abb913b7b83eebbafcaf13da84fc2d",
+   "ci": [
+    {
+     "runId": "44987745862",
+     "conclusion": "SUCCESS",
+     "subject": "push build on feature branch (pre-merge)"
+    },
+    {
+     "runId": "44987755941",
+     "conclusion": "SUCCESS",
+     "subject": "main run at d3b39f6"
+    }
+   ],
+   "ciNote": "Run IDs from the 2026-11-22 close-out Actions sweep.",
+   "finalMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/GIT-BRANCH-HYGIENE.md; docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md",
+   "updatedAt": "2026-11-22T05:45:00Z"
+  },
+  {
+   "id": "branch-health-runtime-compat",
+   "title": "Tooling fix — branch-health ancestry check stdout/exit-code handling",
+   "branch": "fix/branch-health-runtime-compat",
+   "baseMainSha": "d3b39f6977abb913b7b83eebbafcaf13da84fc2d",
+   "commits": [
+    "753624d96b050027d9b2bf08f7dfc152366cb58e"
+   ],
+   "remoteFeatureSha": "753624d96b050027d9b2bf08f7dfc152366cb58e",
+   "pushVerifiedAt": "2026-11-22T05:26:00Z",
+   "pr": {
+    "number": 22,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/22"
+   },
+   "mergeCommitSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
+   "ci": [
+    {
+     "runId": "44988485912",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on fix branch push (CI #35)"
+    },
+    {
+     "runId": "44990042096",
+     "conclusion": "SUCCESS",
+     "subject": "main run after PR #22 merge"
+    }
+   ],
+   "ciNote": "Run IDs from the 2026-11-22 close-out Actions sweep.",
+   "finalMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/GIT-BRANCH-RECONCILIATION-2026-11-22.md; close-out report 2026-11-22",
+   "updatedAt": "2026-11-22T05:45:00Z"
+  },
+  {
+   "id": "phase3g-graded-recall",
+   "title": "Phase 3G — Riishe Studio graded recall (type-the-answer flashcards) + permanent commit publication enforcement",
+   "branch": "feat/bean-riishe-phase3g-next-milestone",
+   "baseMainSha": "e93cdef1bf2d3a584f05c35c9038ab9e68091052",
+   "commits": [
+    "997fabd05141eb85bbef5d6d7228a48f2a678b34",
+    "7020b0a71415939461bb3339ee08609d0ff066f2",
+    "863052237a879e1dd0353e2f29a7803bd8d535e4",
+    "63bcfbbd736150640f3397a76ac5d02ac1f05f1a"
+   ],
+   "remoteFeatureSha": "bf79a43718c5561c7af0cf66bf31e4a58546e095",
+   "pushVerifiedAt": "2026-11-22T07:50:00Z",
+   "pr": {
+    "number": 23,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/23"
+   },
+   "mergeCommitSha": "806c835de2ebf75cb85f72365bf98a860c477d12",
+   "ci": [
+    {
+     "runId": "44993087901",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on branch tip 8630522 (pre-merge)"
+    },
+    {
+     "runId": "44993066412",
+     "conclusion": "CANCELLED",
+     "subject": "superseded by the workflow's own concurrency policy (cancel-in-progress) when the ledger-sync push landed"
+    },
+    {
+     "runId": "44993273729",
+     "conclusion": "SUCCESS",
+     "subject": "main run after PR #23 merge (806c835)"
+    },
+    {
+     "runId": "44993358851",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on branch tip 63bcfbb (post-merge ledger sync)"
+    }
+   ],
+   "ciNote": "All milestone feature work is integrated: PR #23 (merge 806c835) carried 997fabd, 7020b0a and 8630522 into main — all verified ancestors. Run 44993066412 was cancelled BY the workflow's own cancel-in-progress rule when a newer push superseded it (by design, not a failure). The ledger-sync commit 63bcfbb landed AFTER the merge (pushed while the owner merged) and is preserved on the branch behind a reconciliation merge — the branch is ahead-only pending the follow-up PR for the ledger-closing docs (same authorization gate: PR creation requires GitHub web/API authentication unavailable in the implementation environment). Ledger-sync commits trail the branch tip by one commit by construction: the final tip independently verified via ls-remote at report time is bf79a43718c5561c7af0cf66bf31e4a58546e095; the authoritative integration evidence is PR #23 + commit ancestry, which is static.",
+   "finalMainSha": "806c835de2ebf75cb85f72365bf98a860c477d12",
+   "syncStatus": "PENDING",
+   "status": "MERGED",
+   "evidence": "docs/PHASE-3G-RIISHE-GRADED-RECALL.md; PR #23 (merged, merge 806c835); compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3g-next-milestone",
+   "updatedAt": "2026-11-22T07:45:00Z"
+  },
+  {
+   "id": "phase3h-studio-history-retention",
+   "title": "Phase 3H — Riishe Studio history discovery, retention preferences & safe cleanup",
+   "branch": "feat/bean-riishe-phase3h-history-retention",
+   "baseMainSha": "3534f41451c2ed0eccb5f92a665b5c7db27f4435",
+   "commits": [
+    "aa453bf6a17b10fef6edf633b514d2b93c1be047",
+    "80a95659c0b360183c81f206af26faaa28de6ec6",
+    "f6d07097f9f0e929b20195129957c0c38a4012ab"
+   ],
+   "remoteFeatureSha": "f6d07097f9f0e929b20195129957c0c38a4012ab",
+   "pushVerifiedAt": "2026-11-22T09:05:00Z",
+   "pr": {
+    "number": 25,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/25"
+   },
+   "mergeCommitSha": "c4579a52f4aa5552938c4f5b86401df811761e46",
+   "ci": [
+    {
+     "runId": "44999716363",
+     "conclusion": "SUCCESS",
+     "subject": "push run on ledger-entry commit 80a9565 (run #107; verified via GitHub REST API during the 2026-11-23 reconciliation: status completed, conclusion success)"
+    },
+    {
+     "runId": "45000441624",
+     "conclusion": "SUCCESS",
+     "subject": "push run on branch tip f6d0709 = PR #25 head (run #108; verified via GitHub REST API during the 2026-11-23 reconciliation: status completed, conclusion success)"
+    },
+    {
+     "runId": "45003188257",
+     "conclusion": "SUCCESS",
+     "subject": "pull_request run for PR #25 on head f6d0709 (run #109; verified via GitHub REST API during the 2026-11-23 reconciliation: status completed, conclusion success)"
+    }
+   ],
+   "ciNote": "Reconciliation (2026-11-23, chore/phase3h-ledger-reconciliation): all three milestone commits (aa453bf, 80a9565, f6d0709) verified as ancestors of origin/main via git merge-base --is-ancestor; PR #25 verified MERGED via the GitHub REST API (merged: true, merge_commit_sha c4579a52f4aa5552938c4f5b86401df811761e46, merged_at 2026-11-22T08:31:19Z); all three CI runs verified completed/success via the same API. The earlier PUSHED entry (2 commits, remoteFeatureSha 80a9565, PR NONE) was stale: commit f6d0709 (the ledger tip it described) and PR #25's merge happened after that entry was written. The feature branch was fast-forwarded from f6d0709 to the verified post-merge main c4579a52 during this reconciliation (normal push, ls-remote verified, rev-list --left-right --count = 0 0); all 18 remote branches were fast-forwarded to c4579a52 in the same verified round (branch-health: 18 in sync). remoteFeatureSha intentionally keeps the as-pushed tip f6d07097 (the gate also accepts the branch sitting at main after synchronization). finalMainSha stays null by design: this documentation PR's own merge SHA cannot be known at write time and the gate checks live origin/main directly; main after the Phase 3H merge was independently verified as c4579a52 via ls-remote. status COMPLETE is asserted as part of this reconciliation: PR #25 — the milestone's required PR — is merged and fully verified, and upon THIS documentation PR merging, the recorded routine fast-forward round synchronizes all branches to the new main and scripts/branch-health.mjs --gate phase3h-studio-history-retention is run immediately afterward to machine-verify the COMPLETE state (the gate is the authority).",
+   "finalMainSha": null,
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PHASE-3H-RIISHE-STUDIO-HISTORY-RETENTION.md; PR #25 (MERGED via GitHub REST API, merge commit c4579a5); CI runs 44999716363/45000441624/45003188257 (SUCCESS via GitHub REST API); compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3h-history-retention",
+   "updatedAt": "2026-11-23T02:27:37Z"
+  },
+  {
+   "id": "public-experience-auth-legal",
+   "title": "Public Experience, Authentication & Legal Foundation — homepage overhaul, audience-first auth, real Google OAuth (PKCE/JWKS), Terms + Privacy, versioned legal acceptance, privacy rights & account-deletion review",
+   "branch": "feat/bean-public-experience-auth-legal",
+   "baseMainSha": "65d51c2b003eda92f2443ce187761e0eddf16238",
+   "commits": [
+    "c2b5e7ae1423eacfa1c211272d5092ddf6d72c7c",
+    "6a1c1d2e1243aec02b0a392393012bb85f715887"
+   ],
+   "remoteFeatureSha": "b0cda7d751faf497f0cb74ded6df64c11cfbcfe9",
+   "pushVerifiedAt": "2026-11-23T04:33:00Z",
+   "pr": {
+    "number": 27,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/27"
+   },
+   "ci": [
+    {
+     "runId": "45112158210",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on branch tip b0cda7d (push build on feat/bean-public-experience-auth-legal) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45111775273",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on branch tip dac46e5 (push build on feat/bean-public-experience-auth-legal, pre-merge) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45111739544",
+     "conclusion": "CANCELLED",
+     "subject": "superseded by the workflow's own concurrency policy (cancel-in-progress) when the ledger-sync push landed"
+    }
+   ],
+   "ciNote": [
+    "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; unauthenticated REST was rate-limited, HTML used). PR #27 was opened by the owner session (ADR-008 — OAuth device-flow blocked in sandbox; deploy keys cannot create PRs) and merged after CI verification. Post-merge state recorded from verified main history."
+   ],
+   "finalMainSha": "fcf7418044df8ead7a449648268d90a1956be4b7",
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md; PR #27 MERGED (merge commit fcf7418, verified in main history); all 5 branch commits verified as ancestors of main",
+   "updatedAt": "2026-11-23T05:31:26Z"
+  },
+  {
+   "id": "bean-premium-brand-ui-redesign",
+   "title": "Premium Brand & UI Redesign — BEAN Education identity (obsidian/metallic gold/champagne/ivory), glass design system, gold-bean brand mark, header/footer/home/auth/Trust&Safety/Terms/Privacy redesign, public-facing rename, Trust & Safety factual alignment with the enforced backend",
+   "branch": "feat/bean-premium-brand-ui-redesign",
+   "baseMainSha": "fcf7418044df8ead7a449648268d90a1956be4b7",
+   "commits": [
+    "d74b6935b99873570960c127805e08788f4ad38a",
+    "eee5ee6737812e4c5b4277045de7db146cead5cc",
+    "8c9c6075db5e0a3fd9d2b70ddf38d3efa572e75c",
+    "c895f8231cd3600ffa48a7235e865a3c974f523a",
+    "973a6bcc5e290ca79af6f4b61d8d57107c82a02b",
+    "f8633f3392e0d57f190a3351f3b1abc69b51b956",
+    "38a5f62cde706198d8714b4bcf19d5aebdb84284"
+   ],
+   "remoteFeatureSha": "38a5f62cde706198d8714b4bcf19d5aebdb84284",
+   "pushVerifiedAt": "2026-11-23T05:02:00Z",
+   "pr": {
+    "number": 28,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/28"
+   },
+   "ci": [
+    {
+     "runId": "45116678858",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 38a5f62 (push build on feat/bean-premium-brand-ui-redesign, with bun test --isolate) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45116949273",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 38a5f62 (pull_request event for PR #28) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45115421072",
+     "conclusion": "FAILURE",
+     "subject": "push build on 973a6bcc — Tests step failed: oauth-google.test.ts received the oauth-routes.test.ts mock verifyGoogleIdToken (sub 'google-sub-1'); cross-file mock.module leakage under bun's concurrent file execution; diagnosed, not reproducible locally, fixed by --isolate (38a5f62)"
+    },
+    {
+     "runId": "45115982716",
+     "conclusion": "FAILURE",
+     "subject": "push build on f8633f3 — same cross-file mock.module leakage as 45115421072 (10 annotations, same test file); fixed by the --isolate CI change"
+    },
+    {
+     "runId": "45114953351",
+     "conclusion": "CANCELLED",
+     "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+    },
+    {
+     "runId": "45115079518",
+     "conclusion": "CANCELLED",
+     "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+    },
+    {
+     "runId": "45115218987",
+     "conclusion": "CANCELLED",
+     "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+    },
+    {
+     "runId": "45115342959",
+     "conclusion": "CANCELLED",
+     "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+    }
+   ],
+   "ciNote": [
+    "Both completed runs on the merged tip 38a5f62 (push event + pull_request event for PR #28) are green with bun test --isolate: 1241 tests pass. The two earlier FAILURES are recorded honestly: they were caused by a pre-existing flaky test-infra pattern (mock.module in oauth-routes.test.ts leaking into oauth-google.test.ts when bun schedules files concurrently against one shared module registry) — the identical files passed on main's CI twice, confirming flakiness rather than content. Fixed in-commit by running the CI test step with --isolate.",
+    "PR #28 was opened by the owner session (ADR-008 — sandbox deploy keys cannot create PRs) and merged after the CI runs on 38a5f62 were verified green. Feature branch fast-forwarded to the merge commit c585db4 and re-verified via git ls-remote; zero drift."
+   ],
+   "finalMainSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765",
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
+   "evidence": "docs/BRAND-REDESIGN-2026-11.md; PR #28 MERGED (merge commit c585db4, verified in main history); 7 branch commits verified as ancestors of main; branch synchronized to main (c585db4) via --ff-only push",
+   "updatedAt": "2026-11-23T05:31:26Z"
+  },
+  {
+   "id": "bean-legal-pages-redesign",
+   "title": "Legal pages document redesign — Terms & Privacy as premium legal documents: version/last-updated/effective-date chips (owner-configurable, honest fallbacks), classified sections (rights/responsibilities/privacy practice/notices/operator & grievance), desktop sticky TOC + mobile collapsible panel, Notice callouts, back-to-top; all privacy/data-handling statements re-verified against the actual code",
+   "branch": "feat/bean-legal-pages-redesign",
+   "baseMainSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765",
+   "commits": [
+    "abd7308639d66008a0a7d3775c62cf346cbf5a6a",
+    "bf65888e7e202597240c09a672c16678e11dbd76",
+    "0d98a107ca9764176de7c61e3d10257a1c337e68"
+   ],
+   "remoteFeatureSha": "0d98a107ca9764176de7c61e3d10257a1c337e68",
+   "pushVerifiedAt": "2026-11-23T05:44:00Z",
+   "pr": {
+    "number": null,
+    "state": "NOT_CREATED",
+    "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-legal-pages-redesign"
+   },
+   "ci": [
+    {
+     "runId": "45119660769",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 0d98a10 (push build on feat/bean-legal-pages-redesign, branch tip) — verified via GitHub Actions HTML (all steps green, no annotations)"
+    },
+    {
+     "runId": "45119363386",
+     "conclusion": "CANCELLED",
+     "subject": "push build on abd7308 — superseded by the workflow's concurrency policy (cancel-in-progress)"
+    },
+    {
+     "runId": "45119387770",
+     "conclusion": "CANCELLED",
+     "subject": "push build on bf65888 — superseded by the workflow's concurrency policy (cancel-in-progress)"
+    }
+   ],
+   "ciNote": [
+    "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; REST rate-limited at check time). PR creation is a recorded gate per ADR-008: GitHub PRs require the owner session (deploy keys cannot create PRs); the owner opened and merged PRs #27 and #28 this way. Compare URL recorded above — no PR number is invented. Local verification before push: eslint clean, tsc --noEmit clean, 1241/1241 tests pass, production build OK, browser-verified at 1440 and 390 (meta chips, mobile TOC, Notice callouts, back-to-top, zero console errors).",
+    "Privacy/data-handling statements re-verified against the code during this milestone: scrypt password hashing (N=16384,r=8,p=1, 16-byte salt, 64-byte key), 30-day sliding sessions on an httpOnly cookie with only a SHA-256 token hash stored, Google OAuth limited to 'openid email profile' scopes with no access/refresh token storage, no email/analytics/advertising SDKs, random device-local guest identifiers, JSON export attachment, typed-DELETE + password re-authentication for deletion.",
+    "Post-merge state (mergeCommitSha/finalMainSha/syncStatus/status COMPLETE) must only be recorded after a real PR is opened and merged."
+   ],
+   "finalMainSha": null,
+   "syncStatus": "PENDING",
+   "status": "PUSHED",
+   "evidence": "docs/LEGAL-PAGES-REDESIGN-2026-11.md",
+   "updatedAt": "2026-11-23T05:47:00Z"
+  },
+  {
+   "id": "bean-classroom-intelligence",
+   "title": "BEAN Classroom Intelligence CI-1 — open-source-agent research (LiveKit Agents/LangGraph/CrewAI, licences verified live), BEAN-native multi-agent pipeline: BEAN Learner Agent, BEAN Teacher Judge Agent (10 categories), pure deterministic Evaluation Orchestrator; additive 7-table migration; durable consent-gated evaluation queue (CAS/lease/retries) wired post-transaction into live/end and the LiveKit webhook; authorised evidence only (lesson plan, verified attendance, AGGREGATE connection intervals, whiteboard stroke structure, opt-in teacher notes — no audio/video, no identities to the model); versioned evidence-backed reports; teacher Classroom Intelligence tab + student class-level summaries; teacher disputes + admin human review (UPHELD/CORRECTED deterministic rebuild/RETRACTED); export/deletion integration; privacy & security, API, future-payments, results documentation; live end-to-end verification with measured benchmarks",
+   "branch": "feat/bean-classroom-intelligence",
+   "baseMainSha": "bb12daa5460103ab913fa8c15baa49840e7cfda9",
+   "commits": [
+    "ec0f8be27231c5f91a16cf5729d6d8ec22645325",
+    "26e37897a08caa6385b59fca05d9932e4b6c4bb0",
+    "6055a3d2d8b78abb4319987827445ca3713033f5",
+    "fd281f876b6d2e9b89964f002a2f154e9558d9d1",
+    "22d952c98f17d36e61df70231076863930e51634",
+    "2e56481cee8dbee10c9c8f1716161c352291a9f9"
+   ],
+   "remoteFeatureSha": null,
+   "pushVerifiedAt": null,
+   "pr": {
+    "number": null,
+    "state": "NONE",
+    "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence"
+   },
+   "ci": [
+    {
+     "runId": "45122229190",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on ec0f8be (push, CI-1A docs) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45123442462",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 26e3789 (push, CI-1B runtime) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45124586374",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 6055a3d (push, CI-1C agents) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45125810277",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on fd281f8 (push, CI-1D integration) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45127267590",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 22d952c (push, CI-1E trust/privacy) — verified via GitHub Actions HTML"
+    },
+    {
+     "runId": "45129273436",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 2e56481 (push, CI-1F production readiness) — verified via GitHub Actions HTML"
+    }
+   ],
+   "finalMainSha": null,
+   "syncStatus": "PENDING",
+   "status": "PUSHED",
+   "evidence": "Milestone ledger + results report: docs/CLASSROOM-INTELLIGENCE-RESULTS.md. Every push SHA-verified via git ls-remote at push time; CI conclusions read from the branch's GitHub Actions page (unauthenticated REST API was IP-rate-limited). Full suite 1288 pass / 0 fail; tsc + eslint + production build clean; two live end-to-end evaluation runs completed against the real provider (benchmarks in the results doc). PR per ADR-008: opened by the owner session when authorised.",
+   "ciNote": "The ledger-sync commit that records this entry rides on top of the verified feature tip 2e56481; its own CI run is the ledger's final recorded check."
+  }
+ ]
 }
