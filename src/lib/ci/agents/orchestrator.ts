@@ -21,7 +21,9 @@ import type { LearnerOutput, JudgeOutput, ReportFinding, FinalReport, StudentSum
 import { CI_EVIDENCE_KIND } from '@/lib/ci/constants'
 
 export interface OrchestrationInput {
-  view: EvidenceView
+  /** Present for normal runs; dispute-correction rebuilds reuse the stored
+   *  evidence register instead of re-gathering, so this is optional. */
+  view?: EvidenceView
   evidenceRefs: EvidenceRefSpec[]
   learner: LearnerOutput
   judge: JudgeOutput

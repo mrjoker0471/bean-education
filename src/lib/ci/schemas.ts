@@ -191,3 +191,29 @@ export function parseFinalReport(raw: unknown): FinalReport {
 export function parseStudentSummary(raw: unknown): StudentSummary {
   return studentSummarySchema.parse(raw)
 }
+
+// ─── Disputes (CI-1E) ───────────────────────────────────────────────────────
+
+/** A teacher dispute against specific findings of one report version. */
+export const ciDisputeSchema = z.object({
+  findings: z
+    .array(
+      z.object({
+        findingId: z.string().min(3).max(40),
+        reason: z.string().min(20).max(1000),
+      }),
+    )
+    .min(1)
+    .max(10),
+})
+export type CiDisputeInput = z.infer<typeof ciDisputeSchema>
+
+/** Admin human-review action on a dispute. */
+export const ciDisputeActionSchema = z.object({
+  action: z.enum(['ASSIGN', 'UNDER_REVIEW', 'RESOLVE', 'DISMISS']),
+  /** Mandatory for RESOLVE — the human decision on the disputed findings. */
+  resolution: z.enum(['UPHELD', 'CORRECTED', 'RETRACTED']).optional(),
+  /** Mandatory for RESOLVE/DISMISS — documented grounds (append-only history). */
+  note: z.string().min(10).max(1000).optional(),
+})
+export type CiDisputeActionInput = z.infer<typeof ciDisputeActionSchema>
