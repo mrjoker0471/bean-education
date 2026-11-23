@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { TeacherClassroomIntelligencePanel } from '@/components/bean/classroom-intelligence/teacher-ci-panel'
 import { TeacherLiveClassButton } from '@/components/bean/classroom/classroom-entry'
 import { RatingStars } from '@/components/bean/trust/quality-metrics'
 import { api } from '@/lib/api'
@@ -242,6 +243,7 @@ function DashboardPanel({ onProfileChanged }: { onProfileChanged: () => void }) 
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="classes">My classes</TabsTrigger>
           <TabsTrigger value="trust">Trust &amp; Quality</TabsTrigger>
+          <TabsTrigger value="intelligence">Classroom Intelligence</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
@@ -252,6 +254,12 @@ function DashboardPanel({ onProfileChanged }: { onProfileChanged: () => void }) 
             anonymous open-complaint count, restrictions and appeal status. */}
         <TabsContent value="trust" className="mt-4">
           <TrustPanel />
+        </TabsContent>
+
+        {/* CI-1: Classroom Intelligence — consent-gated, evidence-backed class
+            evaluations. Advisory only; never modifies ratings or reviews. */}
+        <TabsContent value="intelligence" className="mt-4">
+          <TeacherClassroomIntelligencePanel />
         </TabsContent>
 
         <TabsContent value="classes" className="mt-4">

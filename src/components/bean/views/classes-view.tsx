@@ -21,6 +21,7 @@ import { ShieldQuestion } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { StudentClassSummaries } from '@/components/bean/classroom-intelligence/student-summaries'
 import { BookingLiveBadge } from '@/components/bean/classroom/classroom-entry'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
@@ -412,6 +413,10 @@ function MyBookingsPanel({ navigate }: { navigate: (route: ReturnType<typeof use
           <ShieldQuestion className="mr-1.5 h-3.5 w-3.5" aria-hidden />My reports &amp; appeals
         </Button>
       </div>
+
+      {/* CI-1: class-level learning summaries for attended classes (additive;
+          hides itself cleanly when there are no summaries). */}
+      <StudentClassSummaries />
 
       <BookingGroup title="Upcoming reservations" empty="No upcoming reservations." bookings={upcoming} onCancel={setCancelling} onReport={setReporting} navigate={navigate} />
       <BookingGroup title="Completed sessions" empty="Completed sessions with attendance will appear here." bookings={past} onCancel={setCancelling} onReport={setReporting} navigate={navigate} />
