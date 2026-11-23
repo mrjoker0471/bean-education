@@ -74,7 +74,7 @@ export function ReviewSection({ classId, isOwnerTeacher }: { classId: string; is
         </Badge>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Only students the teacher confirmed as attended — with server-verified live attendance evidence where available — can review. Criticism is welcome; moderation keeps it respectful.
+        Only students the teacher confirmed as attended can review; where the live classroom was used, teachers see server-verified attendance evidence as advisory context. Criticism is welcome; moderation keeps it respectful.
       </p>
 
       {!authedStudent && (
