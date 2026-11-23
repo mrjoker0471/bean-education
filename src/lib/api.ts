@@ -146,6 +146,12 @@ import type {
   OrgGroupUpdateInput,
   OrgResourceUpdateInput,
 } from './institution-dto'
+import type {
+  CiClassEvaluationResponse,
+  CiConsentDTO,
+  CiStudentSummariesResponse,
+  CiTeacherSummaryResponse,
+} from './ci/dto'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -754,6 +760,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(snapshot),
     }),
+
+  // ─── BEAN Classroom Intelligence (CI-1): teacher quality reports ───
+  ciTeacherSummary: () => jsonFetch<CiTeacherSummaryResponse>('/api/teach/classroom-intelligence'),
+  ciSetConsent: (granted: boolean) =>
+    jsonFetch<{ consent: CiConsentDTO }>('/api/teach/classroom-intelligence', {
+      method: 'POST',
+      body: JSON.stringify({ granted }),
+    }),
+  ciClassEvaluation: (classId: string) =>
+    jsonFetch<CiClassEvaluationResponse>(`/api/teach/classes/${encodeURIComponent(classId)}/evaluation`),
+  ciRequestEvaluation: (classId: string, teacherNotes?: string) =>
+    jsonFetch<{ queued: boolean; jobId: string; alreadyQueued: boolean }>(
+      `/api/teach/classes/${encodeURIComponent(classId)}/evaluation`,
+      { method: 'POST', body: JSON.stringify(teacherNotes ? { teacherNotes } : {}) },
+    ),
+  ciStudentSummaries: () => jsonFetch<CiStudentSummariesResponse>('/api/learn/class-summaries'),
 
   // ─── BEAN Trust & Quality (Phase 6): reviews, complaints, appeals ───
   classReviews: (classId: string) =>

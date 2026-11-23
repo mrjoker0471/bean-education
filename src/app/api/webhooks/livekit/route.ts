@@ -32,6 +32,10 @@ import {
   LIVE_SESSION_STATUS,
   studentIdFromIdentity,
 } from '@/lib/livekit/live'
+// BEAN Classroom Intelligence (CI-1B): consent-gated, error-isolated trigger
+// for provider-initiated room finishes (never affects the webhook response).
+import { triggerEvaluationForEndedSession } from '@/lib/ci/trigger'
+import { CI_TRIGGER } from '@/lib/ci/constants'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -229,6 +233,20 @@ export async function POST(req: NextRequest) {
           where: { providerEventId },
           data: { processedAt: new Date(), processingStatus: 'SKIPPED', errorCode: txResult },
         })
+      }
+
+      // Classroom Intelligence (CI-1B): the provider finished a room for a
+      // known session. Fire-and-forget evaluation trigger (auto-triggers are
+      // deduplicated against teacher-ended sessions by the enqueue guards;
+      // failures are logged inside the trigger only).
+      if (txResult === 'processed' && eventName === 'room_finished') {
+        const knownLive = await db.liveClassSession.findUnique({
+          where: { roomName },
+          select: { classSessionId: true },
+        })
+        if (knownLive) {
+          triggerEvaluationForEndedSession(knownLive.classSessionId, CI_TRIGGER.PROVIDER_ROOM_FINISHED)
+        }
       }
 
       return NextResponse.json({ ok: true })
