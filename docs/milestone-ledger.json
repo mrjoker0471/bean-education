@@ -493,6 +493,30 @@
       "status": "COMPLETE",
       "evidence": "docs/PHASE-3H-RIISHE-STUDIO-HISTORY-RETENTION.md; PR #25 (MERGED via GitHub REST API, merge commit c4579a5); CI runs 44999716363/45000441624/45003188257 (SUCCESS via GitHub REST API); compare: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-riishe-phase3h-history-retention",
       "updatedAt": "2026-11-23T02:27:37Z"
+    },
+    {
+      "id": "public-experience-auth-legal",
+      "title": "Public Experience, Authentication & Legal Foundation — homepage overhaul, audience-first auth, real Google OAuth (PKCE/JWKS), Terms + Privacy, versioned legal acceptance, privacy rights & account-deletion review",
+      "branch": "feat/bean-public-experience-auth-legal",
+      "baseMainSha": "65d51c2b003eda92f2443ce187761e0eddf16238",
+      "commits": [
+        "c2b5e7ae1423eacfa1c211272d5092ddf6d72c7c",
+        "6a1c1d2e1243aec02b0a392393012bb85f715887"
+      ],
+      "remoteFeatureSha": "6a1c1d2e1243aec02b0a392393012bb85f715887",
+      "pushVerifiedAt": "2026-11-23T04:33:00Z",
+      "pr": {
+        "number": null,
+        "state": "OPEN",
+        "url": null
+      },
+      "ci": [],
+      "ciNote": "Pre-merge CI results will be recorded on the PR-head commit after the GitHub Actions run completes; post-merge state (mergeCommitSha/finalMainSha/syncStatus/status) is recorded by the follow-up ledger reconciliation, per the phase3h precedent.",
+      "finalMainSha": null,
+      "syncStatus": "PENDING",
+      "status": "PUSHED",
+      "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md",
+      "updatedAt": "2026-11-23T04:33:00Z"
     }
   ]
 }
