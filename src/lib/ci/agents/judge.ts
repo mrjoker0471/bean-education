@@ -14,7 +14,7 @@
 import { completeJson, fenceClassroomText } from '@/lib/ci/model-adapter'
 import type { CiModelAdapter } from '@/lib/ci/model-adapter'
 import type { EvidenceView } from '@/lib/ci/evidence'
-import { parseJudgeOutput, type JudgeOutput } from '@/lib/ci/schemas'
+import { parseJudgeOutput, normaliseStructuredOutput, type JudgeOutput } from '@/lib/ci/schemas'
 
 const CATEGORIES = `1. SUBJECT_ACCURACY — the subject content that the evidence shows was taught is correct and sound.
 2. EXPLANATION_CLARITY — explanations of concepts are clear where the evidence allows judging them.
@@ -78,7 +78,7 @@ export async function runTeacherJudgeAgent(
     adapter,
     system: SYSTEM,
     user: buildJudgePrompt(view, teacherNotes),
-    validate: (v) => parseJudgeOutput(v),
+    validate: (v) => parseJudgeOutput(normaliseStructuredOutput(v)),
   })
   return { output, inputDigestBasis: view }
 }

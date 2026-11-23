@@ -52,6 +52,9 @@ export interface ParticipantIntervalsEvidence {
   liveSessionStatus: string | null
   liveSessionEndedReason: string | null
   actualParticipantMinutes: number | null
+  /** Machine-readable semantics note: these are AGGREGATES, not per-student
+   *  data, and participant-minutes are not wall-clock session length. */
+  legend: string
 }
 
 export interface WhiteboardEvidence {
@@ -71,6 +74,11 @@ export interface EvidenceBundle {
 }
 
 // ─── Zod view: what leaves this module for the agents (bounded, no identities)
+
+export const PARTICIPANT_INTERVALS_LEGEND =
+  'All figures here are whole-class AGGREGATES from verified connection evidence — there is no per-student data. ' +
+  'Seconds are summed verified connection time. actualParticipantMinutes is the SUM of every participant\'s verified connection time expressed in participant-minutes (three attendees connected 45 minutes each = 135), NOT the wall-clock length of the session. ' +
+  'Reconnect counts network hiccups and is never a measure of engagement or teaching quality.'
 
 export const evidenceViewSchema = z.object({
   classSessionId: z.string().min(1),
@@ -101,6 +109,7 @@ export const evidenceViewSchema = z.object({
       liveSessionStatus: z.string().nullable(),
       liveSessionEndedReason: z.string().nullable(),
       actualParticipantMinutes: z.number().int().nonnegative().nullable(),
+      legend: z.string(),
     })
     .nullable(),
   whiteboard: z.object({
@@ -183,6 +192,7 @@ export async function gatherEvidence(classSessionId: string): Promise<EvidenceBu
       liveSessionStatus: cls.liveSession.status,
       liveSessionEndedReason: cls.liveSession.endReason,
       actualParticipantMinutes: cls.liveSession.actualParticipantMinutes,
+      legend: PARTICIPANT_INTERVALS_LEGEND,
     }
   }
 
