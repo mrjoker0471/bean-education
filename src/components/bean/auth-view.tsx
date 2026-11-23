@@ -466,7 +466,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
   // ─── Step 1: audience choice ────────────────────────────────────────────────
   if (panel === 'audience') {
     return (
-      <Card className="mx-auto w-full max-w-md border-border bg-card">
+      <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
         <CardHeader>
           <CardTitle className="font-display text-2xl text-foreground">How would you like to use BEAN?</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -477,7 +477,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
           <button
             type="button"
             onClick={() => chooseAudience('STUDENT')}
-            className="w-full rounded-xl border border-border bg-elevated/40 p-4 text-left transition-colors hover:border-gold/40 hover:bg-gold/5 focus-visible:outline-2 focus-visible:outline-gold"
+            className="w-full rounded-xl border border-hairline bg-white/[0.03] p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold"
             aria-describedby="bean-audience-student-desc"
           >
             <div className="flex items-center gap-2 text-foreground">
@@ -492,7 +492,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
           <button
             type="button"
             onClick={() => chooseAudience('TEACHER')}
-            className="w-full rounded-xl border border-border bg-elevated/40 p-4 text-left transition-colors hover:border-gold/40 hover:bg-gold/5 focus-visible:outline-2 focus-visible:outline-gold"
+            className="w-full rounded-xl border border-hairline bg-white/[0.03] p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold"
             aria-describedby="bean-audience-teacher-desc"
           >
             <div className="flex items-center gap-2 text-foreground">
@@ -523,7 +523,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
   // ─── Google account linking (proof of ownership) ────────────────────────────
   if (panel === 'link') {
     return (
-      <Card className="mx-auto w-full max-w-md border-border bg-card">
+      <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
         <CardHeader>
           <CardTitle className="font-display text-2xl text-foreground">Link your Google account</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -565,7 +565,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
   // ─── Google first-time signup (same legal acceptance as normal signup) ──────
   if (panel === 'google-signup') {
     return (
-      <Card className="mx-auto w-full max-w-md border-border bg-card">
+      <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
         <CardHeader>
           <CardTitle className="font-display text-2xl text-foreground">Complete your Google sign-up</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -603,13 +603,13 @@ export function AuthView({ onAuthed }: AuthViewProps) {
 
   // ─── Step 2: sign in / create account (+ Google) ────────────────────────────
   return (
-    <Card className="mx-auto w-full max-w-md border-border bg-card">
+    <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
       <CardHeader>
         <CardTitle className="font-display text-2xl text-foreground">{audienceTitle}</CardTitle>
         <CardDescription className="text-muted-foreground">{audienceBlurb}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-border bg-elevated/40 px-3 py-2">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-hairline bg-white/[0.03] px-3 py-2">
           <span className="text-xs text-muted-foreground">
             Using BEAN as <span className="text-foreground">{audience === 'TEACHER' ? 'a teacher' : 'a student'}</span>
           </span>
