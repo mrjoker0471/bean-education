@@ -14,9 +14,10 @@
 //   • Deletion is described with its real limits (no "instantly erased
 //     everywhere" claim).
 
-import { PolicyPage, type PolicySection } from '@/components/bean/policy-page'
+import { PolicyPage, Notice, type PolicySection } from '@/components/bean/policy-page'
 import { api } from '@/lib/api'
 import { useEffect, useState } from 'react'
+import type { LegalConfigDTO } from '@/lib/types'
 
 const SECTIONS: PolicySection[] = [
   {
@@ -40,6 +41,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'collected',
+    kind: 'privacy',
     title: 'Information we collect',
     body: (
       <>
@@ -58,6 +60,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'not-collected',
+    kind: 'privacy',
     title: 'What we deliberately do not collect',
     body: (
       <ul>
@@ -71,6 +74,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'purposes',
+    kind: 'privacy',
     title: 'Why we process information (purposes)',
     body: (
       <ul>
@@ -87,6 +91,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'ai-providers',
+    kind: 'privacy',
     title: 'AI and third-party providers',
     body: (
       <>
@@ -125,6 +130,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'children',
+    kind: 'notice',
     title: 'Children and guardian consent',
     body: (
       <>
@@ -133,12 +139,14 @@ const SECTIONS: PolicySection[] = [
           advertising or behavioural profiles of children — there are no ads and no behavioural tracking on the
           platform at all.
         </p>
-        <p>
-          <strong>Current status (honest):</strong> personal-data accounts require a declaration of being 18 or
-          older; under-18 accounts are refused until verifiable parental consent is available, and nothing about an
-          under-18 visitor is stored when they are refused. Under-18 users can use guest mode, which stores no
-          account data. BEAN never claims a checkbox or email step is “verifiable parental consent”.
-        </p>
+        <Notice title="Current status — honest">
+          <p>
+            <strong>Current status (honest):</strong> personal-data accounts require a declaration of being 18 or
+            older; under-18 accounts are refused until verifiable parental consent is available, and nothing about an
+            under-18 visitor is stored when they are refused. Under-18 users can use guest mode, which stores no
+            account data. BEAN never claims a checkbox or email step is “verifiable parental consent”.
+          </p>
+        </Notice>
         <p>
           <strong>Planned:</strong> a guardian-consent workflow compliant with India&apos;s data-protection law for
           children is designed and will be implemented before the applicable legal commencement date; until it is
@@ -149,6 +157,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'retention',
+    kind: 'privacy',
     title: 'How long we keep information',
     body: (
       <ul>
@@ -170,6 +179,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'rights',
+    kind: 'rights',
     title: 'Your rights and choices',
     body: (
       <ul>
@@ -184,6 +194,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'security',
+    kind: 'privacy',
     title: 'How we protect information',
     body: (
       <ul>
@@ -211,10 +222,9 @@ const SECTIONS: PolicySection[] = [
 ]
 
 export function PrivacyView() {
-  const [version, setVersion] = useState<string | null>(null)
-  const [draft, setDraft] = useState(true)
+  const [cfg, setCfg] = useState<LegalConfigDTO | null>(null)
   useEffect(() => {
-    void api.legalConfig().then(c => { setVersion(c.privacyVersion); setDraft(c.versionsAreDraft) }).catch(() => undefined)
+    void api.legalConfig().then(setCfg).catch(() => undefined)
   }, [])
 
   return (
@@ -222,8 +232,9 @@ export function PrivacyView() {
       ariaLabel="Privacy Policy"
       title="Privacy Policy"
       intro="What BEAN Education collects, why, who receives it, how long it is kept, and the controls you have — written from an audit of what the product actually does, in language students, parents and teachers can read."
-      version={version}
-      versionsAreDraft={draft}
+      version={cfg?.privacyVersion ?? null}
+      versionsAreDraft={cfg ? cfg.versionsAreDraft : true}
+      dates={cfg?.dates}
       sections={SECTIONS}
     />
   )
