@@ -9,13 +9,15 @@
 //     exam results are claimed.
 //   • Governing-law wording is explicitly subject to Indian legal review.
 
-import { PolicyPage, type PolicySection } from '@/components/bean/policy-page'
+import { PolicyPage, Notice, type PolicySection, type PolicySectionKind } from '@/components/bean/policy-page'
 import { api } from '@/lib/api'
 import { useEffect, useState } from 'react'
+import type { LegalConfigDTO } from '@/lib/types'
 
 const SECTIONS: PolicySection[] = [
   {
     id: 'operator',
+    kind: 'operator',
     title: 'Platform operator and contact details',
     body: (
       <>
@@ -81,6 +83,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'eligibility',
+    kind: 'general',
     title: 'Eligibility and account creation',
     body: (
       <>
@@ -90,11 +93,13 @@ const SECTIONS: PolicySection[] = [
           version of these Terms and acknowledging the current{' '}
           <a href="#/privacy">Privacy Policy</a>.
         </p>
-        <p>
-          <strong>Age:</strong> BEAN supports school-level learners, so users under 18 are expected. Until guardian
-          verification is available, personal-data accounts can only be created by users declaring they are 18 or
-          older; under-18 users can continue in guest mode. A date of birth is not collected.
-        </p>
+        <Notice title="Age requirement">
+          <p>
+            <strong>Age:</strong> BEAN supports school-level learners, so users under 18 are expected. Until guardian
+            verification is available, personal-data accounts can only be created by users declaring they are 18 or
+            older; under-18 users can continue in guest mode. A date of birth is not collected.
+          </p>
+        </Notice>
         <p>You are responsible for the accuracy of the information you provide and for keeping your credentials safe.</p>
       </>
     ),
@@ -118,6 +123,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'teacher-verification',
+    kind: 'responsibilities',
     title: 'Teacher application and verification',
     body: (
       <>
@@ -137,6 +143,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'teacher-independence',
+    kind: 'responsibilities',
     title: 'Teacher independence and marketplace responsibilities',
     body: (
       <>
@@ -155,6 +162,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'classes',
+    kind: 'responsibilities',
     title: 'Classes, booking and classroom conduct',
     body: (
       <ul>
@@ -167,6 +175,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'responsibilities',
+    kind: 'responsibilities',
     title: 'User responsibilities and acceptable use',
     body: (
       <ul>
@@ -180,6 +189,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'uploads',
+    kind: 'responsibilities',
     title: 'Uploaded documents and copyright ownership',
     body: (
       <p>
@@ -208,14 +218,17 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'ai',
+    kind: 'notice',
     title: 'AI-generated explanations and limitations',
     body: (
       <>
-        <p>
-          <strong>AI-generated explanations may contain inaccuracies.</strong> Riishe AI, document-grounded answers,
-          research summaries, Studio activities and practice questions are learning aids, not authoritative sources.
-          Always verify important statements against your official materials.
-        </p>
+        <Notice title="AI-generated content">
+          <p>
+            <strong>AI-generated explanations may contain inaccuracies.</strong> Riishe AI, document-grounded answers,
+            research summaries, Studio activities and practice questions are learning aids, not authoritative sources.
+            Always verify important statements against your official materials.
+          </p>
+        </Notice>
         <p>
           Riishe works from your uploaded documents and general knowledge; it can misread, hallucinate or omit.
           Research sessions label AI confidence honestly — AI confidence is never verification.
@@ -225,6 +238,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'exams',
+    kind: 'notice',
     title: 'Examination, syllabus and result disclaimers',
     body: (
       <ul>
@@ -236,6 +250,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'integrity',
+    kind: 'responsibilities',
     title: 'Academic integrity and misuse',
     body: (
       <p>
@@ -248,6 +263,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'privacy',
+    kind: 'privacy',
     title: 'Privacy and personal-data processing',
     body: (
       <p>
@@ -282,6 +298,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'export-deletion',
+    kind: 'rights',
     title: 'Account export and deletion',
     body: (
       <p>
@@ -295,6 +312,7 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'complaints',
+    kind: 'rights',
     title: 'Complaints, safeguarding and grievance redressal',
     body: (
       <>
@@ -346,24 +364,26 @@ const SECTIONS: PolicySection[] = [
   },
   {
     id: 'law',
+    kind: 'notice',
     title: 'Governing law and dispute resolution',
     body: (
-      <p>
-        These Terms are governed by the laws of India, and disputes are subject to the exclusive jurisdiction of
-        Indian courts. <strong>This clause and this entire document are subject to Indian legal review before
-        public launch</strong> — the operator has not yet completed that review, and no clause here constitutes a
-        legal opinion.
-      </p>
+      <Notice title="Governing law — review status">
+        <p>
+          These Terms are governed by the laws of India, and disputes are subject to the exclusive jurisdiction of
+          Indian courts. <strong>This clause and this entire document are subject to Indian legal review before
+          public launch</strong> — the operator has not yet completed that review, and no clause here constitutes a
+          legal opinion.
+        </p>
+      </Notice>
     ),
   },
 ]
 
 export function TermsView() {
-  const [version, setVersion] = useState<string | null>(null)
+  const [cfg, setCfg] = useState<LegalConfigDTO | null>(null)
   // Draft until the server confirms the owner-configured version.
-  const [draft, setDraft] = useState(true)
   useEffect(() => {
-    void api.legalConfig().then(c => { setVersion(c.termsVersion); setDraft(c.versionsAreDraft) }).catch(() => undefined)
+    void api.legalConfig().then(setCfg).catch(() => undefined)
   }, [])
 
   return (
@@ -371,8 +391,9 @@ export function TermsView() {
       ariaLabel="Terms and Conditions"
       title="Terms and Conditions"
       intro="The rules for using BEAN Education — the examination and study platform, Riishe AI, BEAN Teach, institutions and career tools. Plain language, no invented promises."
-      version={version}
-      versionsAreDraft={draft}
+      version={cfg?.termsVersion ?? null}
+      versionsAreDraft={cfg ? cfg.versionsAreDraft : true}
+      dates={cfg?.dates}
       sections={SECTIONS}
     />
   )
