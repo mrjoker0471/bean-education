@@ -79,6 +79,7 @@ read-only: it never pushes, merges, deletes, rewrites or updates anything.
 | Branch-health fix | fix/branch-health-runtime-compat | #22 | `e93cdef` | COMPLETE |
 | Phase 3G — graded recall | feat/bean-riishe-phase3g-next-milestone | #23 | `806c835` | MERGED (ledger-sync commits preserved on the branch behind PR #24; branch synchronized to main) |
 | Phase 3H — history & retention | feat/bean-riishe-phase3h-history-retention | #25 | `c4579a5` | COMPLETE (PR #25 MERGED, verified via GitHub REST API; feature branch fast-forwarded and synchronized to main; ledger reconciled by `chore/phase3h-ledger-reconciliation`) |
+| Public experience, auth & legal | feat/bean-public-experience-auth-legal | (recorded at publication) | (recorded at publication) | IN PROGRESS |
 
 Pre-ledger entries (`commits: []`, `ci: []` + notes) document only what is
 verified from main's merge history; nothing is inferred.
