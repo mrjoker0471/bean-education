@@ -506,9 +506,9 @@
       "remoteFeatureSha": "b0cda7d751faf497f0cb74ded6df64c11cfbcfe9",
       "pushVerifiedAt": "2026-11-23T04:33:00Z",
       "pr": {
-        "number": null,
-        "state": "NOT_CREATED",
-        "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-public-experience-auth-legal"
+        "number": 27,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/27"
       },
       "ci": [
         {
@@ -528,13 +528,86 @@
         }
       ],
       "ciNote": [
-        "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; unauthenticated REST was rate-limited, HTML used). PR creation is a recorded gate: GitHub PRs require the owner session (ADR-008 — OAuth device-flow blocked in sandbox; deploy keys cannot create PRs); all previous PRs (#19-#25) were authored by mrjoker0471. No PR number is invented. Post-merge state (mergeCommitSha/finalMainSha/syncStatus/status COMPLETE) must only be recorded after a real PR is opened and merged."
+        "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; unauthenticated REST was rate-limited, HTML used). PR #27 was opened by the owner session (ADR-008 — OAuth device-flow blocked in sandbox; deploy keys cannot create PRs) and merged after CI verification. Post-merge state recorded from verified main history."
       ],
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "PUSHED",
-      "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md",
-      "updatedAt": "2026-11-23T05:05:00Z"
+      "finalMainSha": "fcf7418044df8ead7a449648268d90a1956be4b7",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
+      "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md; PR #27 MERGED (merge commit fcf7418, verified in main history); all 5 branch commits verified as ancestors of main",
+      "updatedAt": "2026-11-23T05:31:26Z"
+    },
+    {
+      "id": "bean-premium-brand-ui-redesign",
+      "title": "Premium Brand & UI Redesign — BEAN Education identity (obsidian/metallic gold/champagne/ivory), glass design system, gold-bean brand mark, header/footer/home/auth/Trust&Safety/Terms/Privacy redesign, public-facing rename, Trust & Safety factual alignment with the enforced backend",
+      "branch": "feat/bean-premium-brand-ui-redesign",
+      "baseMainSha": "fcf7418044df8ead7a449648268d90a1956be4b7",
+      "commits": [
+        "d74b6935b99873570960c127805e08788f4ad38a",
+        "eee5ee6737812e4c5b4277045de7db146cead5cc",
+        "8c9c6075db5e0a3fd9d2b70ddf38d3efa572e75c",
+        "c895f8231cd3600ffa48a7235e865a3c974f523a",
+        "973a6bcc5e290ca79af6f4b61d8d57107c82a02b",
+        "f8633f3392e0d57f190a3351f3b1abc69b51b956",
+        "38a5f62cde706198d8714b4bcf19d5aebdb84284"
+      ],
+      "remoteFeatureSha": "38a5f62cde706198d8714b4bcf19d5aebdb84284",
+      "pushVerifiedAt": "2026-11-23T05:02:00Z",
+      "pr": {
+        "number": 28,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/28"
+      },
+      "ci": [
+        {
+          "runId": "45116678858",
+          "conclusion": "SUCCESS",
+          "subject": "quality job on 38a5f62 (push build on feat/bean-premium-brand-ui-redesign, with bun test --isolate) — verified via GitHub Actions HTML"
+        },
+        {
+          "runId": "45116949273",
+          "conclusion": "SUCCESS",
+          "subject": "quality job on 38a5f62 (pull_request event for PR #28) — verified via GitHub Actions HTML"
+        },
+        {
+          "runId": "45115421072",
+          "conclusion": "FAILURE",
+          "subject": "push build on 973a6bcc — Tests step failed: oauth-google.test.ts received the oauth-routes.test.ts mock verifyGoogleIdToken (sub 'google-sub-1'); cross-file mock.module leakage under bun's concurrent file execution; diagnosed, not reproducible locally, fixed by --isolate (38a5f62)"
+        },
+        {
+          "runId": "45115982716",
+          "conclusion": "FAILURE",
+          "subject": "push build on f8633f3 — same cross-file mock.module leakage as 45115421072 (10 annotations, same test file); fixed by the --isolate CI change"
+        },
+        {
+          "runId": "45114953351",
+          "conclusion": "CANCELLED",
+          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+        },
+        {
+          "runId": "45115079518",
+          "conclusion": "CANCELLED",
+          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+        },
+        {
+          "runId": "45115218987",
+          "conclusion": "CANCELLED",
+          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+        },
+        {
+          "runId": "45115342959",
+          "conclusion": "CANCELLED",
+          "subject": "superseded by the workflow's concurrency policy (cancel-in-progress)"
+        }
+      ],
+      "ciNote": [
+        "Both completed runs on the merged tip 38a5f62 (push event + pull_request event for PR #28) are green with bun test --isolate: 1241 tests pass. The two earlier FAILURES are recorded honestly: they were caused by a pre-existing flaky test-infra pattern (mock.module in oauth-routes.test.ts leaking into oauth-google.test.ts when bun schedules files concurrently against one shared module registry) — the identical files passed on main's CI twice, confirming flakiness rather than content. Fixed in-commit by running the CI test step with --isolate.",
+        "PR #28 was opened by the owner session (ADR-008 — sandbox deploy keys cannot create PRs) and merged after the CI runs on 38a5f62 were verified green. Feature branch fast-forwarded to the merge commit c585db4 and re-verified via git ls-remote; zero drift."
+      ],
+      "finalMainSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
+      "evidence": "docs/BRAND-REDESIGN-2026-11.md; PR #28 MERGED (merge commit c585db4, verified in main history); 7 branch commits verified as ancestors of main; branch synchronized to main (c585db4) via --ff-only push",
+      "updatedAt": "2026-11-23T05:31:26Z"
     }
   ]
 }
