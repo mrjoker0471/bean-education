@@ -715,6 +715,10 @@ export interface LegalConfigDTO {
   termsVersion: string
   privacyVersion: string
   versionsAreDraft: boolean
+  dates: {
+    terms: { lastUpdated: string | null; effectiveDate: string | null }
+    privacy: { lastUpdated: string | null; effectiveDate: string | null }
+  }
   operator: {
     entityName: string | null
     entityAddress: string | null
