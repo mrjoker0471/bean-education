@@ -35,7 +35,7 @@ export async function DELETE(req: NextRequest) {
       select: { id: true },
     })
 
-    const [explanationsDeleted, chatDeleted, mistakesDeleted, actionsDeleted, planDeleted, revisionDeleted, masteryDeleted, studioDeleted, attemptsDeleted, testsDeleted, docsDeleted] = await db.$transaction([
+    const [explanationsDeleted, chatDeleted, mistakesDeleted, actionsDeleted, planDeleted, revisionDeleted, masteryDeleted, studioDeleted, researchDeleted, candidatesDeleted, attemptsDeleted, testsDeleted, docsDeleted] = await db.$transaction([
       db.riisheExplanation.deleteMany({ where: { attemptId: { in: attemptIds.map(a => a.id) } } }),
       db.riisheChatTurn.deleteMany({ where: { guestId } }),
       // Phase 3B: learning rows reference attempts by plain FKs — purge them
@@ -47,6 +47,9 @@ export async function DELETE(req: NextRequest) {
       db.topicMastery.deleteMany({ where: { guestId } }),
       // Phase 3F: Studio activity records (self-contained rows — no orphans).
       db.riisheStudioActivity.deleteMany({ where: { guestId } }),
+      // Deep-research rows are guest-owned with a plain studentId claim path.
+      db.researchSession.deleteMany({ where: { guestId } }),
+      db.researchPyqCandidate.deleteMany({ where: { guestId } }),
       db.attempt.deleteMany({ where: { guestId } }),
       db.riisheTest.deleteMany({ where: { guestId } }),
       db.studyDocument.deleteMany({ where: { guestId } }),
@@ -63,6 +66,8 @@ export async function DELETE(req: NextRequest) {
         files: docs.length,
         learningRows: mistakesDeleted.count + actionsDeleted.count + planDeleted.count + revisionDeleted.count + masteryDeleted.count,
         studioActivities: studioDeleted.count,
+        researchSessions: researchDeleted.count,
+        researchCandidates: candidatesDeleted.count,
       },
     })
   } catch (err) {

@@ -39,6 +39,9 @@ export interface AuthStudent {
   role: string
   /** Set once the student completes onboarding (Phase 2B); null before that. */
   onboardedAt: string | null
+  /** Onboarding/navigation intent recorded at signup (STUDENT|TEACHER);
+   *  NOT an authorization role — teacher capability is an approved profile. */
+  signupIntent: string | null
 }
 
 // ─── Passwords ──────────────────────────────────────────────────────────────────
@@ -106,7 +109,7 @@ export async function getSessionStudent(): Promise<AuthStudent | null> {
     where: { tokenHash: hashToken(token) },
     include: {
       student: {
-        select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true },
+        select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true, signupIntent: true },
       },
     },
   })
@@ -122,6 +125,7 @@ export async function getSessionStudent(): Promise<AuthStudent | null> {
     learningLevel: row.student.learningLevel,
     role: row.student.role,
     onboardedAt: row.student.onboardedAt ? row.student.onboardedAt.toISOString() : null,
+    signupIntent: row.student.signupIntent,
   }
 }
 

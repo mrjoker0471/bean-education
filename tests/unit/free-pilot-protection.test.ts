@@ -123,12 +123,22 @@ describe('free pilot — adverse decisions never touch bookings or classes', () 
 
 describe('phase 6 API surface sanity', () => {
   it('no public complaint endpoint exists — complaints live only under guarded paths', () => {
-    const complaintRoutes = API_ROUTES.filter((f) => /teachComplaint|complaint/i.test(readFileSync(f, 'utf8')))
+    // Comments are stripped first (matching every other scan in this file):
+    // the invariant is about CODE touching complaint data, not prose. The
+    // privacy-request channel mentions class complaints in its docs but never
+    // reads or writes TeachComplaint — a bare-public complaint endpoint must
+    // not exist in code.
+    const complaintRoutes = API_ROUTES.filter((f) => /teachComplaint|complaint/i.test(stripComments(readFileSync(f, 'utf8'))))
     const rels = complaintRoutes.map((f) => relative(join(ROOT, 'src/app/api'), f))
     for (const rel of rels) {
       // Every complaint-touching route must be either teach-scoped (session
-      // guarded) or admin-scoped (ADMIN guarded) — never a bare public route.
-      expect(rel.startsWith('teach/') || rel.startsWith('admin/')).toBe(true)
+      // guarded), admin-scoped (ADMIN guarded) or under auth/account/
+      // (requireStudent-guarded, owner-scoped: the export/delete routes only
+      // ever surface the signed-in user's OWN complaint rows) — never a bare
+      // public route.
+      expect(
+        rel.startsWith('teach/') || rel.startsWith('admin/') || rel.startsWith('auth/account/'),
+      ).toBe(true)
     }
     expect(rels.length).toBeGreaterThan(0)
   })

@@ -3,6 +3,13 @@
 // Settings — account identity, privacy controls and preferences. The platform
 // is device-based (guest identity): this page makes that explicit and gives
 // the student real control over their data.
+//
+// Public-experience milestone additions:
+//   • Account deletion now shows a real data preview, requires a typed
+//     DELETE confirmation and password re-authentication for password
+//     accounts (Google-only accounts confirm by typing DELETE).
+//   • Legal pages (Terms / Privacy / Trust & Safety) are linked here.
+//   • A genuine privacy/grievance request form (owner-scoped, confidential).
 
 import { useState } from 'react'
 import { api } from '@/lib/api'
@@ -20,13 +27,26 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
-import { Bot, Database, Download, KeyRound, Loader2, LogOut, Save, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import {
+  Bot, Database, Download, FileText, KeyRound, Loader2, LogOut, MailQuestion,
+  Save, ShieldCheck, Trash2, UserRound,
+} from 'lucide-react'
 import { LocalAiCard } from '@/components/bean/local-ai-card'
+
+const PRIVACY_CATEGORIES = ['ACCESS', 'CORRECTION', 'ERASURE', 'CONSENT', 'GRIEVANCE', 'OTHER'] as const
+
+interface DeletionPreview {
+  categories: { key: string; label: string; count: number }[]
+  teacherProfileDeleted: boolean
+  requiresPassword: boolean
+}
 
 export function SettingsView() {
   const guestId = useAppStore(s => s.guestId)
@@ -36,11 +56,24 @@ export function SettingsView() {
   const authedStudent = useAppStore(s => s.authedStudent)
   const authChecked = useAppStore(s => s.authChecked)
   const authSignOut = useAppStore(s => s.authSignOut)
-  const authDeleteAccount = useAppStore(s => s.authDeleteAccount)
+  const refreshAuth = useAppStore(s => s.refreshAuth)
   const claimGuestData = useAppStore(s => s.claimGuestData)
 
   const [deleting, setDeleting] = useState(false)
   const [busyAuth, setBusyAuth] = useState<'none' | 'signout' | 'delete' | 'claim' | 'export'>('none')
+
+  // Account-deletion dialog state (multi-step, honest workflow).
+  const [deleteStage, setDeleteStage] = useState<'review' | 'confirm'>('review')
+  const [preview, setPreview] = useState<DeletionPreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [deleteText, setDeleteText] = useState('')
+  const [deletePassword, setDeletePassword] = useState('')
+
+  // Privacy request state.
+  const [requestCategory, setRequestCategory] = useState<(typeof PRIVACY_CATEGORIES)[number]>('ACCESS')
+  const [requestMessage, setRequestMessage] = useState('')
+  const [requestBusy, setRequestBusy] = useState(false)
+  const [myRequests, setMyRequests] = useState<{ id: string; category: string; status: string; createdAt: string }[] | null>(null)
 
   // Session creation date — read once on first render (defensive default).
   const [createdLabel] = useState<string>(() => {
@@ -84,7 +117,7 @@ export function SettingsView() {
     navigate({ view: 'home' })
   }
 
-  // ── Student account actions (Phase 2A) ──
+  // ── Student account actions ──
   const doClaim = () => {
     if (busyAuth !== 'none') return
     setBusyAuth('claim')
@@ -117,13 +150,63 @@ export function SettingsView() {
       .finally(() => setBusyAuth('none'))
   }
 
+  const openDeleteDialog = () => {
+    setDeleteStage('review')
+    setDeleteText('')
+    setDeletePassword('')
+    setPreview(null)
+    setPreviewLoading(true)
+    api.accountDeletionPreview()
+      .then(setPreview)
+      .catch((e: unknown) => toast({ title: 'Could not load the deletion preview', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' }))
+      .finally(() => setPreviewLoading(false))
+  }
+
   const doDeleteAccount = () => {
     if (busyAuth !== 'none') return
+    if (deleteText !== 'DELETE') {
+      toast({ title: 'Type DELETE to confirm', description: 'The confirmation word must match exactly.', variant: 'destructive' })
+      return
+    }
+    if (preview?.requiresPassword && !deletePassword) {
+      toast({ title: 'Re-enter your password', description: 'Password re-authentication is required to delete the account.', variant: 'destructive' })
+      return
+    }
     setBusyAuth('delete')
-    authDeleteAccount()
-      .then(() => toast({ title: 'Account deleted', description: 'Your account and all its data were permanently removed. This device continues in guest mode.' }))
-      .catch((e: unknown) => toast({ title: 'Could not delete the account', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' }))
-      .finally(() => setBusyAuth('none'))
+    api
+      .deleteStudentAccount({ confirm: deleteText, password: deletePassword || undefined })
+      .then(() => {
+        setBusyAuth('none')
+        toast({ title: 'Account deleted', description: 'Your account and owned data were removed. This device continues in guest mode. Backups and any lawful retention are described in the Privacy Policy.' })
+        void refreshAuth()
+      })
+      .catch((e: unknown) => {
+        setBusyAuth('none')
+        toast({ title: 'Could not delete the account', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' })
+      })
+  }
+
+  const submitPrivacyRequest = () => {
+    if (requestBusy) return
+    if (requestMessage.trim().length < 20) {
+      toast({ title: 'A little more detail, please', description: 'Describe your request in at least 20 characters.', variant: 'destructive' })
+      return
+    }
+    setRequestBusy(true)
+    api
+      .submitPrivacyRequest({ category: requestCategory, message: requestMessage.trim(), guestId: guestId || undefined })
+      .then(() => {
+        toast({ title: 'Request received', description: 'Your privacy request was recorded and is confidential. The grievance contact can be found on the Privacy Policy page.' })
+        setRequestMessage('')
+      })
+      .catch((e: unknown) => toast({ title: 'Could not submit the request', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' }))
+      .finally(() => setRequestBusy(false))
+  }
+
+  const loadMyRequests = () => {
+    api.myPrivacyRequests()
+      .then(res => setMyRequests(res.requests))
+      .catch((e: unknown) => toast({ title: 'Could not load your requests', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' }))
   }
 
   return (
@@ -172,27 +255,103 @@ export function SettingsView() {
                   {busyAuth === 'signout' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <LogOut className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
                   Sign out
                 </Button>
-                <AlertDialog>
+                <AlertDialog onOpenChange={open => { if (!open) setDeleteStage('review') }}>
                   <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm" disabled={busyAuth !== 'none'}>
+                    <Button variant="destructive" size="sm" disabled={busyAuth !== 'none'} onClick={openDeleteDialog}>
                       {busyAuth === 'delete' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
                       Delete account
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent className="bg-card">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="font-display">Delete your account?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Permanently removes your account, profile, goals and every document, practice set, attempt and
-                        chat owned by it. This cannot be undone and no export is kept.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Keep my account</AlertDialogCancel>
-                      <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={doDeleteAccount}>
-                        Delete everything
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
+                  <AlertDialogContent className="max-h-[85vh] overflow-y-auto bg-card">
+                    {deleteStage === 'review' ? (
+                      <>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="font-display">What deleting your account removes</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Deletion is permanent and cannot be undone. Export your data first if you want a copy —
+                            deletion does not keep one.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        {previewLoading && (
+                          <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground" role="status">
+                            <Loader2 className="h-4 w-4 animate-spin text-gold" aria-hidden /> Counting your data…
+                          </p>
+                        )}
+                        {preview && (
+                          <ul className="max-h-56 space-y-1.5 overflow-y-auto rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
+                            {preview.categories.map(c => (
+                              <li key={c.key} className="flex items-center justify-between gap-3">
+                                <span>{c.label}</span>
+                                <span className="font-mono text-foreground">{c.count}</span>
+                              </li>
+                            ))}
+                            {preview.teacherProfileDeleted && <li className="pt-1 text-foreground">Your teacher profile and classes are removed with the account.</li>}
+                          </ul>
+                        )}
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Other students&apos; data and shared institution records are never removed. The honest limits
+                          of deletion (backups, lawful retention) are described in the{' '}
+                          <a href="#/privacy" className="text-gold underline underline-offset-2">Privacy Policy</a>.
+                        </p>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep my account</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-primary-foreground hover:bg-destructive/90"
+                            onClick={e => { e.preventDefault(); setDeleteStage('confirm') }}
+                          >
+                            Continue to confirmation
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </>
+                    ) : (
+                      <>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="font-display">Final confirmation</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Type DELETE below{preview?.requiresPassword ? ' and re-enter your password' : ''} to
+                            permanently remove your account and every record listed above.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <div className="space-y-3">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="bean-delete-confirm">Type DELETE to confirm</Label>
+                            <Input
+                              id="bean-delete-confirm"
+                              value={deleteText}
+                              onChange={e => setDeleteText(e.target.value)}
+                              autoComplete="off"
+                              placeholder="DELETE"
+                              aria-describedby="bean-delete-confirm-hint"
+                            />
+                            <p id="bean-delete-confirm-hint" className="text-xs text-muted-foreground">Exact word, uppercase.</p>
+                          </div>
+                          {preview?.requiresPassword && (
+                            <div className="space-y-1.5">
+                              <Label htmlFor="bean-delete-password">Your password</Label>
+                              <Input
+                                id="bean-delete-password"
+                                type="password"
+                                value={deletePassword}
+                                onChange={e => setDeletePassword(e.target.value)}
+                                autoComplete="current-password"
+                                placeholder="Re-enter your password"
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Back</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-primary-foreground hover:bg-destructive/90"
+                            onClick={e => { e.preventDefault(); doDeleteAccount() }}
+                            disabled={busyAuth === 'delete' || deleteText !== 'DELETE'}
+                          >
+                            {busyAuth === 'delete' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                            Delete everything permanently
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </>
+                    )}
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
@@ -248,12 +407,92 @@ export function SettingsView() {
 
           <Separator className="my-4" />
 
+          {/* Legal pages */}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => navigate({ view: 'terms' })}>
+              <FileText className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Terms and Conditions
+            </Button>
+            <Button variant="outline" size="sm" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => navigate({ view: 'privacy' })}>
+              <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Privacy Policy
+            </Button>
+            <Button variant="outline" size="sm" className="border-border text-muted-foreground hover:bg-elevated" onClick={() => navigate({ view: 'trust-policy' })}>
+              Trust &amp; Safety
+            </Button>
+          </div>
+
+          <Separator className="my-4" />
+
+          {/* Privacy / grievance request form */}
+          <div>
+            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <MailQuestion className="h-4 w-4 text-gold" aria-hidden /> Raise a privacy or grievance request
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Access, correction, erasure, consent or a general grievance — requests are owner-scoped and
+              confidential. The Grievance Officer details are listed on the{' '}
+              <a href="#/privacy" className="text-gold underline underline-offset-2">Privacy Policy</a> page.
+            </p>
+            <div className="mt-3 grid gap-3">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Request category">
+                {PRIVACY_CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    aria-pressed={requestCategory === cat}
+                    onClick={() => setRequestCategory(cat)}
+                    className={cn(
+                      'min-h-9 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                      requestCategory === cat
+                        ? 'border-gold/60 bg-gold/15 text-gold'
+                        : 'border-border text-muted-foreground hover:border-gold/40 hover:text-gold',
+                    )}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              <Textarea
+                value={requestMessage}
+                onChange={e => setRequestMessage(e.target.value)}
+                maxLength={4000}
+                rows={4}
+                placeholder="Describe your request — what you need and which data it concerns. Do not include passwords."
+                aria-label="Request details"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={submitPrivacyRequest} disabled={requestBusy}>
+                  {requestBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                  Submit request
+                </Button>
+                {authedStudent && (
+                  <Button size="sm" variant="ghost" className="text-muted-foreground hover:bg-elevated" onClick={loadMyRequests}>
+                    View my requests
+                  </Button>
+                )}
+              </div>
+              {myRequests && (
+                <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
+                  {myRequests.length === 0 && <li>No requests yet.</li>}
+                  {myRequests.map(r => (
+                    <li key={r.id} className="flex items-center justify-between gap-2">
+                      <span className="text-foreground">{r.category}</span>
+                      <span>{new Date(r.createdAt).toLocaleDateString('en-IN')}</span>
+                      <Badge variant="outline" className="border-border text-muted-foreground">{r.status}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <Separator className="my-4" />
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-foreground">Delete everything from this session</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Permanently removes every uploaded file, analysis, practice set, attempt, explanation and chat
-                message. This cannot be undone.
+                Permanently removes every upload, analysis, practice set, attempt, explanation, chat message and
+                research record owned by this guest session. This cannot be undone.
               </p>
             </div>
             <AlertDialog>
@@ -267,8 +506,8 @@ export function SettingsView() {
                 <AlertDialogHeader>
                   <AlertDialogTitle className="font-display">Delete all session data?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Every upload, analysis, practice set, attempt and conversation for this session will be
-                    permanently deleted from the server. Your files on this device are not touched.
+                    Every upload, analysis, practice set, attempt, research session and conversation for this session
+                    will be permanently deleted from the server. Your files on this device are not touched.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

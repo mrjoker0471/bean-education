@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { z } from 'zod'
 import { createSession, sameOrigin, setSessionCookie, verifyPassword } from '@/lib/auth'
+import { clientKey, rateLimited } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -22,6 +23,9 @@ export async function POST(req: NextRequest) {
   // CSRF-lite: browsers always send Origin on cross-site POSTs; reject mismatches.
   if (!sameOrigin(req)) {
     return NextResponse.json({ error: 'Cross-origin request blocked' }, { status: 403 })
+  }
+  if (rateLimited(clientKey(req, 'login'), 10, 5 * 60_000)) {
+    return NextResponse.json({ error: 'Too many attempts — please wait a moment and try again.' }, { status: 429 })
   }
 
   let raw: unknown = null
@@ -46,7 +50,7 @@ export async function POST(req: NextRequest) {
   try {
     const student = await db.student.findUnique({
       where: { email: parsed.data.email },
-      select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true, passwordHash: true },
+      select: { id: true, email: true, displayName: true, learningLevel: true, role: true, onboardedAt: true, signupIntent: true, passwordHash: true },
     })
 
     const ok = await verifyPassword(parsed.data.password, student?.passwordHash ?? DUMMY_HASH)
@@ -65,6 +69,7 @@ export async function POST(req: NextRequest) {
         learningLevel: student.learningLevel,
         role: student.role,
         onboardedAt: student.onboardedAt ? student.onboardedAt.toISOString() : null,
+        signupIntent: student.signupIntent,
       },
     })
   } catch (err) {

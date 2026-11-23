@@ -17,25 +17,28 @@ export function Footer() {
             </span>
             <div>
               <p className="font-display text-sm font-bold text-foreground">
-                BEAN <span className="text-gold">EXAMS</span>
+                BEAN <span className="text-gold">EDUCATION</span>
               </p>
-              <p className="text-xs text-muted-foreground">One syllabus. Every topic. Honest availability.</p>
+              <p className="text-xs text-muted-foreground">Learn. Practise. Teach. Grow. Honest availability.</p>
             </div>
           </div>
           <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground" aria-label="Footer">
             <button className="hover:text-gold" onClick={() => navigate({ view: 'catalog' })}>All examinations</button>
-            <button className="hover:text-gold" onClick={() => window.location.assign('#/bean')}>BEAN Intelligence</button>
+            <button className="hover:text-gold" onClick={() => navigate({ view: 'bean', seeded: false })}>BEAN Intelligence</button>
             <button className="hover:text-gold" onClick={() => navigate({ view: 'progress' })}>My progress</button>
             {/* Phase 7: institution & career entry points */}
             <button className="hover:text-gold" onClick={() => navigate({ view: 'institution' })}>Institutions</button>
             <button className="hover:text-gold" onClick={() => navigate({ view: 'career-opportunities' })}>Opportunities</button>
+            {/* Public experience milestone: legal pages are public and always reachable */}
+            <button className="hover:text-gold" onClick={() => navigate({ view: 'terms' })}>Terms &amp; Conditions</button>
+            <button className="hover:text-gold" onClick={() => navigate({ view: 'privacy' })}>Privacy Policy</button>
             {/* Phase 6: published Trust & Safety / class policy */}
             <button className="hover:text-gold" onClick={() => navigate({ view: 'trust-policy' })}>Trust &amp; Safety</button>
             <button className="hover:text-gold" onClick={() => navigate({ view: 'settings' })}>Settings</button>
           </nav>
         </div>
         <div className="mt-6 flex flex-col gap-2 border-t border-border/60 pt-5 text-[11px] leading-relaxed text-muted-foreground md:flex-row md:items-center md:justify-between">
-          <p>© {year} BEAN EXAMS. Study notes are original content. Practice questions are original and author-verified — no previous-year provenance is claimed.</p>
+          <p>© {year} BEAN Education. Study notes are original content. Practice questions are original and author-verified — no previous-year provenance is claimed.</p>
           <p className="inline-flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5 text-gold" />
             Always confirm patterns &amp; dates with the official conducting body&apos;s notification.
