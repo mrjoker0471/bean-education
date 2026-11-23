@@ -101,7 +101,7 @@ export function Header() {
       className={cn(
         mobile
           ? 'flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium'
-          : 'relative rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200',
+          : 'relative whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-200',
         isActive(item)
           ? mobile
             ? 'bg-gold/10 text-champagne'
@@ -156,7 +156,7 @@ export function Header() {
           <BeanMark className="transition-transform duration-300 group-hover:scale-105" />
           <span className="flex flex-col items-start leading-tight">
             <Wordmark />
-            <span className="hidden text-[10px] uppercase tracking-[0.28em] text-muted-foreground sm:block">
+            <span className="hidden whitespace-nowrap text-[10px] uppercase tracking-[0.28em] text-muted-foreground 2xl:block">
               Learn. Practise. Teach. Grow.
             </span>
           </span>
