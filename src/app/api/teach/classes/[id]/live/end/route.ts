@@ -18,6 +18,10 @@ import { requireApprovedTeacher, appendAudit, AUDIT_ENTITY } from '@/lib/teach'
 import { LIVE_END_REASON, LIVE_SESSION_STATUS, AUDIT_LIVE_ACTION } from '@/lib/livekit/live'
 import { deleteRoomGuarded } from '@/lib/livekit/room'
 import { USAGE_RECONCILE_SQL } from '@/lib/livekit/usage'
+// BEAN Classroom Intelligence (CI-1B): consent-gated, error-isolated trigger.
+// Never throws into the classroom response path (see trigger.ts contract).
+import { triggerEvaluationForEndedSession } from '@/lib/ci/trigger'
+import { CI_TRIGGER } from '@/lib/ci/constants'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -128,6 +132,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (liveRow) {
         await deleteRoomGuarded(liveRow.roomName)
       }
+      // Classroom Intelligence (CI-1B): request an evaluation for the ended
+      // session. Fire-and-forget, consent-gated server-side; failure here is
+      // logged inside the trigger and can never affect this response.
+      triggerEvaluationForEndedSession(id, CI_TRIGGER.SESSION_END)
     }
 
     return NextResponse.json({ live: outcome.live, alreadyEnded: outcome.alreadyEnded })

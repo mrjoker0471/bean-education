@@ -592,6 +592,8 @@ model TeacherProfile {
   reviewResponses    TeacherReviewResponse[]
   trustActions       TrustAction[]
   complaintsAbout    TeachComplaint[]
+  // BEAN Classroom Intelligence (CI-1): durable evaluation jobs for this teacher's classes.
+  classroomEvaluationJobs ClassroomEvaluationJob[]
 
   @@index([verificationStatus])
 }
@@ -645,6 +647,8 @@ model ClassSession {
   liveSession       LiveClassSession?
   // BEAN Trust & Quality (Phase 6)
   reviews           ClassReview[]
+  // BEAN Classroom Intelligence (CI-1): one evaluation job per scheduled class (unique FK).
+  classroomEvaluationJob ClassroomEvaluationJob?
   // BEAN Institution (Phase 7): private institution classes. Nullable + safe
   // defaults — every existing class stays PUBLIC and unchanged.
   audience            String?     @default("PUBLIC") // PUBLIC | ORGANIZATION | GROUP
@@ -672,6 +676,8 @@ model ClassBooking {
   student            Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
   // BEAN Trust & Quality (Phase 6): a review is tied to exactly one booking.
   review             ClassReview?
+  // BEAN Classroom Intelligence (CI-1): class-level learning summary for this booking.
+  classroomStudentSummary ClassroomStudentSummary?
 
   // One booking record per student per class — rebooking after cancellation
   // re-activates the SAME row (never a duplicate), keeping history intact.
@@ -1789,4 +1795,171 @@ model PrivacyRequest {
 
   @@index([studentId])
   @@index([guestId])
+}
+
+// ─── BEAN Classroom Intelligence (CI-1): multi-agent class evaluation ────────
+// Additive milestone. The pipeline observes AUTHORISED classroom evidence
+// only — booking/attendance records, verified LiveKit connection intervals,
+// the teacher-authored whiteboard snapshot structure, the class lesson plan
+// and opt-in teacher lesson notes. It never records or transcribes audio or
+// video. All findings are ADVISORY: this domain has no write path to reviews,
+// complaints, trust actions, appeals, bookings or attendance; human review
+// stays mandatory for every consequential decision
+// (docs/CLASSROOM-INTELLIGENCE-PRIVACY-AND-SECURITY.md).
+
+// One durable evaluation job per scheduled class (classSessionId unique —
+// duplicate prevention is a DB guarantee). Re-runs create new report VERSIONS,
+// never a second job row. Same CAS-claim + lease + bounded-retry semantics as
+// the Riishe job runner (docs/CLASSROOM-INTELLIGENCE-ARCHITECTURE.md §3).
+model ClassroomEvaluationJob {
+  id               String    @id @default(cuid())
+  classSessionId   String    @unique
+  teacherProfileId String // denormalised from the class for teacher-scoped queries
+  liveSessionId    String? // LiveClassSession.id when one existed (1:1 with the class)
+  status           String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | SKIPPED
+  stage            String    @default("PENDING") // PENDING | EVIDENCE | LEARNER | TEACHER_JUDGE | ORCHESTRATE | PUBLISH | DONE
+  trigger          String // SESSION_END | PROVIDER_ROOM_FINISHED | TEACHER_REQUEST | ADMIN_RETRY
+  requestedById    String? // Student.id of the human who requested (teacher/admin), when applicable
+  teacherNotes     String? // opt-in teacher lesson notes/transcript paste (bounded 30..4000) — teacher-provided, never machine-collected
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3)
+  error            String?
+  claimedAt        DateTime?
+  leaseUntil       DateTime?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  classSession     ClassSession   @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  teacherProfile   TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  agentRuns        ClassroomAgentRun[]
+  reports          ClassroomEvaluationReport[]
+  studentSummaries ClassroomStudentSummary[]
+
+  @@index([status, leaseUntil])
+  @@index([teacherProfileId, status])
+}
+
+// Per-agent execution audit: what ran, on which adapter, over which evidence
+// digest, with which validated output or honest error. Rows are append-only
+// (never updated) so a re-run is provable from history.
+model ClassroomAgentRun {
+  id          String    @id @default(cuid())
+  jobId       String
+  agent       String // LEARNER | TEACHER_JUDGE | ORCHESTRATOR
+  status      String    @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  attempt     Int       @default(1) // job attempt this run belongs to
+  modelId     String? // adapter identifier actually used (never a secret; never shown to students)
+  inputDigest String? // sha256 of the exact evidence payload sent to the agent
+  outputJson  String? // schema-validated structured output (present only on COMPLETED)
+  error       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  job         ClassroomEvaluationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, startedAt])
+}
+
+// Versioned teacher quality report. One row per (class, version); the CURRENT
+// row is what dashboards show, SUPERSEDED rows are history, RETRACTED rows are
+// hidden from aggregates after a dispute decision. A failed evaluation NEVER
+// touches the class or attendance — this table only ever gains report rows.
+model ClassroomEvaluationReport {
+  id                   String    @id @default(cuid())
+  jobId                String
+  classSessionId       String // plain ref — the FK relationship lives on the job
+  teacherProfileId     String // denormalised for teacher dashboards and trend queries
+  version              Int
+  status               String    @default("CURRENT") // CURRENT | SUPERSEDED | RETRACTED
+  reportJson           String // schema-validated structured report (see src/lib/ci/schemas.ts)
+  insufficientEvidence Boolean   @default(false) // orchestrator explicitly recorded insufficient evidence
+  requiresHumanReview  Boolean   @default(false) // conflicts or consequential findings a human must look at
+  modelId              String? // adapter used for the agent stage (pure orchestrator rebuilds may be null)
+  supersededAt         DateTime?
+  createdAt            DateTime  @default(now())
+  job                  ClassroomEvaluationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  evidenceRefs         ClassroomEvidenceRef[]
+  disputes             ClassroomEvaluationDispute[]
+
+  @@unique([classSessionId, version])
+  @@index([teacherProfileId, createdAt])
+  @@index([status])
+}
+
+// Evidence register for one report: what the agents were allowed to see, and
+// an honest statement of what was NOT available (available=false). refId is a
+// plain reference to the source row (booking / live participant set /
+// whiteboard / job notes); no FK on purpose — the register describes what was
+// used at evaluation time even if the source row changes later.
+model ClassroomEvidenceRef {
+  id        String   @id @default(cuid())
+  reportId  String
+  kind      String // LESSON_PLAN | ATTENDANCE_RECORD | PARTICIPANT_INTERVALS | WHITEBOARD_SNAPSHOT | TEACHER_LESSON_NOTES
+  refId     String?
+  summary   String // honest human-readable description (no identities, no raw payloads)
+  available Boolean
+  createdAt DateTime @default(now())
+  report    ClassroomEvaluationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+// Class-level learning summary for one attended booking. The CONTENT is the
+// same class-level material for every attendee (lesson summary, concepts
+// covered, revision recommendations, suggested practice) — attendance is used
+// ONLY for access control, never to infer an individual student's
+// understanding. One row per booking; regenerated when a newer evaluation
+// version publishes.
+model ClassroomStudentSummary {
+  id             String   @id @default(cuid())
+  jobId          String
+  bookingId      String   @unique
+  classSessionId String
+  summaryJson    String // schema-validated class learning summary
+  modelId        String?
+  createdAt      DateTime @default(now())
+  job            ClassroomEvaluationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  booking        ClassBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([classSessionId])
+}
+
+// Teacher dispute against specific AI findings. Advisory-vs-authoritative
+// boundary: a dispute is the ONLY path that can change a published report
+// (CORRECTED rebuilds a new version deterministically without the disputed
+// findings; RETRACTED hides the report). The original report is never
+// silently edited. Append-only history in the event table.
+model ClassroomEvaluationDispute {
+  id              String    @id @default(cuid())
+  reportId        String
+  teacherId       String // Student.id — report ownership enforced server-side
+  status          String    @default("SUBMITTED") // SUBMITTED | UNDER_REVIEW | RESOLVED | DISMISSED
+  findingsJson    String // [{findingId, reason}] — bounded count and lengths
+  assignedAdminId String?
+  resolution      String? // UPHELD | CORRECTED | RETRACTED
+  resolutionNote  String?
+  resolvedAt      DateTime?
+  resolvedById    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  report          ClassroomEvaluationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  events          ClassroomDisputeEvent[]
+
+  @@index([reportId, status])
+  @@index([teacherId, status])
+}
+
+// Append-only dispute history (matches ComplaintEvent/AppealEvent discipline).
+model ClassroomDisputeEvent {
+  id        String   @id @default(cuid())
+  disputeId String
+  actorId   String
+  actorRole String
+  action    String // SUBMITTED | ASSIGNED | UNDER_REVIEW | RESOLVED | DISMISSED | NOTE_ADDED
+  detail    String?
+  createdAt DateTime @default(now())
+  dispute   ClassroomEvaluationDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId, createdAt])
 }
