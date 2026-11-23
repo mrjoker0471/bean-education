@@ -70,7 +70,7 @@ export function LegalReacceptanceView() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10">
-      <Card className="border-border bg-card">
+      <Card className="glass rounded-2xl border border-hairline">
         <CardHeader>
           <CardTitle className="font-display text-2xl text-foreground">Our legal documents have changed</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -117,7 +117,7 @@ export function LegalReacceptanceView() {
             </Button>
           </form>
 
-          <div className="mt-6 rounded-lg border border-border bg-elevated/40 p-3">
+          <div className="mt-6 rounded-lg border border-hairline bg-white/[0.03] p-3">
             <p className="text-xs font-medium text-foreground">Always available — you decide later:</p>
             <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-muted-foreground">
               <li><a href="#/settings" className="text-gold underline underline-offset-2">Settings</a> — export your data, delete your account, or sign out</li>

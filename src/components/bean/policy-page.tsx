@@ -70,12 +70,12 @@ export function PolicyPage(props: {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6" aria-label={props.ariaLabel}>
       <header className="mx-auto max-w-3xl">
-        <h1 className="font-display text-3xl font-semibold text-foreground sm:text-4xl">{props.title}</h1>
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">{props.title}</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground sm:text-base">{props.intro}</p>
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {props.version && <span>Version: <span className="text-foreground">{props.version}</span></span>}
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          {props.version && <span>Version: <span className="text-champagne">{props.version}</span></span>}
           {props.versionsAreDraft && (
-            <span className="rounded border border-gold/30 bg-gold/10 px-2 py-0.5 text-gold">
+            <span className="rounded-full border border-gold/40 bg-gold/10 px-2.5 py-1 text-gold">
               Draft — pending the owner&apos;s Indian legal review (not legal advice or a legal opinion)
             </span>
           )}
@@ -85,7 +85,7 @@ export function PolicyPage(props: {
       <div className="mt-8 flex flex-col gap-8 lg:flex-row">
         {/* Section navigation */}
         <nav aria-label={`${props.title} sections`} className="lg:w-64 lg:shrink-0">
-          <div className="rounded-xl border border-border bg-card/60 p-3 lg:sticky lg:top-24 lg:max-h-[70vh] lg:overflow-y-auto">
+          <div className="glass-soft rounded-xl border border-hairline p-3 lg:sticky lg:top-24 lg:max-h-[70vh] lg:overflow-y-auto">
             <ol className="space-y-1 text-sm">
               {props.sections.map((s, i) => (
                 <li key={s.id}>
@@ -98,7 +98,7 @@ export function PolicyPage(props: {
                     }}
                     aria-current={active === s.id ? 'true' : undefined}
                     className={`block rounded-md px-2 py-1.5 transition-colors ${
-                      active === s.id ? 'bg-gold/10 text-gold' : 'text-muted-foreground hover:bg-elevated hover:text-foreground'
+                      active === s.id ? 'bg-gold/10 text-champagne' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
                     }`}
                   >
                     <span className="mr-1.5 text-xs text-muted-foreground">{i + 1}.</span>
@@ -117,9 +117,9 @@ export function PolicyPage(props: {
               key={s.id}
               id={`policy-${s.id}`}
               aria-labelledby={`policy-${s.id}-title`}
-              className="scroll-mt-24 rounded-xl border border-border bg-card/60 p-5 sm:p-6"
+              className="glass-soft scroll-mt-24 rounded-2xl border border-hairline p-5 sm:p-6"
             >
-              <h2 id={`policy-${s.id}-title`} className="font-display text-xl font-semibold text-foreground">
+              <h2 id={`policy-${s.id}-title`} className="font-display text-xl font-semibold tracking-tight text-foreground">
                 <span className="mr-2 text-sm text-muted-foreground">{i + 1}.</span>
                 {s.title}
               </h2>
@@ -133,13 +133,13 @@ export function PolicyPage(props: {
           <section
             id="policy-operator"
             aria-labelledby="policy-operator-title"
-            className="scroll-mt-24 rounded-xl border border-border bg-card/60 p-5 sm:p-6"
+            className="glass-soft scroll-mt-24 rounded-2xl border border-hairline p-5 sm:p-6"
           >
-            <h2 id="policy-operator-title" className="font-display text-xl font-semibold text-foreground">
+            <h2 id="policy-operator-title" className="font-display text-xl font-semibold tracking-tight text-foreground">
               Platform operator and grievance contact
             </h2>
             {config && !config.configured && (
-              <p className="mt-2 rounded-md border border-gold/30 bg-gold/10 p-2 text-xs leading-relaxed text-gold" role="note">
+              <p className="mt-2 rounded-lg border border-gold/30 bg-gold/10 p-2.5 text-xs leading-relaxed text-gold" role="note">
                 Draft/configuration notice: the legal identity and grievance details below have not been supplied by
                 the owner yet. This page will show the verified details once they are configured — none are invented.
               </p>
