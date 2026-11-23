@@ -691,6 +691,38 @@ export interface AuthedStudent {
   role: string
   /** ISO timestamp once onboarding finished; null until then. */
   onboardedAt: string | null
+  /** Onboarding/navigation intent recorded at signup (STUDENT|TEACHER).
+   *  Navigation intent ONLY — never an authorization role. */
+  signupIntent?: string | null
+}
+
+/** Server-computed legal acceptance state (against the CURRENT versions). */
+export interface LegalDocumentStatusDTO {
+  document: 'TERMS' | 'PRIVACY'
+  currentVersion: string
+  acceptedVersion: string | null
+  acceptedAt: string | null
+}
+
+export interface LegalStatusDTO {
+  reacceptanceRequired: boolean
+  terms: LegalDocumentStatusDTO
+  privacy: LegalDocumentStatusDTO
+}
+
+/** Public-safe legal configuration (versions + configured operator details). */
+export interface LegalConfigDTO {
+  termsVersion: string
+  privacyVersion: string
+  versionsAreDraft: boolean
+  operator: {
+    entityName: string | null
+    entityAddress: string | null
+    consumerSupport: { email: string | null; phone: string | null }
+    grievanceOfficer: { name: string | null; email: string | null; phone: string | null }
+    privacyContactEmail: string | null
+  }
+  configured: boolean
 }
 
 export interface GuestClaims {

@@ -33,6 +33,9 @@ import { ClassroomView } from '@/components/bean/views/classroom-view'
 import { AdminTrustView } from '@/components/bean/views/admin-trust-view'
 import { MyReportsView } from '@/components/bean/views/my-reports-view'
 import { TrustPolicyView } from '@/components/bean/views/trust-policy-view'
+import { TermsView } from '@/components/bean/views/terms-view'
+import { PrivacyView } from '@/components/bean/views/privacy-view'
+import { LegalReacceptanceView } from '@/components/bean/views/legal-acceptance-view'
 // Phase 7 — Institution & Career
 import { InstitutionView } from '@/components/bean/views/institution-view'
 import { InstitutionOrgView } from '@/components/bean/views/institution-org-view'
@@ -47,16 +50,31 @@ import { AdminOrganizationsView } from '@/components/bean/views/admin-organizati
 import { AdminCareerView } from '@/components/bean/views/admin-career-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
+import { resolvePostAuthRoute } from '@/lib/teacher-intent'
 import { Compass, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+
+/** Views that stay reachable during legal re-acceptance — logout, export,
+ *  deletion and grievance/privacy paths are never blocked (milestone rule). */
+const REACCEPTANCE_ALLOWED_VIEWS = new Set(['settings', 'auth', 'terms', 'privacy', 'trust-policy'])
 
 export default function Page() {
   const route = useAppStore(s => s.route)
   const init = useAppStore(s => s.init)
   const hydrated = useAppStore(s => s._hydrated)
   const navigate = useAppStore(s => s.navigate)
+  const authedStudent = useAppStore(s => s.authedStudent)
+  const legalStatus = useAppStore(s => s.legalStatus)
 
   useEffect(() => { init() }, [init])
+
+  // Legal re-acceptance gate: existing users see a clear re-acceptance screen
+  // when a material version changes — never implied by a mere sign-in. Access
+  // to settings (export / deletion / logout), policies and the privacy request
+  // path is preserved.
+  const legalGateActive =
+    Boolean(authedStudent) && legalStatus?.reacceptanceRequired === true &&
+    !REACCEPTANCE_ALLOWED_VIEWS.has(route.view)
 
   return (
     <div className="flex min-h-screen flex-col bg-page">
@@ -66,6 +84,11 @@ export default function Page() {
           <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading BEAN EXAMS">
             <Loader2 className="h-6 w-6 animate-spin text-gold" />
           </div>
+        ) : legalGateActive ? (
+          // Re-acceptance replaces every other view — except the allowed
+          // policy/settings routes, which stay reachable (logout, export,
+          // deletion, grievance paths are never blocked).
+          <LegalReacceptanceView />
         ) : (
           <>
             {route.view === 'home' && <HomeView />}
@@ -99,6 +122,9 @@ export default function Page() {
             {route.view === 'admin-trust' && <AdminTrustView />}
             {route.view === 'my-reports' && <MyReportsView />}
             {route.view === 'trust-policy' && <TrustPolicyView />}
+            {/* Public experience, authentication & legal foundation */}
+            {route.view === 'terms' && <TermsView />}
+            {route.view === 'privacy' && <PrivacyView />}
             {/* Phase 7 — Institution & Career */}
             {route.view === 'institution' && <InstitutionView />}
             {route.view === 'institution-org' && route.orgId && <InstitutionOrgView orgId={route.orgId} section={route.section} />}
@@ -117,19 +143,17 @@ export default function Page() {
             {route.view === 'admin-career' && <AdminCareerView />}
             {route.view === 'auth' && (
               <AuthView
-                onAuthed={(student, mode) => {
+                onAuthed={(student, mode, intent) => {
                   // The auth panel already holds the confirmed server response —
-                  // set it synchronously (a /me round-trip here would race the
-                  // next view), claim this device's guest data as the store
-                  // actions do, then route by onboarding state.
+                  // set it synchronously, claim this device's guest data, then
+                  // route by onboarding state + audience intent + REAL teacher
+                  // application status. The audience choice never grants rights:
+                  // teacher routing still resolves through the server-side
+                  // application lifecycle.
                   useAppStore.setState({ authedStudent: student, authChecked: true })
                   const gid = useAppStore.getState().guestId
                   if (gid) void useAppStore.getState().claimGuestData().catch(() => undefined)
-                  navigate(
-                    mode === 'signup' || !student.onboardedAt
-                      ? { view: 'onboarding' }
-                      : { view: 'dashboard' },
-                  )
+                  void resolvePostAuthRoute(student, intent).then(dest => navigate(dest))
                 }}
               />
             )}

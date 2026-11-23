@@ -226,6 +226,24 @@ const fakeDb = {
     },
   },
   studyGoal: { findMany: async () => { call('studyGoal.findMany'); return [] } },
+  // Public-experience milestone: export v2 queries the new personal-data
+  // domains; this suite asserts the chat-preference subset only (empty stubs —
+  // domain coverage lives in tests/unit/account-deletion-export.test.ts).
+  teacherProfile: { findUnique: async () => null },
+  classSession: { findMany: async () => [] },
+  classBooking: { findMany: async () => [] },
+  classReview: { findMany: async () => [] },
+  teachComplaint: { findMany: async () => [] },
+  teachAppeal: { findMany: async () => [] },
+  organizationMembership: { findMany: async () => [] },
+  careerProfile: { findUnique: async () => null },
+  studentCareerSkill: { findMany: async () => [] },
+  careerProject: { findMany: async () => [] },
+  careerCredential: { findMany: async () => [] },
+  careerApplication: { findMany: async () => [] },
+  legalAcceptance: { findMany: async () => [] },
+  consentRecord: { findMany: async () => [] },
+  oAuthIdentity: { findMany: async () => [] },
   student: {
     findUnique: async ({ where }: { where: { id: string } }) => {
       call('student.findUnique')

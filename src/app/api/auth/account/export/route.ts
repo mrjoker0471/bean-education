@@ -5,7 +5,7 @@ import { requireStudent } from '@/lib/auth'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-const EXPORT_VERSION = 'bean-export-v1'
+const EXPORT_VERSION = 'bean-export-v2'
 
 /** Parse a stored JSON column for the export; keep the raw string if invalid. */
 function jsonish(raw: string | null | undefined): unknown {
@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest) {
   }
 
   try {
-    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows, studioActivities] = await Promise.all([
+    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows, studioActivities, researchSessions, researchCandidates, teacherProfile, classesTaught, bookings, reviewsWritten, complaintsFiled, appealsFiled, memberships, careerProfile, careerSkills, careerProjects, careerCredentials, careerApplications, legalAcceptances, consentRecords, oauthIdentities] = await Promise.all([
       db.student.findUnique({
         where: { id: student.id },
         select: {
@@ -38,6 +38,8 @@ export async function GET(_req: NextRequest) {
           learningLevel: true,
           interestsJson: true,
           preferencesJson: true,
+          signupIntent: true,
+          ageBand: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -113,6 +115,91 @@ export async function GET(_req: NextRequest) {
           resultJson: true, createdAt: true, updatedAt: true, completedAt: true,
         },
       }),
+      // Deep-research history (claimed rows carry a plain studentId).
+      db.researchSession.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, title: true, kind: true, status: true, statusDetail: true,
+          inputJson: true, findingsJson: true, summaryJson: true, createdAt: true,
+        },
+      }),
+      db.researchPyqCandidate.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, status: true, examSlug: true, examLabel: true, stageLabel: true,
+          subjectLabel: true, topicLabel: true, year: true, questionNumber: true, paperTitle: true,
+          sourceUrl: true, sourceTitle: true, createdAt: true,
+        },
+      }),
+      // Teacher identity + teaching data (one account can be student AND teacher).
+      db.teacherProfile.findUnique({
+        where: { studentId: student.id },
+        select: {
+          id: true, teachingName: true, headline: true, bio: true, subjectsJson: true,
+          levelsJson: true, languagesJson: true, qualificationsText: true, experienceYears: true,
+          portfolioUrl: true, verificationStatus: true, isPublished: true, createdAt: true, updatedAt: true,
+        },
+      }),
+      db.classSession.findMany({
+        where: { teacherProfile: { studentId: student.id } },
+        orderBy: { startsAt: 'desc' },
+        select: {
+          id: true, title: true, subject: true, targetLevel: true, language: true,
+          durationMinutes: true, startsAt: true, timeZone: true, capacity: true,
+          bookedCount: true, status: true, createdAt: true,
+        },
+      }),
+      db.classBooking.findMany({
+        where: { studentId: student.id },
+        orderBy: { bookedAt: 'desc' },
+        select: { id: true, classSessionId: true, status: true, bookedAt: true, cancelledAt: true, attendanceMarkedAt: true },
+      }),
+      db.classReview.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, classSessionId: true, rating: true, title: true, reviewText: true, showDisplayName: true, status: true, createdAt: true },
+      }),
+      db.teachComplaint.findMany({
+        where: { complainantId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, category: true, subject: true, status: true, createdAt: true },
+      }),
+      db.teachAppeal.findMany({
+        where: { appellantId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, targetType: true, targetId: true, reason: true, status: true, createdAt: true },
+      }),
+      db.organizationMembership.findMany({
+        where: { studentId: student.id },
+        select: { id: true, organizationId: true, role: true, status: true, activatedAt: true, createdAt: true },
+      }),
+      // Career workspace.
+      db.careerProfile.findUnique({
+        where: { studentId: student.id },
+        select: { id: true, headline: true, summary: true, preferredRoleTypes: true, preferredSkills: true, preferredLocations: true, workModes: true, visibility: true, updatedAt: true },
+      }),
+      db.studentCareerSkill.findMany({ where: { studentId: student.id }, orderBy: { position: 'asc' }, select: { id: true, skillName: true, proficiency: true, description: true, verificationLabel: true, sourceRef: true, position: true } }),
+      db.careerProject.findMany({ where: { studentId: student.id }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, description: true, category: true, skillsUsed: true, projectUrl: true, startsAt: true, endsAt: true, visibility: true, status: true } }),
+      db.careerCredential.findMany({ where: { studentId: student.id }, select: { id: true, credentialName: true, credentialDescription: true, issuerOrganizationId: true, issuedDate: true, expiryDate: true, status: true } }),
+      db.careerApplication.findMany({ where: { studentId: student.id }, orderBy: { submittedAt: 'desc' }, select: { id: true, opportunityId: true, status: true, submittedAt: true } }),
+      // Legal acceptance history and purpose-specific consents (evidence trail).
+      db.legalAcceptance.findMany({
+        where: { studentId: student.id },
+        orderBy: { acceptedAt: 'desc' },
+        select: { id: true, document: true, version: true, acceptedAt: true },
+      }),
+      db.consentRecord.findMany({
+        where: { studentId: student.id },
+        orderBy: { grantedAt: 'desc' },
+        select: { id: true, purpose: true, granted: true, grantedAt: true, withdrawnAt: true },
+      }),
+      // Linked OAuth identities (metadata only — no tokens exist).
+      db.oAuthIdentity.findMany({
+        where: { studentId: student.id },
+        select: { id: true, provider: true, subject: true, createdAt: true },
+      }),
     ])
 
     if (!profile) {
@@ -130,6 +217,8 @@ export async function GET(_req: NextRequest) {
         learningLevel: profile.learningLevel,
         interests: jsonish(profile.interestsJson),
         preferences: jsonish(profile.preferencesJson),
+        signupIntent: profile.signupIntent,
+        ageBand: profile.ageBand,
         createdAt: profile.createdAt.toISOString(),
         updatedAt: profile.updatedAt.toISOString(),
       },
@@ -262,6 +351,179 @@ export async function GET(_req: NextRequest) {
         createdAt: s.createdAt.toISOString(),
         updatedAt: s.updatedAt.toISOString(),
         completedAt: s.completedAt ? s.completedAt.toISOString() : null,
+      })),
+      // Deep-research history (claimed rows carry a plain studentId).
+      research: researchSessions.map(r => ({
+        id: r.id,
+        title: r.title,
+        kind: r.kind,
+        status: r.status,
+        statusDetail: r.statusDetail,
+        input: jsonish(r.inputJson),
+        findings: jsonish(r.findingsJson),
+        summary: jsonish(r.summaryJson),
+        createdAt: r.createdAt.toISOString(),
+      })),
+      researchCandidates: researchCandidates.map(c => ({
+        id: c.id,
+        status: c.status,
+        examSlug: c.examSlug,
+        examLabel: c.examLabel,
+        stageLabel: c.stageLabel,
+        subjectLabel: c.subjectLabel,
+        topicLabel: c.topicLabel,
+        year: c.year,
+        questionNumber: c.questionNumber,
+        paperTitle: c.paperTitle,
+        sourceUrl: c.sourceUrl,
+        sourceTitle: c.sourceTitle,
+        createdAt: c.createdAt.toISOString(),
+      })),
+      // Teacher identity + teaching data (one account can be student AND teacher).
+      teacherProfile: teacherProfile
+        ? {
+            id: teacherProfile.id,
+            teachingName: teacherProfile.teachingName,
+            headline: teacherProfile.headline,
+            bio: teacherProfile.bio,
+            subjects: jsonish(teacherProfile.subjectsJson),
+            levels: jsonish(teacherProfile.levelsJson),
+            languages: jsonish(teacherProfile.languagesJson),
+            qualificationsText: teacherProfile.qualificationsText,
+            experienceYears: teacherProfile.experienceYears,
+            portfolioUrl: teacherProfile.portfolioUrl,
+            verificationStatus: teacherProfile.verificationStatus,
+            isPublished: teacherProfile.isPublished,
+            createdAt: teacherProfile.createdAt.toISOString(),
+            updatedAt: teacherProfile.updatedAt.toISOString(),
+          }
+        : null,
+      classesTaught: classesTaught.map(c => ({
+        id: c.id,
+        title: c.title,
+        subject: c.subject,
+        targetLevel: c.targetLevel,
+        language: c.language,
+        durationMinutes: c.durationMinutes,
+        startsAt: c.startsAt.toISOString(),
+        timeZone: c.timeZone,
+        capacity: c.capacity,
+        bookedCount: c.bookedCount,
+        status: c.status,
+        createdAt: c.createdAt.toISOString(),
+      })),
+      bookings: bookings.map(b => ({
+        id: b.id,
+        classSessionId: b.classSessionId,
+        status: b.status,
+        bookedAt: b.bookedAt.toISOString(),
+        cancelledAt: b.cancelledAt ? b.cancelledAt.toISOString() : null,
+        attendanceMarkedAt: b.attendanceMarkedAt ? b.attendanceMarkedAt.toISOString() : null,
+      })),
+      reviewsWritten: reviewsWritten.map(r => ({
+        id: r.id,
+        classSessionId: r.classSessionId,
+        rating: r.rating,
+        title: r.title,
+        reviewText: r.reviewText,
+        showDisplayName: r.showDisplayName,
+        status: r.status,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      complaintsFiled: complaintsFiled.map(c => ({
+        id: c.id,
+        category: c.category,
+        subject: c.subject,
+        status: c.status,
+        createdAt: c.createdAt.toISOString(),
+      })),
+      appealsFiled: appealsFiled.map(a => ({
+        id: a.id,
+        targetType: a.targetType,
+        targetId: a.targetId,
+        reason: a.reason,
+        status: a.status,
+        createdAt: a.createdAt.toISOString(),
+      })),
+      institutionMemberships: memberships.map(m => ({
+        id: m.id,
+        organizationId: m.organizationId,
+        role: m.role,
+        status: m.status,
+        activatedAt: m.activatedAt ? m.activatedAt.toISOString() : null,
+        createdAt: m.createdAt.toISOString(),
+      })),
+      career: {
+        profile: careerProfile
+          ? {
+              id: careerProfile.id,
+              headline: careerProfile.headline,
+              summary: careerProfile.summary,
+              preferredRoleTypes: jsonish(careerProfile.preferredRoleTypes),
+              preferredSkills: jsonish(careerProfile.preferredSkills),
+              preferredLocations: jsonish(careerProfile.preferredLocations),
+              workModes: jsonish(careerProfile.workModes),
+              visibility: careerProfile.visibility,
+              updatedAt: careerProfile.updatedAt.toISOString(),
+            }
+          : null,
+        skills: careerSkills.map(s => ({
+          id: s.id,
+          skillName: s.skillName,
+          proficiency: s.proficiency,
+          description: s.description,
+          verificationLabel: s.verificationLabel,
+          sourceRef: s.sourceRef,
+          position: s.position,
+        })),
+        projects: careerProjects.map(p => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          category: p.category,
+          skillsUsed: jsonish(p.skillsUsed),
+          projectUrl: p.projectUrl,
+          startsAt: p.startsAt ? p.startsAt.toISOString() : null,
+          endsAt: p.endsAt ? p.endsAt.toISOString() : null,
+          visibility: p.visibility,
+          status: p.status,
+        })),
+        credentials: careerCredentials.map(c => ({
+          id: c.id,
+          credentialName: c.credentialName,
+          credentialDescription: c.credentialDescription,
+          issuerOrganizationId: c.issuerOrganizationId,
+          issuedDate: c.issuedDate.toISOString(),
+          expiryDate: c.expiryDate ? c.expiryDate.toISOString() : null,
+          status: c.status,
+        })),
+        applications: careerApplications.map(a => ({
+          id: a.id,
+          opportunityId: a.opportunityId,
+          status: a.status,
+          submittedAt: a.submittedAt.toISOString(),
+        })),
+      },
+      // Legal acceptance history and purpose-specific consents (evidence trail).
+      legalAcceptances: legalAcceptances.map(l => ({
+        id: l.id,
+        document: l.document,
+        version: l.version,
+        acceptedAt: l.acceptedAt.toISOString(),
+      })),
+      consentRecords: consentRecords.map(c => ({
+        id: c.id,
+        purpose: c.purpose,
+        granted: c.granted,
+        grantedAt: c.grantedAt.toISOString(),
+        withdrawnAt: c.withdrawnAt ? c.withdrawnAt.toISOString() : null,
+      })),
+      // Linked OAuth identities (metadata only — no OAuth tokens are stored).
+      oauthIdentities: oauthIdentities.map(o => ({
+        id: o.id,
+        provider: o.provider,
+        subject: o.subject,
+        createdAt: o.createdAt.toISOString(),
       })),
     }
 

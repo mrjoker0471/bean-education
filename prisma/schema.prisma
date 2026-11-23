@@ -390,7 +390,9 @@ model RiisheChatTurn {
 model Student {
   id              String    @id @default(cuid())
   email           String    @unique
-  passwordHash    String // scrypt$N$r$p$salt$hash
+  // Nullable since the public-experience/auth milestone: Google-only accounts
+  // have no password. Password accounts always have a scrypt hash here.
+  passwordHash    String? // scrypt$N$r$p$salt$hash (null = Google-only account)
   displayName     String?
   learningLevel   String? // SCHOOL_6_8 | SCHOOL_9_10 | SCHOOL_11_12 | UNDERGRAD | POSTGRAD | PROFESSIONAL | COMPETITIVE | SKILL
   interestsJson   String? // JSON string[] — subject interests
@@ -399,10 +401,23 @@ model Student {
   // PYQ_CURATOR / ADMIN exist only via the operator CLI (scripts/grant-role.ts).
   // There is no API route that can raise a role.
   role            String    @default("STUDENT") // STUDENT | PYQ_CURATOR | ADMIN
+  // Onboarding/navigation intent recorded at signup ("How would you like to use
+  // BEAN?": STUDENT or TEACHER). This is NOT an authorization role — teacher
+  // capability remains an approved TeacherProfile (see below).
+  signupIntent    String? // STUDENT | TEACHER (navigation intent only)
+  // Minimal age self-declaration at signup ('ADULT_18_PLUS' when the visitor
+  // declares 18+). Under-18 registrations are refused (fail-safe) until a real
+  // verifiable-parental-consent mechanism ships — no child personal-data
+  // accounts are created, and no date of birth is ever collected.
+  ageBand         String? // ADULT_18_PLUS (only stored value)
   onboardedAt     DateTime? // set when the student finishes onboarding (Phase 2B)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   sessions        Session[]
+  oauthIdentities OAuthIdentity[]
+  legalAcceptances LegalAcceptance[]
+  consentRecords  ConsentRecord[]
+  privacyRequests PrivacyRequest[]
   goals           StudyGoal[]
   // BEAN Teach (Phase 4A): teacher capability = an approved TeacherProfile,
   // NOT a new role — one account can be student, curator/admin and teacher.
@@ -1694,4 +1709,84 @@ model RiisheStudioActivity {
   @@index([studentId, status])
   @@index([guestId, kind])
   @@index([documentId])
+}
+
+// ─── Public experience, authentication & legal foundation ──────────────────────
+// Additive models for the public-experience/auth/legal milestone. Design notes:
+//   • OAuthIdentity: one Google subject maps to AT MOST one BEAN account
+//     (provider+subject unique). No OAuth access/refresh tokens are stored —
+//     login only needs the verified identity.
+//   • OAuthPendingAuth: short-lived server-side bridge between the Google
+//     redirect callback and an intentional completion step (first-time signup
+//     with legal acceptance, or proof-of-ownership account linking). Rows
+//     expire in minutes and carry no secrets beyond the verified identity.
+//   • LegalAcceptance: versioned, server-recorded acceptance history for the
+//     Terms and the Privacy Notice. The server validates the CURRENT version —
+//     browser-supplied versions are never trusted.
+//   • ConsentRecord: purpose-specific optional consents (never bundled, never
+//     preselected), with withdrawal support.
+//   • PrivacyRequest: owner-scoped, confidential grievance/privacy requests
+//     (DPDP §13 readiness) — separate from class complaints.
+
+model OAuthIdentity {
+  id        String   @id @default(cuid())
+  provider  String // 'google' (only supported provider today)
+  subject   String // Google 'sub' — stable, never the email
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([provider, subject])
+  @@index([studentId])
+}
+
+model OAuthPendingAuth {
+  id          String   @id @default(cuid())
+  provider    String // 'google'
+  subject     String
+  email       String
+  displayName String?
+  purpose     String // SIGNUP | LINK
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model LegalAcceptance {
+  id           String   @id @default(cuid())
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  document     String // 'TERMS' | 'PRIVACY'
+  version      String // the exact version the student accepted (server-validated)
+  acceptedAt   DateTime @default(now())
+
+  @@index([studentId, document])
+}
+
+model ConsentRecord {
+  id          String    @id @default(cuid())
+  studentId   String
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  purpose     String // optional-purpose identifier (independent per purpose)
+  granted     Boolean
+  grantedAt   DateTime  @default(now())
+  withdrawnAt DateTime?
+
+  @@index([studentId, purpose])
+}
+
+model PrivacyRequest {
+  id          String   @id @default(cuid())
+  studentId   String? // set when the requester is signed in (owner-scoped)
+  student     Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guestId     String? // guest requester scope (same ownership model as content)
+  category    String // ACCESS | CORRECTION | ERASURE | CONSENT | GRIEVANCE | OTHER
+  message     String
+  status      String   @default("OPEN") // OPEN | ACKNOWLEDGED | RESOLVED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([guestId])
 }

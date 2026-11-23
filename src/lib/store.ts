@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import { api } from './api'
-import type { AuthedStudent, BeanContext, BeanSettings } from './types'
+import type { AuthedStudent, BeanContext, BeanSettings, LegalStatusDTO } from './types'
 
 export type Route =
   | { view: 'home' }
@@ -42,6 +42,9 @@ export type Route =
   | { view: 'admin-trust' }
   | { view: 'my-reports' }
   | { view: 'trust-policy' }
+  // Public experience, authentication & legal foundation (additive)
+  | { view: 'terms' }
+  | { view: 'privacy' }
   // Phase 7 — Institution & Career (additive; every existing route unchanged)
   | { view: 'institution' }
   | { view: 'institution-org'; orgId: string; section?: 'overview' | 'members' | 'groups' | 'classes' | 'assignments' | 'resources' | 'reports' }
@@ -165,6 +168,11 @@ export function parseHash(hash: string): Route {
       return { view: 'my-reports' }
     case 'trust-policy':
       return { view: 'trust-policy' }
+    // Public experience, authentication & legal foundation
+    case 'terms':
+      return { view: 'terms' }
+    case 'privacy':
+      return { view: 'privacy' }
     // Phase 7 — Institution & Career
     case 'institution':
       if (!parts[1]) return { view: 'institution' }
@@ -277,6 +285,9 @@ export function routeToHash(route: Route): string {
     case 'admin-trust': return '#/admin/trust'
     case 'my-reports': return '#/my-reports'
     case 'trust-policy': return '#/trust-policy'
+    // Public experience, authentication & legal foundation
+    case 'terms': return '#/terms'
+    case 'privacy': return '#/privacy'
     // Phase 7 — Institution & Career
     case 'institution': return '#/institution'
     case 'institution-org': {
@@ -313,6 +324,8 @@ interface AppState {
   authedStudent: AuthedStudent | null
   /** True once the initial session probe (/api/auth/me) has settled. */
   authChecked: boolean
+  /** Server-computed legal acceptance state (null for guests / before probe). */
+  legalStatus: LegalStatusDTO | null
   _hydrated: boolean
   init: () => void
   navigate: (route: Route) => void
@@ -321,7 +334,18 @@ interface AppState {
   setBeanSettings: (s: Partial<BeanSettings>) => void
   refreshAuth: () => Promise<void>
   authSignIn: (email: string, password: string) => Promise<void>
-  authSignUp: (email: string, password: string, displayName?: string) => Promise<void>
+  /** Legacy programmatic signup — callers MUST pass the server-validated
+   *  legal versions and an honest age declaration; optional-purpose consents
+   *  are never preselected here. */
+  authSignUp: (input: {
+    email: string
+    password: string
+    displayName?: string
+    acceptedTermsVersion: string
+    privacyNoticeVersion: string
+    ageDeclaration: 'ADULT_18_PLUS' | 'UNDER_18'
+    intent: 'STUDENT' | 'TEACHER'
+  }) => Promise<void>
   authSignOut: () => Promise<void>
   authDeleteAccount: () => Promise<void>
   claimGuestData: () => Promise<{ attempts: number; documents: number; tests: number; chatTurns: number }>
@@ -337,6 +361,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   beanSettings: { style: 'exam-focused', showSourceContext: true },
   authedStudent: null,
   authChecked: false,
+  legalStatus: null,
   _hydrated: false,
   init: () => {
     if (get()._hydrated) return
@@ -384,10 +409,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ─── Student identity (Phase 2A): additive — guest mode stays unchanged ───
   refreshAuth: async () => {
     try {
-      const { student } = await api.authMe()
-      set({ authedStudent: student, authChecked: true })
+      const { student, legal } = await api.authMe()
+      set({ authedStudent: student, legalStatus: legal ?? null, authChecked: true })
     } catch {
-      set({ authedStudent: null, authChecked: true })
+      set({ authedStudent: null, legalStatus: null, authChecked: true })
     }
   },
   authSignIn: async (email, password) => {
@@ -398,19 +423,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     const gid = get().guestId
     if (gid) await api.claimGuest(gid).catch(() => undefined)
   },
-  authSignUp: async (email, password, displayName) => {
-    const { student } = await api.authRegister({ email, password, ...(displayName ? { displayName } : {}) })
+  authSignUp: async input => {
+    const { student } = await api.authRegister(input)
     set({ authedStudent: student, authChecked: true })
     const gid = get().guestId
     if (gid) await api.claimGuest(gid).catch(() => undefined)
   },
   authSignOut: async () => {
     await api.authLogout()
-    set({ authedStudent: null })
+    set({ authedStudent: null, legalStatus: null })
   },
   authDeleteAccount: async () => {
-    await api.deleteStudentAccount()
-    set({ authedStudent: null })
+    await api.deleteStudentAccount({ confirm: 'DELETE' })
+    set({ authedStudent: null, legalStatus: null })
   },
   claimGuestData: async () => {
     const gid = get().guestId

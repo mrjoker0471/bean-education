@@ -50,6 +50,8 @@ import type {
   ExamDetailDTO,
   ExamListItem,
   GoalDTO,
+  LegalConfigDTO,
+  LegalStatusDTO,
   GoalStatus,
   GuestClaims,
   LearningLevel,
@@ -485,9 +487,17 @@ export const api = {
       body: JSON.stringify({ guestId, answers }),
     }),
 
-  // ─── Student identity (Phase 2A) ───
-  authMe: () => jsonFetch<{ student: AuthedStudent | null }>('/api/auth/me'),
-  authRegister: (body: { email: string; password: string; displayName?: string }) =>
+  // ─── Student identity (Phase 2A; extended by the public-experience milestone) ───
+  authMe: () => jsonFetch<{ student: AuthedStudent | null; legal?: LegalStatusDTO }>('/api/auth/me'),
+  authRegister: (body: {
+    email: string
+    password: string
+    displayName?: string
+    acceptedTermsVersion: string
+    privacyNoticeVersion: string
+    ageDeclaration: 'ADULT_18_PLUS' | 'UNDER_18'
+    intent: 'STUDENT' | 'TEACHER'
+  }) =>
     jsonFetch<{ student: AuthedStudent }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
   authLogin: (body: { email: string; password: string }) =>
     jsonFetch<{ student: AuthedStudent }>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
@@ -511,8 +521,25 @@ export const api = {
     a.remove()
     URL.revokeObjectURL(url)
   },
-  deleteStudentAccount: () =>
-    jsonFetch<{ ok: boolean }>('/api/auth/account/delete', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) }),
+  deleteStudentAccount: (body: { confirm: string; password?: string }) =>
+    jsonFetch<{ ok: boolean; deleted?: { documents: number }; note?: string }>('/api/auth/account/delete', { method: 'POST', body: JSON.stringify(body) }),
+
+  // ─── Public experience, authentication & legal foundation ───
+  googleStatus: () => jsonFetch<{ configured: boolean }>('/api/auth/google/status'),
+  legalConfig: () => jsonFetch<LegalConfigDTO>('/api/legal/config'),
+  accountDeletionPreview: () =>
+    jsonFetch<{ categories: { key: string; label: string; count: number }[]; teacherProfileDeleted: boolean; requiresPassword: boolean }>(
+      '/api/auth/account/delete',
+    ),
+  submitPrivacyRequest: (body: { category: string; message: string; guestId?: string }) =>
+    jsonFetch<{ request: { id: string; category: string; status: string; createdAt: string } }>('/api/privacy-request', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  myPrivacyRequests: () =>
+    jsonFetch<{ requests: { id: string; category: string; status: string; message: string; createdAt: string; updatedAt: string }[] }>(
+      '/api/privacy-request',
+    ),
 
   // ─── Student profile / goals / dashboard (Phase 2A, extended 2B) ───
   studentProfile: () => jsonFetch<{ student: StudentProfileDTO }>('/api/student/profile'),

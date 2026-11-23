@@ -103,7 +103,27 @@ const fakeDb = {
   riisheExplanation: { deleteMany: async () => ({ count: 0 }) },
   researchSession: stampableModel('research'),
   researchPyqCandidate: stampableModel('pyqCandidates'),
-  // Phase 3F: Studio activity records join claim / export / delete flows.
+  // Public-experience milestone: export v2 + delete coverage over the new
+  // personal-data domains. Empty stubs — this suite asserts the LEARNING
+  // subset; domain coverage for the new tables is asserted in
+  // tests/unit/account-deletion-export.test.ts.
+  oAuthIdentity: { deleteMany: async () => ({ count: 0 }), findMany: async () => [] },
+  legalAcceptance: { findMany: async () => [], createMany: async () => undefined },
+  consentRecord: { findMany: async () => [] },
+  privacyRequest: { findMany: async () => [], create: async () => undefined, count: async () => 0 },
+  teacherProfile: { findUnique: async () => null },
+  classSession: { findMany: async () => [] },
+  classBooking: { findMany: async () => [], count: async () => 0 },
+  classReview: { findMany: async () => [], count: async () => 0 },
+  teachComplaint: { findMany: async () => [], count: async () => 0 },
+  teachAppeal: { findMany: async () => [], count: async () => 0 },
+  organizationMembership: { findMany: async () => [], count: async () => 0 },
+  assignmentSubmission: { count: async () => 0 },
+  careerProfile: { findUnique: async () => null },
+  studentCareerSkill: { findMany: async () => [] },
+  careerProject: { findMany: async () => [] },
+  careerCredential: { findMany: async () => [] },
+  careerApplication: { findMany: async () => [], count: async () => 0 },
   riisheStudioActivity: { ...stampableModel('studioActivities'), findMany: async ({ where }: { where: { studentId?: string } }) => findManyModel('studioActivities').findMany({ where }) },
   $transaction: async (arg: unknown) => (Array.isArray(arg) ? Promise.all(arg) : await (arg as (tx: unknown) => Promise<unknown>)(fakeDb)),
 }

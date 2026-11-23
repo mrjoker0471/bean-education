@@ -199,6 +199,13 @@ export function OnboardingView({ edit }: { edit?: boolean }) {
       }
 
       await refreshAuth()
+      // Teacher-intent signups are handed to the real teacher application after
+      // onboarding — navigation intent only; the server-side application
+      // lifecycle remains the sole path to teaching capability.
+      if (!edit && authedStudent?.signupIntent === 'TEACHER') {
+        navigate({ view: 'teach-apply' })
+        return
+      }
       navigate(edit ? { view: 'settings' } : { view: 'dashboard' })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save your profile — please try again.')
