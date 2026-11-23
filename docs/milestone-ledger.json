@@ -507,16 +507,29 @@
       "pushVerifiedAt": "2026-11-23T04:33:00Z",
       "pr": {
         "number": null,
-        "state": "OPEN",
-        "url": null
+        "state": "NOT_CREATED",
+        "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-public-experience-auth-legal"
       },
-      "ci": [],
-      "ciNote": "Pre-merge CI results will be recorded on the PR-head commit after the GitHub Actions run completes; post-merge state (mergeCommitSha/finalMainSha/syncStatus/status) is recorded by the follow-up ledger reconciliation, per the phase3h precedent.",
+      "ci": [
+        {
+          "runId": "45111775273",
+          "conclusion": "SUCCESS",
+          "subject": "quality job on branch tip dac46e5 (push build on feat/bean-public-experience-auth-legal, pre-merge) — verified via GitHub Actions HTML"
+        },
+        {
+          "runId": "45111739544",
+          "conclusion": "CANCELLED",
+          "subject": "superseded by the workflow's own concurrency policy (cancel-in-progress) when the ledger-sync push landed"
+        }
+      ],
+      "ciNote": [
+        "Branch CI verified via GitHub Actions HTML (sandbox has SSH deploy-key authorization only; unauthenticated REST was rate-limited, HTML used). PR creation is a recorded gate: GitHub PRs require the owner session (ADR-008 — OAuth device-flow blocked in sandbox; deploy keys cannot create PRs); all previous PRs (#19-#25) were authored by mrjoker0471. No PR number is invented. Post-merge state (mergeCommitSha/finalMainSha/syncStatus/status COMPLETE) must only be recorded after a real PR is opened and merged."
+      ],
       "finalMainSha": null,
       "syncStatus": "PENDING",
       "status": "PUSHED",
       "evidence": "docs/PUBLIC-EXPERIENCE-AUTH-LEGAL-READINESS.md",
-      "updatedAt": "2026-11-23T04:33:00Z"
+      "updatedAt": "2026-11-23T04:45:00Z"
     }
   ]
 }
