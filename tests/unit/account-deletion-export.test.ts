@@ -63,9 +63,14 @@ const fakeDb = new Proxy({
         deleteMany: async () => { state.deletedTables.push('riisheExplanation'); return { count: 1 } },
       }
     }
+    // Generic model fallback: delete counter + harmless reads so additive
+    // deletion steps (e.g. Classroom Intelligence domains) keep the route on
+    // its full happy path.
     return {
       count: async () => 0,
       deleteMany: async () => { state.deletedTables.push(String(prop)); return { count: 1 } },
+      findUnique: async () => null,
+      findMany: async () => [],
     }
   },
 }) as typeof fakeDbTarget

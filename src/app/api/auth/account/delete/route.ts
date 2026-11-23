@@ -172,6 +172,18 @@ export async function POST(req: NextRequest) {
       // cascade from the Student row); consent/acceptance/privacy-request rows
       // cascade with the account.
       await tx.oAuthIdentity.deleteMany({ where: { studentId: student.id } })
+      // CI-1E: Classroom Intelligence — explicit erasure of AI-evaluation data.
+      // Teacher-side rows (jobs → reports → evidence/agent runs; disputes →
+      // events) also cascade via TeacherProfile → ClassSession, and student
+      // summaries cascade via ClassBooking; the dispute rows are deleted by
+      // plain teacherId (no FK) and MUST be explicit or they would orphan.
+      await tx.classroomEvaluationDispute.deleteMany({ where: { teacherId: student.id } })
+      const ciProfile = await tx.teacherProfile.findUnique({ where: { studentId: student.id }, select: { id: true } })
+      if (ciProfile) {
+        const ciClassIds = (await tx.classSession.findMany({ where: { teacherProfileId: ciProfile.id }, select: { id: true } })).map(c => c.id)
+        await tx.classroomEvaluationJob.deleteMany({ where: { classSessionId: { in: ciClassIds } } })
+      }
+      await tx.classroomStudentSummary.deleteMany({ where: { booking: { studentId: student.id } } })
       // Legal acceptance/consent/OAuth/privacy-request rows all cascade from
       // the Student row (schema onDelete: Cascade).
       // Goals and sessions also cascade from the Student row — deleted above for clarity.

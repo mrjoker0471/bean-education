@@ -231,6 +231,11 @@ const fakeDb = {
   // domain coverage lives in tests/unit/account-deletion-export.test.ts).
   teacherProfile: { findUnique: async () => null },
   classSession: { findMany: async () => [] },
+  // CI-1E: Classroom Intelligence export domains (empty stubs — the
+  // chat-preference subset is what this suite asserts).
+  classroomEvaluationReport: { findMany: async () => [] },
+  classroomStudentSummary: { findMany: async () => [] },
+  classroomEvaluationDispute: { findMany: async () => [] },
   classBooking: { findMany: async () => [] },
   classReview: { findMany: async () => [] },
   teachComplaint: { findMany: async () => [] },

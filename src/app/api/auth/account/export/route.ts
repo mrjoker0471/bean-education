@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest) {
   }
 
   try {
-    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows, studioActivities, researchSessions, researchCandidates, teacherProfile, classesTaught, bookings, reviewsWritten, complaintsFiled, appealsFiled, memberships, careerProfile, careerSkills, careerProjects, careerCredentials, careerApplications, legalAcceptances, consentRecords, oauthIdentities] = await Promise.all([
+    const [profile, goals, attempts, documents, tests, chatTurns, masteryRows, planTasks, revisionItems, mistakeRows, actionRows, studioActivities, researchSessions, researchCandidates, teacherProfile, classesTaught, bookings, reviewsWritten, complaintsFiled, appealsFiled, memberships, careerProfile, careerSkills, careerProjects, careerCredentials, careerApplications, legalAcceptances, consentRecords, oauthIdentities, ciTeacherReports, ciStudentSummaries, ciDisputes] = await Promise.all([
       db.student.findUnique({
         where: { id: student.id },
         select: {
@@ -199,6 +199,51 @@ export async function GET(_req: NextRequest) {
       db.oAuthIdentity.findMany({
         where: { studentId: student.id },
         select: { id: true, provider: true, subject: true, createdAt: true },
+      }),
+      // CI-1E: Classroom Intelligence — the teacher's own quality reports (all
+      // versions; content included so the export is complete), the student's
+      // class-level summaries, and any disputes this account filed.
+      (async () => {
+        const profileRow = await db.teacherProfile.findUnique({ where: { studentId: student.id }, select: { id: true } })
+        if (!profileRow) return []
+        return db.classroomEvaluationReport.findMany({
+          where: { teacherProfileId: profileRow.id },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            version: true,
+            status: true,
+            insufficientEvidence: true,
+            requiresHumanReview: true,
+            modelId: true,
+            reportJson: true,
+            createdAt: true,
+            job: { select: { classSession: { select: { id: true, title: true, subject: true, startsAt: true } } } },
+          },
+        })
+      })(),
+      db.classroomStudentSummary.findMany({
+        where: { booking: { studentId: student.id } },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          summaryJson: true,
+          createdAt: true,
+          booking: { select: { classSession: { select: { id: true, title: true, subject: true, startsAt: true } } } },
+        },
+      }),
+      db.classroomEvaluationDispute.findMany({
+        where: { teacherId: student.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          findingsJson: true,
+          resolution: true,
+          resolutionNote: true,
+          resolvedAt: true,
+          createdAt: true,
+        },
       }),
     ])
 
@@ -525,6 +570,40 @@ export async function GET(_req: NextRequest) {
         subject: o.subject,
         createdAt: o.createdAt.toISOString(),
       })),
+      // CI-1E: Classroom Intelligence — full AI-evaluation data this account owns.
+      classroomIntelligence: {
+        note: 'Classroom Intelligence evaluations are advisory evidence only. Reports are private to you and authorised administrators; student summaries are class-level material shared with every attendee of that class.',
+        teacherReports: ciTeacherReports.map(r => ({
+          id: r.id,
+          classTitle: r.job.classSession.title,
+          classSubject: r.job.classSession.subject,
+          classStartsAt: r.job.classSession.startsAt.toISOString(),
+          version: r.version,
+          status: r.status,
+          insufficientEvidence: r.insufficientEvidence,
+          requiresHumanReview: r.requiresHumanReview,
+          engineId: r.modelId,
+          report: jsonish(r.reportJson),
+          createdAt: r.createdAt.toISOString(),
+        })),
+        classSummaries: ciStudentSummaries.map(s => ({
+          id: s.id,
+          classTitle: s.booking.classSession.title,
+          classSubject: s.booking.classSession.subject,
+          classStartsAt: s.booking.classSession.startsAt.toISOString(),
+          summary: jsonish(s.summaryJson),
+          createdAt: s.createdAt.toISOString(),
+        })),
+        disputesFiled: ciDisputes.map(d => ({
+          id: d.id,
+          status: d.status,
+          findings: jsonish(d.findingsJson),
+          resolution: d.resolution,
+          resolutionNote: d.resolutionNote,
+          resolvedAt: d.resolvedAt ? d.resolvedAt.toISOString() : null,
+          createdAt: d.createdAt.toISOString(),
+        })),
+      },
     }
 
     const filename = `bean-export-${new Date().toISOString().slice(0, 10)}.json`

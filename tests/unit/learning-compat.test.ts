@@ -113,6 +113,14 @@ const fakeDb = {
   privacyRequest: { findMany: async () => [], create: async () => undefined, count: async () => 0 },
   teacherProfile: { findUnique: async () => null },
   classSession: { findMany: async () => [] },
+  // CI-1E: Classroom Intelligence domains (empty stubs — domain coverage is
+  // asserted in ci-trust.test.ts / ci-routes.test.ts on a real DB).
+  classroomEvaluationReport: { findMany: async () => [], deleteMany: async () => ({ count: 0 }), create: async () => undefined },
+  classroomStudentSummary: { findMany: async () => [], deleteMany: async () => ({ count: 0 }), create: async () => undefined },
+  classroomEvaluationDispute: { findMany: async () => [], deleteMany: async () => ({ count: 0 }), create: async () => undefined },
+  classroomEvaluationJob: { deleteMany: async () => ({ count: 0 }) },
+  classroomEvidenceRef: { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
+  classroomAgentRun: { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
   classBooking: { findMany: async () => [], count: async () => 0 },
   classReview: { findMany: async () => [], count: async () => 0 },
   teachComplaint: { findMany: async () => [], count: async () => 0 },

@@ -13,7 +13,7 @@
 import { completeJson, fenceClassroomText } from '@/lib/ci/model-adapter'
 import type { CiModelAdapter } from '@/lib/ci/model-adapter'
 import type { EvidenceView } from '@/lib/ci/evidence'
-import { parseLearnerOutput, type LearnerOutput } from '@/lib/ci/schemas'
+import { parseLearnerOutput, normaliseStructuredOutput, type LearnerOutput } from '@/lib/ci/schemas'
 
 const SYSTEM = `You are the BEAN Learner Agent, an analytical agent inside BEAN Education's Classroom Intelligence system.
 
@@ -64,7 +64,7 @@ export async function runLearnerAgent(
     adapter,
     system: SYSTEM,
     user: buildLearnerPrompt(view, teacherNotes),
-    validate: (v) => parseLearnerOutput(v),
+    validate: (v) => parseLearnerOutput(normaliseStructuredOutput(v)),
   })
   return { output, inputDigestBasis: view }
 }

@@ -12,6 +12,69 @@
 import { z } from 'zod'
 import { CI_EVIDENCE_KIND } from './constants'
 
+const EVIDENCE_KIND_SET = new Set<string>(Object.values(CI_EVIDENCE_KIND))
+
+/**
+ * Honest synonym remap for the evidence-kind labels: near-miss names that
+ * clearly denote one of the authorised kinds are mapped onto it. Values that
+ * denote nothing authorised are dropped (the schema then retries strictly).
+ */
+const EVIDENCE_KIND_SYNONYMS: Record<string, string> = {
+  TEACHER_NOTES: 'TEACHER_LESSON_NOTES',
+  LESSON_NOTES: 'TEACHER_LESSON_NOTES',
+  NOTES: 'TEACHER_LESSON_NOTES',
+  WHITEBOARD: 'WHITEBOARD_SNAPSHOT',
+  BOARD: 'WHITEBOARD_SNAPSHOT',
+  PLAN: 'LESSON_PLAN',
+  CLASS_PLAN: 'LESSON_PLAN',
+  ATTENDANCE: 'ATTENDANCE_RECORD',
+  ATTENDANCE_RECORDS: 'ATTENDANCE_RECORD',
+  CONNECTION_INTERVALS: 'PARTICIPANT_INTERVALS',
+  PARTICIPANT: 'PARTICIPANT_INTERVALS',
+  CONNECTION: 'PARTICIPANT_INTERVALS',
+  INTERVALS: 'PARTICIPANT_INTERVALS',
+  LIVE_SESSION: 'PARTICIPANT_INTERVALS',
+  // The fence's combined source label denotes the whole bundled view; the
+  // lesson plan is its documented anchor.
+  LESSON_PLAN_AND_CLASSROOM_EVIDENCE: 'LESSON_PLAN',
+  LESSON_PLAN_AND_EVIDENCE: 'LESSON_PLAN',
+  CLASSROOM_EVIDENCE: 'LESSON_PLAN',
+}
+
+/**
+ * Tolerate model formatting drift on enum-ish fields WITHOUT tolerating
+ * invented values: strings are trimmed, uppercased and underscore-normalised;
+ * evidence kinds that are still not in the authorised set are dropped (a
+ * finding left with none fails the schema and triggers the strict retry).
+ */
+export function normaliseStructuredOutput<T>(value: T): T {
+  const fix = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(fix)
+    if (node && typeof node === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (k === 'evidenceKinds' && Array.isArray(v)) {
+          const fixed = v
+            .map((item) => {
+              if (typeof item !== 'string') return ''
+              const normalised = item.trim().toUpperCase().replace(/\s|-+/g, '_')
+              return EVIDENCE_KIND_SET.has(normalised) ? normalised : (EVIDENCE_KIND_SYNONYMS[normalised] ?? '')
+            })
+            .filter((item) => EVIDENCE_KIND_SET.has(item))
+          out[k] = [...new Set(fixed)]
+        } else if ((k === 'category' || k === 'kind') && typeof v === 'string') {
+          out[k] = v.trim().toUpperCase().replace(/\s|-+/g, '_')
+        } else {
+          out[k] = fix(v)
+        }
+      }
+      return out
+    }
+    return node
+  }
+  return fix(value) as T
+}
+
 /** Evidence kinds an agent may cite — exactly the authorised set. */
 const evidenceKindEnum = z.enum([
   CI_EVIDENCE_KIND.LESSON_PLAN,
@@ -191,3 +254,29 @@ export function parseFinalReport(raw: unknown): FinalReport {
 export function parseStudentSummary(raw: unknown): StudentSummary {
   return studentSummarySchema.parse(raw)
 }
+
+// ─── Disputes (CI-1E) ───────────────────────────────────────────────────────
+
+/** A teacher dispute against specific findings of one report version. */
+export const ciDisputeSchema = z.object({
+  findings: z
+    .array(
+      z.object({
+        findingId: z.string().min(3).max(40),
+        reason: z.string().min(20).max(1000),
+      }),
+    )
+    .min(1)
+    .max(10),
+})
+export type CiDisputeInput = z.infer<typeof ciDisputeSchema>
+
+/** Admin human-review action on a dispute. */
+export const ciDisputeActionSchema = z.object({
+  action: z.enum(['ASSIGN', 'UNDER_REVIEW', 'RESOLVE', 'DISMISS']),
+  /** Mandatory for RESOLVE — the human decision on the disputed findings. */
+  resolution: z.enum(['UPHELD', 'CORRECTED', 'RETRACTED']).optional(),
+  /** Mandatory for RESOLVE/DISMISS — documented grounds (append-only history). */
+  note: z.string().min(10).max(1000).optional(),
+})
+export type CiDisputeActionInput = z.infer<typeof ciDisputeActionSchema>
