@@ -1,4 +1,4 @@
-// ─── Browser-local inference adapters (BEAN Learn, foundation scope) ───
+// ─── Browser-local inference adapters (BEAN Education, foundation scope) ───
 // Consent-gated, lazily-loaded adapter interface. The concrete runtime is an
 // OPTIONAL dependency: it is intentionally NOT installed in this foundation
 // build, and every failure path here is honest about that (clear errors,

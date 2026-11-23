@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Original study notes (canonical library, General Studies).
-// All notes are original BEAN EXAMS content, structured for exam learning:
+// BEAN Education — Original study notes (canonical library, General Studies).
+// All notes are original BEAN Education content, structured for exam learning:
 // concept → definitions → key facts → examples → formulas/tables → common
 // mistakes → revision summary → references. Attached to matching topics.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -715,7 +715,7 @@ Current-affairs questions reward consistent, source-anchored preparation rather 
 ## 3. What exams typically ask
 - Government schemes (launch year, ministry, beneficiaries), constitutional/statutory bodies in news, reports & indices (publisher + India's rank), sports winners, space/defence milestones, economic indicators (GDP growth, repo rate direction), international summits and their host cities.
 
-## 4. BEAN EXAMS note on honesty
+## 4. BEAN Education note on honesty
 Static notes in this app cover the permanent framework (institutions, processes). For day-to-day items, always verify with official sources (PIB, ministry portals, exam-conducting bodies) — content here does not replace them.
 
 ## 5. Common mistakes & exam traps

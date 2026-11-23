@@ -45,7 +45,7 @@ interface GoalDraft {
 }
 
 const STEPS = [
-  { key: 'identity', title: 'Welcome to BEAN Learn', subtitle: 'How should we greet you?' },
+  { key: 'identity', title: 'Welcome to BEAN Education', subtitle: 'How should we greet you?' },
   { key: 'category', title: 'Where are you in your learning journey?', subtitle: 'Pick the group that fits you best — you can change this any time.' },
   { key: 'interests', title: 'What do you want to learn?', subtitle: 'Pick a few subjects — they shape your recommendations.' },
   { key: 'habits', title: 'How do you like to study?', subtitle: 'Language, study style and the time you actually have.' },
@@ -248,7 +248,7 @@ export function OnboardingView({ edit }: { edit?: boolean }) {
           {edit ? 'Edit profile' : 'Set up your learning profile'}
         </p>
         <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
-          {edit ? 'Your profile' : 'Welcome to BEAN Learn'}
+          {edit ? 'Your profile' : 'Welcome to BEAN Education'}
         </h1>
         {!edit && profile && (
           <p className="mt-2 text-sm text-muted-foreground">

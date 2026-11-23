@@ -51,6 +51,7 @@ import { AdminCareerView } from '@/components/bean/views/admin-career-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { resolvePostAuthRoute } from '@/lib/teacher-intent'
+import { BeanMark, Wordmark } from '@/components/bean/brand-mark'
 import { Compass, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -81,7 +82,7 @@ export default function Page() {
       <Header />
       <main className="flex-1" id="main">
         {!hydrated ? (
-          <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading BEAN EXAMS">
+          <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading BEAN Education">
             <Loader2 className="h-6 w-6 animate-spin text-gold" />
           </div>
         ) : legalGateActive ? (
@@ -142,26 +143,51 @@ export default function Page() {
             {route.view === 'admin-organizations' && <AdminOrganizationsView />}
             {route.view === 'admin-career' && <AdminCareerView />}
             {route.view === 'auth' && (
-              <AuthView
-                onAuthed={(student, mode, intent) => {
-                  // The auth panel already holds the confirmed server response —
-                  // set it synchronously, claim this device's guest data, then
-                  // route by onboarding state + audience intent + REAL teacher
-                  // application status. The audience choice never grants rights:
-                  // teacher routing still resolves through the server-side
-                  // application lifecycle.
-                  useAppStore.setState({ authedStudent: student, authChecked: true })
-                  const gid = useAppStore.getState().guestId
-                  if (gid) void useAppStore.getState().claimGuestData().catch(() => undefined)
-                  void resolvePostAuthRoute(student, intent).then(dest => navigate(dest))
-                }}
-              />
+              <AuthStage>
+                <AuthView
+                  onAuthed={(student, mode, intent) => {
+                    // The auth panel already holds the confirmed server response —
+                    // set it synchronously, claim this device's guest data, then
+                    // route by onboarding state + audience intent + REAL teacher
+                    // application status. The audience choice never grants rights:
+                    // teacher routing still resolves through the server-side
+                    // application lifecycle.
+                    useAppStore.setState({ authedStudent: student, authChecked: true })
+                    const gid = useAppStore.getState().guestId
+                    if (gid) void useAppStore.getState().claimGuestData().catch(() => undefined)
+                    void resolvePostAuthRoute(student, intent).then(dest => navigate(dest))
+                  }}
+                />
+              </AuthStage>
             )}
             {route.view === 'not-found' && <NotFound />}
           </>
         )}
       </main>
       <Footer />
+    </div>
+  )
+}
+
+/** Authentication stage — the art-directed obsidian surface every sign-in,
+ *  sign-up, Google-link and re-acceptance panel sits on. The panel itself
+ *  (AuthView) keeps its entire flow; only the stage around it is styled. */
+function AuthStage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative flex min-h-[72vh] flex-col items-center justify-center overflow-hidden px-4 py-14 obsidian-ambient sm:py-20">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px"
+        style={{ background: 'linear-gradient(90deg, transparent 8%, rgba(198,160,94,0.30) 50%, transparent 92%)' }}
+      />
+      <div className="relative flex w-full max-w-md flex-col items-center text-center">
+        <BeanMark tileSize="lg" />
+        <Wordmark className="mt-4" />
+        <p className="mt-2.5 text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
+          Learn. Practise. Teach. Grow.
+        </p>
+        <div className="mt-8 w-full">{children}</div>
+      </div>
     </div>
   )
 }
@@ -173,7 +199,7 @@ function NotFound() {
       <Compass className="mb-4 h-10 w-10 text-gold" />
       <h1 className="font-display text-2xl font-semibold text-foreground">Page not found</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        That link doesn&apos;t match anything in the BEAN EXAMS catalogue.
+        That link doesn&apos;t match anything in the BEAN Education catalogue.
       </p>
       <Button className="mt-6 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'home' })}>
         Back to home

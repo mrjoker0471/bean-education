@@ -692,7 +692,7 @@ export function ResultView({ attemptId }: { attemptId: string }) {
             ? 'These questions were generated from your uploaded material and validated before the test — each item above shows its category and the pages it was drawn from.'
             : dto.questions.some(q => q.sourceType === 'PYQ_VERIFIED' || q.sourceType === 'PYQ_UNVERIFIED')
               ? 'Question sources are labelled per item above — verified previous-year questions carry their source paper and year; originals carry an author-verified answer.'
-              : 'All questions in this attempt are original BEAN EXAMS practice questions with author-verified answers — no unverified material is presented as previous-year.'}
+              : 'All questions in this attempt are original BEAN Education practice questions with author-verified answers — no unverified material is presented as previous-year.'}
         </p>
       </section>
     </div>

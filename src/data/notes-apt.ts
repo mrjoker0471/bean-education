@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Original study notes (canonical library): Aptitude, Reasoning,
+// BEAN Education — Original study notes (canonical library): Aptitude, Reasoning,
 // English, Computer, Banking awareness and NEET/JEE foundational topics.
 // ─────────────────────────────────────────────────────────────────────────────
 

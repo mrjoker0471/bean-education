@@ -138,7 +138,7 @@ export async function explainAttemptJob(attemptId: string, guestId: string): Pro
       const batch = items.slice(i, i + BATCH)
       try {
         const payload = await chatJson<{ explanations?: Partial<RiisheExplanationPayload>[] }>({
-          system: 'You are Riishe, the exam-review teacher inside BEAN EXAMS. You diagnose exactly why a student picked a wrong answer and teach the correct reasoning. Output only valid JSON.',
+          system: 'You are Riishe, the exam-review teacher inside BEAN Education. You diagnose exactly why a student picked a wrong answer and teach the correct reasoning. Output only valid JSON.',
           user: `For EACH question below, the student selected an incorrect option. Explain the mistake.
 
 Return JSON: {"explanations": [{

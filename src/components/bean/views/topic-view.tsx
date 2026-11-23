@@ -111,7 +111,7 @@ export function TopicView({ topicId }: { topicId: string }) {
           icon={SearchX}
           title={notFound ? 'Topic not found' : 'Could not load this topic'}
           description={notFound
-            ? 'That topic link doesn\u2019t match anything in the BEAN EXAMS syllabus tree.'
+            ? 'That topic link doesn\u2019t match anything in the BEAN Education syllabus tree.'
             : error}
           actionLabel="Back to home"
           onAction={() => navigate({ view: 'home' })}
@@ -196,7 +196,7 @@ export function TopicView({ topicId }: { topicId: string }) {
                     Study notes — {dto.note.title}
                   </CardTitle>
                   <CardDescription>
-                    Version {dto.note.version} · Updated {formatDate(dto.note.updatedAt)} · Written by BEAN EXAMS
+                    Version {dto.note.version} · Updated {formatDate(dto.note.updatedAt)} · Written by BEAN Education
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -226,7 +226,7 @@ export function TopicView({ topicId }: { topicId: string }) {
               <EmptyState
                 icon={FileText}
                 title="Original notes are being prepared for this topic"
-                description="BEAN EXAMS writes its own study notes for every topic it covers — nothing is copied or scraped. This topic is still in the writing queue. Meanwhile, the curated resources below and the practice questions available are honest, working alternatives."
+                description="BEAN Education writes its own study notes for every topic it covers — nothing is copied or scraped. This topic is still in the writing queue. Meanwhile, the curated resources below and the practice questions available are honest, working alternatives."
               />
             )}
           </div>

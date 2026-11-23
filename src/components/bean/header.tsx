@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { useAppStore, parseHash } from '@/lib/store'
+import { BeanMark, Wordmark } from '@/components/bean/brand-mark'
 import { cn } from '@/lib/utils'
 import {
   BookOpen,
@@ -99,11 +100,13 @@ export function Header() {
       aria-current={isActive(item) ? 'page' : undefined}
       className={cn(
         mobile
-          ? 'flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium'
-          : 'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          ? 'flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium'
+          : 'relative whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-200',
         isActive(item)
-          ? 'bg-gold/10 text-gold'
-          : 'text-muted-foreground hover:bg-elevated hover:text-foreground',
+          ? mobile
+            ? 'bg-gold/10 text-champagne'
+            : 'bg-gold/10 text-champagne'
+          : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
       )}
     >
       {mobile && <item.icon className="h-4 w-4 shrink-0" aria-hidden />} {item.label}
@@ -115,7 +118,7 @@ export function Header() {
       <button
         type="button"
         onClick={() => go(authedStudent ? '#/settings' : '#/auth')}
-        className="flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium text-muted-foreground hover:bg-elevated hover:text-foreground"
+        className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
       >
         <UserRound className="h-4 w-4 shrink-0" aria-hidden />
         {authedStudent ? (authedStudent.displayName || authedStudent.email) : 'Sign in'}
@@ -124,7 +127,7 @@ export function Header() {
       <Button
         size="sm"
         variant="outline"
-        className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-foreground"
+        className="border-hairline bg-white/[0.03] text-muted-foreground hover:border-gold/40 hover:bg-gold/10 hover:text-champagne"
         onClick={() => go(authedStudent ? '#/settings' : '#/auth')}
         aria-label={authedStudent ? 'Account settings' : 'Sign in or create an account'}
       >
@@ -142,23 +145,19 @@ export function Header() {
     )
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/80 bg-page/90 backdrop-blur supports-[backdrop-filter]:bg-page/75">
+    <header className="sticky top-0 z-40 border-b border-hairline glass">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <button
           type="button"
           onClick={() => navigate({ view: 'home' })}
-          className="flex items-center gap-2.5"
-          aria-label="BEAN home"
+          className="group flex items-center gap-3"
+          aria-label="BEAN Education home"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-gold/40 bg-gold/10">
-            <GraduationCap className="h-5 w-5 text-gold" />
-          </span>
-          <span className="leading-tight">
-            <span className="block font-display text-lg font-bold tracking-wide text-foreground">
-              BEAN <span className="text-gold">LEARN</span>
-            </span>
-            <span className="hidden text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:block">
-              Learn anything. Own your progress.
+          <BeanMark className="transition-transform duration-300 group-hover:scale-105" />
+          <span className="flex flex-col items-start leading-tight">
+            <Wordmark />
+            <span className="hidden whitespace-nowrap text-[10px] uppercase tracking-[0.28em] text-muted-foreground 2xl:block">
+              Learn. Practise. Teach. Grow.
             </span>
           </span>
         </button>
@@ -168,7 +167,7 @@ export function Header() {
           {navButton(riisheItem, false)}
           <Button
             size="sm"
-            className="ml-2 bg-gold text-primary-foreground hover:bg-gold-hover"
+            className="ml-2 bg-gold text-primary-foreground shadow-[0_1px_0_rgba(233,220,189,0.25)_inset] hover:bg-gold-hover"
             onClick={() => go('#/practice')}
           >
             <FlaskConical className="mr-1.5 h-4 w-4" /> Start practising
@@ -179,13 +178,14 @@ export function Header() {
         <div className="lg:hidden">
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="border-border bg-card" aria-label="Open menu">
+              <Button variant="outline" size="icon" className="border-hairline bg-white/[0.03]" aria-label="Open menu">
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-72 border-border bg-card">
-              <SheetTitle className="font-display text-lg text-foreground">
-                BEAN <span className="text-gold">LEARN</span>
+            <SheetContent side="right" className="w-72 border-hairline bg-[#131210]/95 backdrop-blur-xl">
+              <SheetTitle className="flex items-center gap-3 py-1">
+                <BeanMark tileSize="sm" />
+                <Wordmark size="sm" />
               </SheetTitle>
               <nav className="mt-4 flex flex-col gap-1" aria-label="Mobile">
                 {navItems.map(item => navButton(item, true))}
@@ -195,8 +195,8 @@ export function Header() {
                   onClick={() => go('#/bean')}
                   aria-current={route.view === 'bean' ? 'page' : undefined}
                   className={cn(
-                    'flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium',
-                    route.view === 'bean' ? 'bg-gold/10 text-gold' : 'text-muted-foreground hover:bg-elevated hover:text-foreground',
+                    'flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium',
+                    route.view === 'bean' ? 'bg-gold/10 text-champagne' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
                   )}
                 >
                   <Bot className="h-4 w-4 shrink-0" aria-hidden /> BEAN Intelligence

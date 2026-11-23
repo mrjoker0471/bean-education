@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — CUET (UG) domain-subject question bank (ORIGINAL practice
+// BEAN Education — CUET (UG) domain-subject question bank (ORIGINAL practice
 // questions with author-verified answers, mapped to the official 2026 syllabus
 // units). sourceType stays ORIGINAL — no previous-year provenance is claimed.
 // Each canonical below exists on a CUET topic in src/data/cuet-domains.ts.

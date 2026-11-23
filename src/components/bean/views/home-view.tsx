@@ -1,14 +1,16 @@
 'use client'
 
-// ─── Public homepage (public experience milestone) ────────────────────────────
+// ─── Public homepage (BEAN Education brand redesign) ──────────────────────────
 // A comprehensive introduction to the real BEAN Education product:
-//   • Hero with the platform message and four primary actions.
+//   • Hero on an obsidian-ambient glass stage with the platform message and
+//     four primary actions.
 //   • The actual implemented features (11 cards in three groups), each linked
 //     to its real destination route — no simulated features, no invented
 //     statistics. Sign-in and teacher-approval requirements are shown honestly.
 //   • Clear distinction between the student and teacher experiences.
 //   • Backend-powered catalogue counts are retained (hidden on fetch failure).
-//   • BEAN's dark + gold identity throughout.
+//   • The BEAN Education identity throughout: obsidian, metallic gold,
+//     champagne hairlines and warm ivory — restrained glass, never cluttered.
 
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
@@ -220,49 +222,48 @@ function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
   const goContinue = () => navigate(parseHash(continueHash ?? '#/progress'))
 
   return (
-    <section className="relative overflow-hidden border-b border-border/60">
+    <section className="relative overflow-hidden border-b border-hairline obsidian-ambient">
+      {/* A single quiet gold horizon line — the only decoration on the stage */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-40"
-        style={{
-          background:
-            'radial-gradient(700px 320px at 18% 0%, rgba(214,165,20,0.12), transparent), radial-gradient(560px 280px at 85% 18%, rgba(214,165,20,0.07), transparent)',
-        }}
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-px"
+        style={{ background: 'linear-gradient(90deg, transparent 4%, rgba(198,160,94,0.35) 50%, transparent 96%)' }}
       />
-      <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+      <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-medium text-gold">
-            <Sparkles className="h-3.5 w-3.5" /> The education platform built around your own material
+          <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-hairline glass-soft px-3.5 py-1.5 text-xs font-medium tracking-wide text-champagne">
+            <Sparkles className="h-3.5 w-3.5 text-gold" /> The education platform built around your own material
           </p>
-          <h1 className="font-display text-4xl font-bold leading-tight text-foreground sm:text-5xl lg:text-6xl">
-            Learn. Practise. Teach. <span className="text-gold">Grow. All in one place.</span>
+          <h1 className="font-display text-4xl font-bold leading-[1.12] tracking-tight text-foreground text-balance sm:text-5xl lg:text-6xl">
+            Learn. Practise. Teach.
+            <span className="mt-2 block text-gold">Grow. All in one place.</span>
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             BEAN Education is one platform for students, teachers, institutions and learners preparing for
             examinations or building skills — from an examination catalogue and AI-grounded practice to live
             classrooms, institution workspaces and career opportunities.
           </p>
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
-            <Button size="lg" className="w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
+            <Button size="lg" className="w-full bg-gold text-primary-foreground shadow-[inset_0_1px_0_rgba(233,220,189,0.3)] hover:bg-gold-hover sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
               <Compass className="mr-2 h-4 w-4" /> Explore BEAN
             </Button>
-            <Button size="lg" variant="outline" className="w-full border-gold/40 text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate(authedStudent ? { view: 'materials' } : { view: 'auth' })}>
+            <Button size="lg" variant="outline" className="w-full border-gold/40 bg-transparent text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate(authedStudent ? { view: 'materials' } : { view: 'auth' })}>
               <GraduationCap className="mr-2 h-4 w-4" /> Start learning
             </Button>
-            <Button size="lg" variant="outline" className="w-full border-border text-foreground hover:bg-elevated sm:w-auto" onClick={() => navigate({ view: 'classes' })}>
+            <Button size="lg" variant="outline" className="w-full border-hairline bg-white/[0.03] text-foreground hover:bg-white/[0.06] sm:w-auto" onClick={() => navigate({ view: 'classes' })}>
               <Users className="mr-2 h-4 w-4" /> Explore classes
             </Button>
-            <Button size="lg" variant="ghost" className="w-full text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate({ view: 'teach-apply' })}>
+            <Button size="lg" variant="ghost" className="w-full text-muted-foreground hover:bg-white/[0.04] hover:text-champagne sm:w-auto" onClick={() => navigate({ view: 'teach-apply' })}>
               Become a teacher
             </Button>
             {continueHash && continueHash !== '#/progress' && (
-              <Button size="lg" variant="ghost" className="w-full text-muted-foreground hover:bg-elevated sm:w-auto" onClick={goContinue}>
+              <Button size="lg" variant="ghost" className="w-full text-muted-foreground hover:bg-white/[0.04] sm:w-auto" onClick={goContinue}>
                 Continue where you left off
               </Button>
             )}
           </div>
           {totals && (
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
+            <div className="mt-12 flex flex-wrap items-center justify-center gap-2">
               <CountPill label="examinations" value={totals.exams} />
               <CountPill label="syllabus topics" value={totals.topics} />
               <CountPill label="original study notes" value={totals.uniqueNotes ?? totals.notes} />
@@ -280,40 +281,40 @@ function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
 function AudienceSplit() {
   const navigate = useAppStore(s => s.navigate)
   return (
-    <section className="border-b border-border/60 bg-card/40">
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-14 sm:px-6 md:grid-cols-2 lg:px-8">
-        <div className="flex flex-col justify-between rounded-2xl border border-border bg-card p-6 sm:p-8">
+    <section className="border-b border-hairline">
+      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-16 sm:px-6 md:grid-cols-2 lg:px-8">
+        <div className="glass flex flex-col justify-between rounded-2xl border border-hairline p-6 sm:p-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gold">For students</p>
-            <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">Prepare with your own material</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-gold">For students</p>
+            <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">Prepare with your own material</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Upload your textbooks and notes, practise with Riishe, track mastery and revision, and book classes
               from approved teachers — in guest mode or with an account that follows you across devices.
             </p>
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-7 flex flex-wrap gap-3">
             <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'auth' })}>
               Start learning
             </Button>
-            <Button variant="outline" className="border-gold/40 text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'catalog' })}>
+            <Button variant="outline" className="border-gold/40 bg-transparent text-gold hover:bg-gold/10" onClick={() => navigate({ view: 'catalog' })}>
               Browse exams
             </Button>
           </div>
         </div>
-        <div className="flex flex-col justify-between rounded-2xl border border-border bg-card p-6 sm:p-8">
+        <div className="glass flex flex-col justify-between rounded-2xl border border-hairline p-6 sm:p-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gold">For teachers</p>
-            <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">Teach with real classroom tools</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-gold">For teachers</p>
+            <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">Teach with real classroom tools</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Apply once, get verified by the BEAN team, then publish classes, take bookings, run live classrooms
               with attendance evidence and grow from verified student reviews. One account — learning stays yours.
             </p>
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-7 flex flex-wrap gap-3">
             <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'teach-apply' })}>
               Become a teacher
             </Button>
-            <Button variant="outline" className="border-border text-foreground hover:bg-elevated" onClick={() => navigate({ view: 'classes' })}>
+            <Button variant="outline" className="border-hairline bg-white/[0.03] text-foreground hover:bg-white/[0.06]" onClick={() => navigate({ view: 'classes' })}>
               Explore classes
             </Button>
           </div>
@@ -332,24 +333,24 @@ function FeatureCard({ feature }: { feature: HomeFeature }) {
       type="button"
       onClick={open}
       data-feature={feature.id}
-      className="group flex h-full flex-col rounded-xl border border-border bg-card p-5 text-left transition-colors hover:border-gold/40 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:outline-gold"
+      className="group glass-soft flex h-full flex-col rounded-xl border border-hairline p-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/35 hover:bg-white/[0.05] focus-visible:outline-2 focus-visible:outline-gold"
       aria-label={`${feature.title} — open`}
     >
       <div className="flex items-center justify-between">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-gold/30 bg-gold/10">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-gold/25 bg-gold/10">
           <feature.icon className="h-4 w-4 text-gold" aria-hidden />
         </span>
-        <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
+        <span className="text-xs text-muted-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-100" aria-hidden>
           Open →
         </span>
       </div>
-      <h3 className="mt-4 text-sm font-semibold text-foreground">{feature.title}</h3>
+      <h3 className="mt-4 text-sm font-semibold tracking-wide text-foreground">{feature.title}</h3>
       <p className="mt-2 flex-1 text-xs leading-relaxed text-muted-foreground">{feature.description}</p>
       {feature.note && <p className="mt-2 text-xs italic leading-relaxed text-muted-foreground/80">{feature.note}</p>}
       {(feature.requires?.length ?? 0) > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {feature.requires?.includes('sign-in') && (
-            <Badge variant="outline" className="border-border text-muted-foreground">
+            <Badge variant="outline" className="border-hairline text-muted-foreground">
               <LogIn className="mr-1 h-3 w-3" aria-hidden /> Sign-in required
             </Badge>
           )}
@@ -366,10 +367,10 @@ function FeatureCard({ feature }: { feature: HomeFeature }) {
 
 function FeatureShowcase() {
   return (
-    <section className="border-b border-border/60">
+    <section className="border-b border-hairline">
       <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         {FEATURE_GROUPS.map(group => (
-          <div key={group.eyebrow} className="mt-12 first:mt-0">
+          <div key={group.eyebrow} className="mt-14 first:mt-0">
             <SectionHeading eyebrow={group.eyebrow} title={group.title} description={group.blurb} />
             <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label={`${group.eyebrow} features`}>
               {group.features.map(f => (
@@ -421,22 +422,28 @@ const METHOD_STEPS = [
 
 function BeanMethod() {
   return (
-    <section className="border-t border-border/60 bg-card/40">
+    <section className="border-b border-hairline">
       <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="The BEAN method"
           title="Upload. Understand. Practise. Improve."
           description="Your study materials become your personal AI-powered learning experience."
         />
-        <ol className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+        <ol className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {METHOD_STEPS.map((s, i) => (
-            <li key={s.step} className="relative rounded-xl border border-border bg-card p-5">
+            <li key={s.step} className="glass-soft relative rounded-xl border border-hairline p-5">
+              <span
+                aria-hidden
+                className="absolute right-4 top-4 font-display text-3xl font-bold leading-none text-gold/15"
+              >
+                {i + 1}
+              </span>
               <div className="mb-4 flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-gold/30 bg-gold/10">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-gold/25 bg-gold/10">
                   <s.icon className="h-4 w-4 text-gold" />
                 </span>
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-gold">
-                  {i + 1}. {s.step}
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-champagne">
+                  {s.step}
                 </span>
               </div>
               <h3 className="text-sm font-semibold text-foreground">{s.title}</h3>
@@ -459,7 +466,7 @@ function TrustStrip() {
     { label: 'Your data rights', hash: '#/settings' },
   ]
   return (
-    <section aria-label="Trust and legal links" className="border-t border-border/60">
+    <section aria-label="Trust and legal links" className="border-b border-hairline">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-center gap-x-6 gap-y-2 px-4 py-6 text-xs text-muted-foreground sm:px-6 lg:px-8">
         <span className="inline-flex items-center gap-1.5">
           <ShieldCheck className="h-3.5 w-3.5 text-gold" aria-hidden />
@@ -469,7 +476,7 @@ function TrustStrip() {
           <button
             key={l.hash}
             type="button"
-            className="underline-offset-2 transition-colors hover:text-gold hover:underline"
+            className="underline-offset-2 transition-colors hover:text-champagne hover:underline"
             onClick={() => navigate(parseHash(l.hash) as Route)}
           >
             {l.label}
@@ -485,8 +492,13 @@ function FinalCta() {
   const navigate = useAppStore(s => s.navigate)
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-      <div className={cn('rounded-2xl border border-gold/25 bg-gradient-to-b from-gold/10 to-transparent p-8 text-center sm:p-12')}>
-        <h2 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">
+      <div className="glass relative overflow-hidden rounded-2xl border border-gold/20 p-8 text-center sm:p-12">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-8 top-0 h-px"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(198,160,94,0.5), transparent)' }}
+        />
+        <h2 className="font-display text-2xl font-semibold text-foreground text-balance sm:text-3xl">
           One account. Every journey — learning, teaching, growing.
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground sm:text-base">
@@ -494,15 +506,15 @@ function FinalCta() {
           teacher, or apply to teach. Guest-friendly by design — your attempts and progress are saved on this
           device automatically.
         </p>
-        <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button size="lg" className="w-full bg-gold text-primary-foreground hover:bg-gold-hover sm:w-auto" onClick={() => navigate({ view: 'auth' })}>
             <LayoutDashboard className="mr-2 h-4 w-4" /> Create your account
           </Button>
-          <Button size="lg" variant="outline" className="w-full border-gold/40 text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
+          <Button size="lg" variant="outline" className="w-full border-gold/40 bg-transparent text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
             <Compass className="mr-2 h-4 w-4" /> Explore the catalogue
           </Button>
         </div>
-        <p className="mt-4 text-xs text-muted-foreground">
+        <p className="mt-5 text-xs text-muted-foreground">
           <FileText className="mr-1 inline h-3 w-3" aria-hidden />
           Read the <a href="#/terms" className="text-gold underline underline-offset-2">Terms</a> and{' '}
           <a href="#/privacy" className="text-gold underline underline-offset-2">Privacy Policy</a> — both are public

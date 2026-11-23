@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Original study notes written specifically for CUET (UG).
+// BEAN Education — Original study notes written specifically for CUET (UG).
 // Content follows the official NTA CUET (UG) 2026 subject syllabus PDFs
 // (cuet.nta.nic.in/cuetug-2026-syllabus/) — Class-12 NCERT scope for domain
 // subjects, the official language-test outline and the official GAT topics.

@@ -59,7 +59,14 @@ jobs:
         run: bun x tsc --noEmit
 
       - name: Tests
-        run: bun test
+        # --isolate gives every test file a fresh global object. Without it,
+        # bun can execute files concurrently against one shared module
+        # registry, and mock.module in one file (e.g. the oauth-google mock in
+        # oauth-routes.test.ts) leaks into another file's imports while it is
+        # running — observed in CI as oauth-google.test.ts receiving the
+        # routes test's mock verifyGoogleIdToken (sub "google-sub-1") for its
+        # early assertions. Isolation makes file execution order-independent.
+        run: bun test --isolate
 
       - name: Production build
         run: bun run build

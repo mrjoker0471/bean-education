@@ -3,7 +3,7 @@
 // Reading progress for the integrated PDF viewer.
 //
 // Privacy model (per spec): progress is stored per GUEST PROFILE and per
-// DOCUMENT — never in one shared global key. BEAN EXAMS identifies a student
+// DOCUMENT — never in one shared global key. BEAN Education identifies a student
 // by the guestId in its zustand store (persisted in `bean_guest_id`), so the
 // natural per-account namespace is that guestId. Guests without a guestId get
 // a temporary session-only map (kept in memory for the tab's lifetime).

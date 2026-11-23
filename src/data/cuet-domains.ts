@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — CUET (UG) domain-subject syllabus trees (Section II, 23 subjects).
+// BEAN Education — CUET (UG) domain-subject syllabus trees (Section II, 23 subjects).
 // Every unit below is transcribed from the OFFICIAL NTA subject syllabus PDFs
 // hosted on cuet.nta.nic.in (CUET UG 2026 cycle, verified October 2026):
 //   https://cuet.nta.nic.in/cuetug-2026-syllabus/

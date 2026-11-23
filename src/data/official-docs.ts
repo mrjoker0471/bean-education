@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Official documents registry (Layer 1: Study Material).
+// BEAN Education — Official documents registry (Layer 1: Study Material).
 // Every entry points at a REAL official page/PDF-host from the conducting
 // authority or a legitimate official publisher. Nothing is fabricated.
 //
