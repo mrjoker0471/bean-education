@@ -4,7 +4,7 @@
 // INTEGRATED PDF READER — Layer 1 (Study Material + Official PDFs)
 //
 // A real pdf.js-based reader that opens verified official documents inside
-// BEAN EXAMS. Progressive page rendering (only pages near the viewport are
+// BEAN Education. Progressive page rendering (only pages near the viewport are
 // drawn), in-document text search with highlighted matches, zoom / fit /
 // rotate, fullscreen, keyboard shortcuts, honest error + fallback states,
 // and per-guest per-document reading progress.
@@ -103,7 +103,7 @@ export function PdfViewerPage({ resourceId }: { resourceId: string }) {
           icon={notFound ? Compass : FileQuestion}
           title={notFound ? 'Document not found' : 'Could not load this document'}
           description={notFound
-            ? 'That document link does not match anything in the BEAN EXAMS registry.'
+            ? 'That document link does not match anything in the BEAN Education registry.'
             : error ?? 'Something went wrong.'}
           actionLabel="Back to home"
           onAction={() => navigate({ view: 'home' })}

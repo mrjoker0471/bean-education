@@ -289,7 +289,7 @@ function generationPrompt(opts: {
   const docText = opts.sections
     .map(s => `--- SOURCE EXCERPT (${s.label}) ---\n${s.text}`)
     .join('\n\n')
-  return `You are Riishe, the exam-question engine inside BEAN EXAMS. Generate EXACTLY ${opts.count} challenging multiple-choice questions of the category "${CATEGORY_LABELS[opts.category]}" for an Indian competitive-exam student${opts.examLabel ? ` preparing for ${opts.examLabel}` : ''}.
+  return `You are Riishe, the exam-question engine inside BEAN Education. Generate EXACTLY ${opts.count} challenging multiple-choice questions of the category "${CATEGORY_LABELS[opts.category]}" for an Indian competitive-exam student${opts.examLabel ? ` preparing for ${opts.examLabel}` : ''}.
 
 ${CATEGORY_RULES[opts.category]}
 

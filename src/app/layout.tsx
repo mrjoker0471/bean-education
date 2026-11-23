@@ -19,19 +19,23 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "BEAN EXAMS — One syllabus. Every topic.",
+  title: "BEAN Education — Learn. Practise. Teach. Grow.",
   description:
-    "Premium preparation for Indian competitive examinations, with verified syllabus coverage, honest resource availability, real practice tests, and topic-aware learning support through BEAN Intelligence.",
+    "A premium education platform for Indian learners: examination preparation with honest coverage, AI-grounded practice through Riishe, live classrooms and verified teachers on BEAN Teach, institution workspaces and career opportunities.",
   keywords: [
-    "BEAN EXAMS", "TNPSC", "UPSC", "SSC", "IBPS", "RRB", "NEET", "Indian competitive exams",
-    "study material", "practice tests", "BEAN Intelligence",
+    "BEAN Education", "TNPSC", "UPSC", "SSC", "IBPS", "RRB", "NEET", "CUET", "Indian competitive exams",
+    "study material", "practice tests", "Riishe AI", "BEAN Teach",
   ],
-  authors: [{ name: "BEAN EXAMS" }],
-  icons: { icon: "/logo.svg" },
+  authors: [{ name: "BEAN Education" }],
+  icons: {
+    icon: [{ url: "/logo.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/logo.svg" }],
+    shortcut: ["/logo.svg"],
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#070707",
+  themeColor: "#0A0A0C",
   width: "device-width",
   initialScale: 1,
 };

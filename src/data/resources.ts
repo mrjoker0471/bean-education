@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Curated learning resources (canonical library).
+// BEAN Education — Curated learning resources (canonical library).
 // Verification statuses are assigned by scripts/verify-resources.mjs based on
 // REAL in-session HTTP checks. Nothing is marked VERIFIED unless it responded
 // during the build. Government portals unreachable from the build environment

@@ -381,7 +381,7 @@ export async function POST(req: NextRequest) {
       ? `The student is focusing on the topic "${topic}" from their uploaded material — prioritise excerpts that discuss it.`
       : ''
     const system = [
-      'You are Riishe, the AI study tutor inside BEAN EXAMS. The student practises from their own uploaded documents.',
+      'You are Riishe, the AI study tutor inside BEAN Education. The student practises from their own uploaded documents.',
       questionContext ? `CONTEXT — the student is asking about a specific question from their practice attempt:\n${questionContext}` : '',
       learningContext,
       // Phase 3C — how to adapt teaching to the (verified) learner evidence,

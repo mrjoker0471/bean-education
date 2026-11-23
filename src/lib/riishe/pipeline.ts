@@ -40,7 +40,7 @@ interface OcrStageInfo {
   unattempted: number
 }
 
-const SYSTEM = `You are Riishe, the document-analysis engine of BEAN EXAMS, a document-first study platform. You analyse student-uploaded study material and produce precise, grounded structured analyses. Never invent content that is not in the provided text. If a field has no content, return an empty array.`
+const SYSTEM = `You are Riishe, the document-analysis engine of BEAN Education, a document-first study platform. You analyse student-uploaded study material and produce precise, grounded structured analyses. Never invent content that is not in the provided text. If a field has no content, return an empty array.`
 
 interface SectionAnalysis {
   topics: { name: string; subtopics: string[]; pages: number[]; list?: ListExtraction }[]
@@ -664,7 +664,7 @@ function needsOcrStatusDetail(
   if (ocr?.available) {
     return `No extractable text found — the pages could not be read by the PDF extractor (${extraction.failedPages} extraction failures; no image-only pages were found for OCR to attempt). Questions cannot be generated from this document.`
   }
-  return `No extractable text found — every page looks like a scanned image or could not be read (${extraction.scannedPages} image-only, ${extraction.failedPages} extraction failures). OCR is not available in BEAN EXAMS yet, so Riishe cannot read this document. Questions cannot be generated from it.`
+  return `No extractable text found — every page looks like a scanned image or could not be read (${extraction.scannedPages} image-only, ${extraction.failedPages} extraction failures). OCR is not available in BEAN Education yet, so Riishe cannot read this document. Questions cannot be generated from it.`
 }
 
 /**

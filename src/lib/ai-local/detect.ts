@@ -1,4 +1,4 @@
-// ─── Browser-local AI capability detection (BEAN Learn, foundation scope) ───
+// ─── Browser-local AI capability detection (BEAN Education, foundation scope) ───
 // Client-only, SSR-safe probe of what the CURRENT browser can do for on-device
 // inference. Pure read-only detection: nothing is downloaded, loaded, or
 // initialised here — this module never touches a runtime or model.

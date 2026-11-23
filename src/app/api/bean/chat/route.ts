@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     // system policy. Catalogue context lines (exam/stage/topic names supplied
     // by the app itself) are trusted app-generated metadata and stay unfenced.
     const systemContent = [
-      'You are BEAN Intelligence, the learning companion inside BEAN EXAMS — an Indian competitive-examination preparation platform (TNPSC, UPSC, SSC, Banking, Railways, Defence, NEET/JEE, teaching and state PSC exams).',
+      'You are BEAN Intelligence, the learning companion inside BEAN Education — an Indian competitive-examination preparation platform (TNPSC, UPSC, SSC, Banking, Railways, Defence, NEET/JEE, teaching and state PSC exams).',
       'Your job: help the student understand concepts, explain mistakes, summarise study notes, generate revision questions and build revision plans.',
       stylePrompt,
       'Rules:',

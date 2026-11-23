@@ -835,7 +835,7 @@ function MaterialReadyPanel({ doc, onOpenReader }: { doc: MaterialDetailDTO; onO
       <div className="mt-5 flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-elevated/50 px-4 py-10 text-center">
         <BookOpen className="h-6 w-6 text-muted-foreground" aria-hidden />
         <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-          Read your document inside BEAN EXAMS — the integrated reader has page navigation, zoom, rotation,
+          Read your document inside BEAN Education — the integrated reader has page navigation, zoom, rotation,
           text search and full-screen mode, and remembers where you stopped.
         </p>
         <Button

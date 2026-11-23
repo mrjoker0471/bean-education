@@ -172,7 +172,7 @@ export function ExamView({ slug, initialTab }: { slug: string; initialTab?: stri
           <EmptyState
             icon={Compass}
             title="Examination not found"
-            description={`No examination lives at “${slug}” in the BEAN EXAMS catalogue. It may have been renamed — browse the catalogue to find what you need.`}
+            description={`No examination lives at “${slug}” in the BEAN Education catalogue. It may have been renamed — browse the catalogue to find what you need.`}
             actionLabel="Back to catalogue"
             onAction={() => navigate({ view: 'catalog' })}
           />
@@ -513,7 +513,7 @@ function StudyTab({
           Syllabus &amp; topic-wise study notes
         </h2>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Expand any topic to read its original BEAN EXAMS note right here, see its verified documents, and jump
+          Expand any topic to read its original BEAN Education note right here, see its verified documents, and jump
           into practice or BEAN Intelligence with the topic&apos;s context carried over.
         </p>
 
@@ -920,7 +920,7 @@ function PracticeTab({
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               No verified previous-year questions are in this exam&apos;s bank yet, so there is no &ldquo;previous-year
               paper&rdquo; mode to offer — and we will not label unverified material as PYQ. Every question above is an
-              original BEAN EXAMS practice question with an author-verified answer. Official previous papers, where
+              original BEAN Education practice question with an author-verified answer. Official previous papers, where
               the authority publishes them, are linked under Study Material &rsaquo; Official documents.
             </p>
           ) : (

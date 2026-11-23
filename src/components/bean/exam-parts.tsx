@@ -205,7 +205,7 @@ export function TopicRow({
           {topic.noteAvailable && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[11px] text-gold"
-              title="Original BEAN EXAMS study note available"
+              title="Original BEAN Education study note available"
             >
               <BookOpen className="h-3 w-3" /> Note
             </span>
@@ -386,7 +386,7 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   ARTICLE: 'Article',
   VIDEO: 'Video course',
   REVISION: 'Revision aid',
-  ORIGINAL_GUIDE: 'BEAN EXAMS original guide',
+  ORIGINAL_GUIDE: 'BEAN Education original guide',
 }
 
 export function isOfficialDoc(r: ResourceDTO): boolean {
@@ -586,7 +586,7 @@ function InlineTopicPanel({
             Study notes — {dto.note.title}
           </p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Version {dto.note.version} · Updated {new Date(dto.note.updatedAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })} · Written by BEAN EXAMS
+            Version {dto.note.version} · Updated {new Date(dto.note.updatedAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })} · Written by BEAN Education
           </p>
           <div className="mt-2">
             <Markdown content={dto.note.markdown} />
@@ -769,7 +769,7 @@ export function StudySubjectCard({
                                 {topic.noteAvailable && (
                                   <span
                                     className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[11px] text-gold"
-                                    title="Original BEAN EXAMS study note available"
+                                    title="Original BEAN Education study note available"
                                   >
                                     <BookOpen className="h-3 w-3" /> Note
                                   </span>

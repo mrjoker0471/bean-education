@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Original practice question bank (canonical library).
-// Every question is an ORIGINAL BEAN EXAMS practice question with an
+// BEAN Education — Original practice question bank (canonical library).
+// Every question is an ORIGINAL BEAN Education practice question with an
 // author-verified answer and explanation. sourceType stays ORIGINAL — no
 // previous-year provenance is claimed anywhere in this build.
 // ─────────────────────────────────────────────────────────────────────────────

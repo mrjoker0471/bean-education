@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
     select: { id: true, title: true },
   })
   if (!resource) {
-    return jsonError('This document is not in the verified BEAN EXAMS registry, so it cannot be opened in the reader.', 403)
+    return jsonError('This document is not in the verified BEAN Education registry, so it cannot be opened in the reader.', 403)
   }
 
   const filename = sanitizeFilename(resource.title)
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
   const headers: Record<string, string> = {
     accept: 'application/pdf,*/*',
-    'user-agent': 'BEANEXAMS/1.0 (study-platform; document reader)',
+    'user-agent': 'BEANEDUCATION/1.0 (study-platform; document reader)',
   }
   if (range && !wantAttachment) headers['range'] = range
 

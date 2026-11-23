@@ -81,7 +81,7 @@ export default function Page() {
       <Header />
       <main className="flex-1" id="main">
         {!hydrated ? (
-          <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading BEAN EXAMS">
+          <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading BEAN Education">
             <Loader2 className="h-6 w-6 animate-spin text-gold" />
           </div>
         ) : legalGateActive ? (
@@ -173,7 +173,7 @@ function NotFound() {
       <Compass className="mb-4 h-10 w-10 text-gold" />
       <h1 className="font-display text-2xl font-semibold text-foreground">Page not found</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        That link doesn&apos;t match anything in the BEAN EXAMS catalogue.
+        That link doesn&apos;t match anything in the BEAN Education catalogue.
       </p>
       <Button className="mt-6 bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => navigate({ view: 'home' })}>
         Back to home

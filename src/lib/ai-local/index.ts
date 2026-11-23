@@ -1,4 +1,4 @@
-// ─── Browser-local AI foundation (BEAN Learn) ───
+// ─── Browser-local AI foundation (BEAN Education) ───
 //
 // FOUNDATION SCOPE — what works NOW:
 //   • detectLocalAi(): SSR-safe probe of WebGPU / WebAssembly / device facts,

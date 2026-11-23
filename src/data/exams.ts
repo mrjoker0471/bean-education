@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BEAN EXAMS — Catalogue seed data (import source; DB is the runtime source of
+// BEAN Education — Catalogue seed data (import source; DB is the runtime source of
 // truth). Every exam here is a real Indian competitive examination with its
 // actual conducting authority. Patterns recorded only where well established.
 // All syllabus trees are honestly marked PARTIAL/UNVERIFIED — see worklog.
