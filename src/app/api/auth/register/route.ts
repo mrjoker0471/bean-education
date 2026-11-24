@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createSession, hashPassword, sameOrigin, setSessionCookie } from '@/lib/auth'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal-config'
 import { clientKey, rateLimited } from '@/lib/rate-limit'
+import { SIGNUP_INTENTS } from '@/lib/teacher-intent'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,8 +29,12 @@ const bodySchema = z.object({
   // Minimal age self-declaration. Under-18 personal-data accounts are refused
   // (fail-safe) until verifiable parental consent is live; no DOB is collected.
   ageDeclaration: z.enum(['ADULT_18_PLUS', 'UNDER_18']),
-  // Onboarding/navigation intent — never an authorization role.
-  intent: z.enum(['STUDENT', 'TEACHER']).default('STUDENT'),
+  // Onboarding/navigation intent — never an authorization role. The vocabulary
+  // (STUDENT | TEACHER | INSTITUTION) is shared with the Google completion
+  // schema via SIGNUP_INTENTS so the two registration paths cannot drift.
+  // INSTITUTION is a navigation preference only: it routes to the real
+  // organization workspace and creates no privilege of any kind.
+  intent: z.enum(SIGNUP_INTENTS).default('STUDENT'),
 })
 
 /** The role every new account gets — there is no code path that can change this. */

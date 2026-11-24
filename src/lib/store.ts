@@ -344,7 +344,7 @@ interface AppState {
     acceptedTermsVersion: string
     privacyNoticeVersion: string
     ageDeclaration: 'ADULT_18_PLUS' | 'UNDER_18'
-    intent: 'STUDENT' | 'TEACHER'
+    intent: 'STUDENT' | 'TEACHER' | 'INSTITUTION'
   }) => Promise<void>
   authSignOut: () => Promise<void>
   authDeleteAccount: () => Promise<void>

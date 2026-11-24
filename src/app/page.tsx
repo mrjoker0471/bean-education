@@ -171,22 +171,27 @@ export default function Page() {
 
 /** Authentication stage — the art-directed obsidian surface every sign-in,
  *  sign-up, Google-link and re-acceptance panel sits on. The panel itself
- *  (AuthView) keeps its entire flow; only the stage around it is styled. */
+ *  (AuthView) keeps its entire flow; only the stage around it is styled.
+ *  Alignment rules: the stage fills the viewport below the sticky 4rem header
+ *  so the card truly centres vertically; the brand lockup is centred while
+ *  every panel (card) content is left-aligned to itself — no mixed axis. */
 function AuthStage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-[72vh] flex-col items-center justify-center overflow-hidden px-4 py-14 obsidian-ambient sm:py-20">
+    <div className="relative flex min-h-[calc(100dvh-4rem)] flex-col items-center justify-center overflow-hidden px-4 py-14 obsidian-ambient sm:py-16">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-px"
         style={{ background: 'linear-gradient(90deg, transparent 8%, rgba(198,160,94,0.30) 50%, transparent 92%)' }}
       />
-      <div className="relative flex w-full max-w-md flex-col items-center text-center">
-        <BeanEmblem className="h-16 w-16" />
-        <BeanWordmarkImage className="mt-4 h-7 w-auto min-w-[190px]" />
-        <p className="mt-2.5 text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
-          Learn. Practise. Teach. Grow.
-        </p>
-        <div className="mt-8 w-full">{children}</div>
+      <div className="relative flex w-full max-w-md flex-col items-center">
+        <div className="flex flex-col items-center text-center">
+          <BeanEmblem className="h-16 w-16" />
+          <BeanWordmarkImage className="mt-4 h-7 w-auto min-w-[190px]" />
+          <p className="mt-2.5 text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
+            Learn. Practise. Teach. Grow.
+          </p>
+        </div>
+        <div className="mt-8 w-full text-left">{children}</div>
       </div>
     </div>
   )

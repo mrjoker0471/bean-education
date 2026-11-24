@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAppStore } from '@/lib/store'
 import { api } from '@/lib/api'
+import { postOnboardingDestination } from '@/lib/teacher-intent'
 import {
   CATEGORY_LEVEL_SUGGESTIONS,
   DAILY_MINUTES_OPTIONS,
@@ -199,14 +200,16 @@ export function OnboardingView({ edit }: { edit?: boolean }) {
       }
 
       await refreshAuth()
-      // Teacher-intent signups are handed to the real teacher application after
-      // onboarding — navigation intent only; the server-side application
-      // lifecycle remains the sole path to teaching capability.
-      if (!edit && authedStudent?.signupIntent === 'TEACHER') {
-        navigate({ view: 'teach-apply' })
+      // Onboarding hands off by the recorded intent through the single shared
+      // resolver (teacher → application, institution → organization hub,
+      // student → dashboard). The intent stays navigation-only — the
+      // server-side application / organization lifecycles remain the sole
+      // paths to any capability.
+      if (!edit) {
+        navigate(postOnboardingDestination(authedStudent?.signupIntent))
         return
       }
-      navigate(edit ? { view: 'settings' } : { view: 'dashboard' })
+      navigate({ view: 'settings' })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save your profile — please try again.')
     } finally {
