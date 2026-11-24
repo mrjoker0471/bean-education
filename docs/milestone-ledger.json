@@ -813,7 +813,11 @@
       "title": "BEAN Classroom Intelligence CI-3 — agent fleet & world knowledge architecture: specialist-agent registry, domain packs, fleet dispatcher with bounded worker pools, consent-gated LiveKit observer, multilingual capability registry, teacher/student workflow integration, evaluation & browser verification (charter docs/BEAN-CLASSROOM-INTELLIGENCE-AGENT-CHARTER.md)",
       "branch": "feat/bean-classroom-intelligence-agent-fleet",
       "baseMainSha": "d6ef91722e1dd66d8a82b5fead417dc86f30b759",
-      "commits": [],
+      "commits": [
+        "96587520f4ddce2d4e9056a82545ea8b987ff998",
+        "b6cc80e4c4b9868a4b3866289433d6b36f30491c",
+        "c3be302ba254671832a78fd4a769793cb71e5af2"
+      ],
       "units": [
         {
           "id": "CI-3A",
@@ -828,10 +832,17 @@
           "remoteVerifiedSha": "b6cc80e4c4b9868a4b3866289433d6b36f30491c",
           "verifiedAt": "2026-11-24T06:31:57Z",
           "summary": "Agent registry + domain-pack foundation: typed fleet registry (19 charter roles w/ must-never wiring, dynamic subject-expert resolution against pack state), versioned specialist contracts (charter §12 envelope contract 1.0.0, strict Zod, honesty rules C1–C6), domain-pack schema+validator (V1–V8; VERIFIED refuses without human review + passing benchmark), source/licence registry (§7.2 classes, superseded refusal), ISCED-F 2013 taxonomy adapter (36 families, honest matchedOn/no-match), profession catalogue at licence gate, 4 seed packs IN_REVIEW (mathematics/computing STANDARD, finance ELEVATED, health HIGH_STAKES). 39 new tests; suite 1378/0; lint clean; pushed+verified b6cc80e."
+        },
+        {
+          "id": "CI-3C",
+          "commitSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
+          "remoteVerifiedSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
+          "verifiedAt": "2026-11-24T15:13:03Z",
+          "summary": "Fleet dispatcher + bounded worker pool on a durable per-agent task queue: ClassroomFleetTask model (taskKey UNIQUE = DB-guaranteed idempotency, CAS claims, lease+heartbeat recovery, honest skipReason, charter §12 terminal vocabulary, contractVersion + validated outputJson persisted; migration 20261124070000_ci3_fleet_tasks), task roles/priorities (CORE<MANDATORY_AUDIT<DOMAIN_SPECIALIST<LANGUAGE<ENRICHMENT; enrichment yields first under backlog>50 backpressure measured once per claim pass), worker.ts bounded pool (executor seam — no runtime fails honestly; claim-time consent re-check + role pre-resolution against pack state; envelope identity binding; lease recovery; session cancellation; pool stats; FLEET_WORKER_CONCURRENCY default 4 clamped 1–32), dispatcher.ts (planFleetTasks deterministic: auditor+guardian + learner+teacher-judge ALWAYS planned, subject experts only via taxonomy→dispatchable packs capped 3 with honest no-match skip, language only on real multilingual evidence — none before CI-3D and the plan records it, enrichment default-on/excludable; dispatchFleetForSession guards + P2002 race → alreadyQueued; dispatcher imports seed packs), registry register() now takes Zod INPUT type — fixes 19 pre-existing tsc TS2345 errors on main (CI runs bun x tsc --noEmit). 24 new isolated-DB tests; suite 1420/0; tsc clean; lint clean; pushed+verified c3be302 (branch fast-forwarded to main d64df69 first per hygiene rule 8). Note: this unit was originally implemented in a lost sandbox worktree (uncommitted); it was faithfully REBUILT from the milestone spec against current main — the rebuild is the shipped implementation, verified end-to-end."
         }
       ],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
+      "pushVerifiedAt": "2026-11-24T15:13:03Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -839,11 +850,11 @@
       },
       "ci": [],
       "finalMainSha": null,
-      "syncStatus": "IN_PROGRESS",
+      "syncStatus": "AHEAD_ONLY",
       "status": "IN_PROGRESS",
       "evidence": "",
       "ciNote": "",
-      "updatedAt": "2026-11-24T06:15:59Z"
+      "updatedAt": "2026-11-24T15:13:03Z"
     }
   ],
   "branchReconciliation": {
