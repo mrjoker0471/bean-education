@@ -783,6 +783,13 @@
           "remoteVerifiedSha": "96587520f4ddce2d4e9056a82545ea8b987ff998",
           "verifiedAt": "2026-11-24T06:16:12Z",
           "summary": "Architecture audit + upstream decision: CI-2 closure verified (7abd15f ancestor of main d6ef917 via PR #34; follow-up branch sync merge 3980992 pushed+verified; PR = manual owner action), agents-js source inspection (1.10.1 Apache-2.0, 41 plugins, fork-based job runtime), minimal-reuse decision: @livekit/rtc-node 1.2.3 + existing livekit-server-sdk 2.20.0 (explicit AgentDispatchClient) for the observer; framework/Agno/LangGraph/CrewAI/Python/ASR adoption rejected or deferred with reasons; reproducible 6/6 probe (bun scripts/ci3-probe-upstream.ts); charter + research doc + licence BOM + THIRD-PARTY-NOTICES committed; lint + 1339/0 suite green; dependency delta +1 package (Apache-2.0)."
+        },
+        {
+          "id": "CI-3B",
+          "commitSha": "b6cc80e4c4b9868a4b3866289433d6b36f30491c",
+          "remoteVerifiedSha": "b6cc80e4c4b9868a4b3866289433d6b36f30491c",
+          "verifiedAt": "2026-11-24T06:31:57Z",
+          "summary": "Agent registry + domain-pack foundation: typed fleet registry (19 charter roles w/ must-never wiring, dynamic subject-expert resolution against pack state), versioned specialist contracts (charter §12 envelope contract 1.0.0, strict Zod, honesty rules C1–C6), domain-pack schema+validator (V1–V8; VERIFIED refuses without human review + passing benchmark), source/licence registry (§7.2 classes, superseded refusal), ISCED-F 2013 taxonomy adapter (36 families, honest matchedOn/no-match), profession catalogue at licence gate, 4 seed packs IN_REVIEW (mathematics/computing STANDARD, finance ELEVATED, health HIGH_STAKES). 39 new tests; suite 1378/0; lint clean; pushed+verified b6cc80e."
         }
       ],
       "remoteFeatureSha": null,
