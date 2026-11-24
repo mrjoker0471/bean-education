@@ -152,3 +152,26 @@ state. Ownership mismatches return 404 (indistinguishable from "not found").
   "Not evaluable from this evidence" instead of speculative scores.
 - Student silence is never interpreted; students are never ranked; engagement
   scores do not exist in the schema.
+
+---
+
+## CI-2 security evidence (audit date: 2026-11-24, branch `feat/bean-classroom-intelligence-ci2`)
+
+Reinspection of every CI-1 + CI-2 access path, executed as real database tests on isolated SQLite (`tests/unit/ci2-security-audit.test.ts` — 8 tests) plus the CI-2A authenticated browser walkthrough.
+
+| Area | Evidence |
+| --- | --- |
+| Student ownership | summaries query joins through the session-resolved student's own bookings; another student's summary rows are invisible; the response payload contains no `modelId`, no engine provenance, and no teacher identity (asserted on the serialised payload) |
+| Class-level boundary | learning links are navigation to existing catalogue pages with `matchedOn` provenance; the fixed scope note remains; no per-student data exists anywhere in the pipeline |
+| Teacher ownership | CI summary, per-class evaluation, trends and dispute list are scoped by the session-resolved APPROVED TeacherProfile; teacher B's trends/summary contain none of teacher A's rows (cross-teacher assertions) |
+| Admin-only routes | the new report-inspection route (`GET /api/admin/classroom-intelligence/reports/:id`) is ADMIN-gated (403 for teachers, 401 anonymous); the dispute queue lists all cases for authorised administrators only |
+| Dispute access | teacher dispute list is teacher-scoped (another teacher's dispute 404s); reconsideration is owner-only, once per dispute, note-bounded; the admin action route refuses self-review and bars the original decision-maker from a reconsidered case (403s asserted) |
+| Export completeness | export includes teacher reports (with report JSON + engine id), class summaries, and filed disputes — now including the FULL append-only event history per dispute (CI-2G improvement: `RECONSIDER_REQUESTED` and every other event is exported) |
+| Account deletion | deleting the owner erases jobs, reports, evidence refs, student summaries, disputes and dispute events — verified row by row after the delete, not assumed from schema |
+| Consent withdrawal | enforced at enqueue AND claim time; a withdrawn teacher's queued job is SKIPPED (`consent_not_granted`) |
+| Session expiry | an unauthenticated caller receives 401/403 on every CI endpoint; sessions expire after the platform TTL and every lookup re-reads the live session row |
+| Stale job cleanup | lease expiry recovery re-queues bounded attempts (CI-2F C4); terminal FAILED jobs keep an honest error and never block the classroom |
+| Log minimisation | structural scan over all CI server code: no `console.*` statement includes `summaryJson`, `reportJson`, `teacherNotes`, `lessonSummary` or `outputJson`; logs carry ids, statuses and error strings only |
+| Sensitive exposure | student-facing DTOs carry no model provenance and no teacher identity; dispute reasons are visible only to the dispute's teacher and authorised administrators |
+
+Nothing in CI-2 changed the data model (no new tables or columns — the reconsider appeal reuses the append-only event table), so the CI-1 deletion/export surface grows only by the dispute-history inclusion above. No legal certification is claimed; the disclosures in the privacy policy and the in-product AI notice remain the authoritative wording.
