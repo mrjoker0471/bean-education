@@ -819,7 +819,8 @@
         "c3be302ba254671832a78fd4a769793cb71e5af2",
         "8ddb16307df9a2ee93ec86f98a7f0b0e1e922ab4",
         "4141379c70989aee2cc093dbc405e8c192e4055f",
-        "90f6df9c23ce7dd5f27860337acf2d1a5f54be58"
+        "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
+        "0e6629d6cf14131222fddde8db6ea1194ae3c68d"
       ],
       "units": [
         {
@@ -870,6 +871,13 @@
           "remoteVerifiedSha": "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
           "verifiedAt": "2026-11-24T12:10:00Z",
           "summary": "Teacher/student workflow integration: enrichment coaches live — teacher development coach converts terminal specialist outputs into 2-4 bounded advisory recommendations (one bounded model pass when an adapter exists; deterministic aggregation fallback; honest abstention when nothing is terminal) with verbatim limitations (advisory only — never alters official reviews/ratings/payouts/bookings; single-class no-trend-claims; no public rankings); student revision coach assembles deterministically from the published class-level student summary (no model call, no new inference; class-level limitations verbatim: identical for every attendee + attendance used only for access control never to infer individual mastery; honest abstention without a published summary); BOTH coaches pass a deterministic ranking/decision-language guard (word-bounded rank/ranking/top-N/best-worst teacher/leaderboard/payout/salary deduction/fired-from → finding stripped + risk flag — found and fixed a literal-backspace byte that had silently neutralised the regex, proving the guard's own test); real BEAN learning links via the CI-2D deterministic link builder (syllabus #/exam/<slug>?tab=study, practice ?tab=practice, planner #/learning — honest absence without catalogue matches); teacher CI overview gains an additive ownership-scoped fleet counts block (counts only, never findings); dispute/privacy boundaries untouched (CI-1/CI-2 suites green). One CI-3E deferral test updated for the kept promise (coaches now run and abstain honestly). 7 new tests; suite 1477/0, tsc clean, lint clean."
+        },
+        {
+          "id": "CI-3H",
+          "commitSha": "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
+          "remoteVerifiedSha": "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
+          "verifiedAt": "2026-11-24T13:10:00Z",
+          "summary": "Evaluation, safety and production verification: full domain fixture set (8 deterministic fixtures incl. §14 health refusal + unregistered-source demotion); load/recovery benchmark (50 sessions / 350 tasks isolated real DB: dispatch 758 tasks/s, CAS drain 245 tasks/s at 4.1 ms/task, lease recovery 50 rows in 29 ms, cancellation 19 ms, terminal invariant 350/350 with 0 FAILED + honest enrichment backpressure skips; exercised as a CI test); RBAC + privacy audit suite (observer route 401/404/409/503/200 matrix through REAL handlers incl. owner golden path, identity-free sweep over every persisted fleet+observer output with the evidence envelope's allowed-fields contract); authenticated browser verification (real dev server + real sign-in + REAL pipeline and REAL fleet run — all 7 tasks COMPLETED against the real provider; fleet counts surfaced via the ownership-scoped API; observer API matrix from the browser; 0px overflow at 390/320; footer discipline; 6 screenshots + transcript); results doc with the §20 acceptance-criteria evidence map and honest limitations. CAUGHT AND FIXED a production-breaking regression during verification: the auth milestone's age-declaration gate blocked EVERY password sign-in (gate ran on the sign-in panel which renders no radios) — gates now signup-only, all signup protections intact, auth suites green; observer route hardened (POST bounded status wait instead of awaiting the run's lifetime; DELETE 409 on already-terminal observer). Suite 1482/0 (CI-3 added 104 tests over the CI-2 baseline), tsc clean, lint clean. Production build is evidenced by GitHub CI on the PR (local sandbox does not run next build — stated honestly in the results doc)."
         }
       ],
       "remoteFeatureSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
