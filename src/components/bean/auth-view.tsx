@@ -486,7 +486,8 @@ export function AuthView({ onAuthed }: AuthViewProps) {
 
   const audienceTitle =
     audience === 'TEACHER' ? 'Teach on BEAN' : audience === 'INSTITUTION' ? 'Institutions on BEAN' : 'Learn on BEAN'
-  const audienceNoun = audience === 'TEACHER' ? 'a teacher' : audience === 'INSTITUTION' ? 'an institution member' : 'a student'
+  const audienceChip =
+    audience === 'TEACHER' ? 'Using BEAN as a teacher' : audience === 'INSTITUTION' ? 'Using BEAN for your institution' : 'Using BEAN as a student'
   const audienceBlurb =
     audience === 'TEACHER'
       ? 'One BEAN account for teaching: apply once, and after administrator approval publish classes, manage students and grow through BEAN Teach.'
@@ -663,9 +664,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
       </CardHeader>
       <CardContent>
         <div className="mb-4 flex items-center justify-between rounded-lg border border-hairline bg-white/[0.03] px-3 py-2">
-          <span className="text-xs text-muted-foreground">
-            Using BEAN as <span className="text-foreground">{audienceNoun}</span>
-          </span>
+          <span className="text-xs text-muted-foreground">{audienceChip}</span>
           <button
             type="button"
             className="rounded text-xs text-gold underline underline-offset-2 hover:text-gold-hover"
