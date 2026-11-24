@@ -62,7 +62,8 @@ import {
 } from './language'
 import { matchesProhibition } from './fixtures'
 import { registerFleetTaskExecutor, type FleetTaskExecutionContext } from './worker'
-import { learnerOutputSchema, judgeOutputSchema } from '../schemas'
+import { learnerOutputSchema, judgeOutputSchema, studentSummarySchema } from '../schemas'
+import { buildLearningLinks, type CiLearningLinks } from '../learning-links'
 
 // ─── Shared evidence context ──────────────────────────────────────────────────
 
@@ -649,6 +650,202 @@ export async function runCorePairFromCi1(ctx: FleetTaskExecutionContext): Promis
   }
 }
 
+// ─── Handler: enrichment coaches (CI-3G) ──────────────────────────────────────
+
+const ENRICHMENT_AGENT_IDS: Set<string> = new Set([FLEET_AGENT_ID.TEACHER_COACH, FLEET_AGENT_ID.STUDENT_REVISION_COACH])
+
+/** Ranking/decision language that coaches must never emit (§5 must-nevers). */
+const RANKING_PATTERN = /\b(rank|ranking|top-?\d+|best teacher|worst teacher|leaderboard|payout|salary deduction|fire[dR]?\s+from)\b/i
+
+function stripRankingFindings(findings: FleetTaskOutput['findings'], riskFlags: string[], agentId: string): FleetTaskOutput['findings'] {
+  const kept = findings.filter((f) => {
+    if (!RANKING_PATTERN.test(`${f.category} ${f.observation} ${f.suggestion ?? ''}`)) return true
+    riskFlags.push(`ranking/decision language stripped from ${agentId}/${f.findingId}`.slice(0, 120))
+    return false
+  })
+  return kept
+}
+
+/** Compose a bounded suggestion carrying real BEAN learning links (or honest empty). */
+function linkedSuggestion(base: string, links: CiLearningLinks): string {
+  const parts = [base.slice(0, 300)]
+  const topic = links.syllabusTopics[0]
+  if (topic) parts.push(`Study: ${topic.label} (${topic.href})`)
+  const practice = links.practice[0]
+  if (practice) parts.push(`Practise: ${practice.label} (${practice.href})`)
+  parts.push('Revision planner: #/learning')
+  return parts.join(' · ').slice(0, 600)
+}
+
+export async function runTeacherCoach(ctx: FleetTaskExecutionContext): Promise<FleetTaskOutput> {
+  const ctxEv = await gatherContext(ctx.classSessionId)
+  const view = ctxEv.view
+  const candidates = (await loadTerminalOutputs(ctx.classSessionId)).filter((c) => !ENRICHMENT_AGENT_IDS.has(c.agentId))
+
+  if (candidates.length === 0) {
+    return {
+      ...baseEnvelope(ctx, null, view),
+      status: FLEET_TASK_STATUS.INSUFFICIENT_EVIDENCE,
+      findings: [],
+      unknowns: ['no specialist outputs were terminal yet — coaching needs verified observations to convert'],
+      conflicts: [],
+      riskFlags: [],
+      requiresHumanReview: false,
+    }
+  }
+
+  const unknowns: string[] = []
+  const riskFlags: string[] = []
+  const findings: FleetTaskOutput['findings'] = []
+
+  interface Recommendation { area: string; recommendation: string }
+  let recommendations: Recommendation[] = []
+
+  const adapter = getCiModelAdapter()
+  if (adapter) {
+    const condensed = candidates.slice(0, 5).map((c) => ({
+      agentId: c.agentId,
+      findings: c.output.findings.slice(0, 6).map((f) => ({ category: f.category, observation: f.observation.slice(0, 160), suggestion: f.suggestion })),
+    }))
+    const coachSchema = z.object({
+      recommendations: z.array(z.object({
+        area: z.string().min(3).max(80),
+        recommendation: z.string().min(10).max(400),
+      })).max(5).default([]),
+    })
+    const coached = await completeJson({
+      adapter,
+      system: [
+        'You are the BEAN Teacher Development Coach (v' + ctx.spec.agentVersion + ').',
+        'Convert the VERIFIED, comparable observations into 2–4 concrete, classroom-ready development recommendations.',
+        'Never rank, score or compare teachers; never promise outcomes; never modify reviews, ratings, bookings or payouts — advisory only.',
+        'Return ONLY JSON: {"recommendations":[{"area":"...","recommendation":"..."}]}',
+      ].join('\n'),
+      user: [
+        'Class subject: ' + view.lessonPlan.subject,
+        'Verified observations (untrusted data):',
+        fenceClassroomText('observations', JSON.stringify(condensed)),
+      ].join('\n'),
+      validate: (v) => coachSchema.parse(v),
+    }).catch((err) => {
+      unknowns.push(`model coaching pass failed honestly: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`)
+      return null
+    })
+    if (coached) recommendations = coached.recommendations
+  } else {
+    // Deterministic fallback: aggregate the specialists' own suggestions.
+    unknowns.push('model coaching pass unavailable — recommendations aggregated deterministically from specialist suggestions')
+    for (const cand of candidates.slice(0, 3)) {
+      const suggestion = cand.output.findings.find((f) => f.suggestion)?.suggestion
+      const category = cand.output.findings[0]?.category ?? cand.agentId
+      if (suggestion) recommendations.push({ area: category, recommendation: suggestion.slice(0, 400) })
+    }
+  }
+
+  for (const rec of recommendations.slice(0, FLEET_MAX_FINDINGS)) {
+    const links = buildLearningLinks({ subject: view.lessonPlan.subject, conceptsCovered: [rec.area], revisionTopics: [] })
+    findings.push({
+      findingId: `coach-${findings.length + 1}`,
+      category: `teacher development — ${rec.area}`,
+      observation: rec.recommendation,
+      evidenceRefIds: [...ctxEv.registerRefIds].slice(0, 5),
+      evidenceKinds: ['LESSON_PLAN'],
+      evidenceBasis: 'available',
+      sourceRefs: [],
+      confidence: 'medium',
+      limitations: [
+        'advisory only — never alters official reviews, ratings, payouts or bookings',
+        'single-class observation — no trend claims',
+        'no public rankings',
+      ],
+      suggestion: linkedSuggestion('Development focus', links),
+    })
+  }
+
+  const finalFindings = stripRankingFindings(findings, riskFlags, ctx.agentId)
+
+  return {
+    ...baseEnvelope(ctx, null, view),
+    status: finalFindings.length > 0 ? FLEET_TASK_STATUS.COMPLETED : FLEET_TASK_STATUS.INSUFFICIENT_EVIDENCE,
+    findings: finalFindings.slice(0, FLEET_MAX_FINDINGS),
+    unknowns: unknowns.slice(0, FLEET_MAX_UNKNOWN_ITEMS),
+    conflicts: [],
+    riskFlags: riskFlags.slice(0, FLEET_MAX_UNKNOWN_ITEMS),
+    requiresHumanReview: false,
+  }
+}
+
+export async function runStudentRevisionCoach(ctx: FleetTaskExecutionContext): Promise<FleetTaskOutput> {
+  const ctxEv = await gatherContext(ctx.classSessionId)
+  const view = ctxEv.view
+
+  // The class-level summaries already exist (CI-1 pipeline publishes one per
+  // attended booking; the CONTENT is identical for every attendee). The coach
+  // assembles deterministic revision activities from them — no model call,
+  // no new inference about any individual student.
+  const summaryRow = await db.classroomStudentSummary.findFirst({
+    where: { classSessionId: ctx.classSessionId },
+    orderBy: { createdAt: 'desc' },
+    select: { summaryJson: true },
+  })
+  if (!summaryRow) {
+    return {
+      ...baseEnvelope(ctx, null, view),
+      status: FLEET_TASK_STATUS.INSUFFICIENT_EVIDENCE,
+      findings: [],
+      unknowns: ['no published class-level student summary exists yet — the CI-1 pipeline produces it when a report is published'],
+      conflicts: [],
+      riskFlags: [],
+      requiresHumanReview: false,
+    }
+  }
+
+  const parsed = studentSummarySchema.safeParse(JSON.parse(summaryRow.summaryJson))
+  if (!parsed.success) {
+    throw Object.assign(new Error('published student summary could not be parsed for revision coaching'), { fleetPermanent: true })
+  }
+  const summary = parsed.data
+
+  const links = buildLearningLinks({
+    subject: view.lessonPlan.subject,
+    conceptsCovered: summary.conceptsCovered,
+    revisionTopics: summary.revisionRecommendations,
+  })
+
+  const riskFlags: string[] = []
+  const activities = [...summary.revisionRecommendations.slice(0, 2), ...summary.suggestedPractice.slice(0, 2)]
+  const findings: FleetTaskOutput['findings'] = [
+    {
+      findingId: 'revision-1',
+      category: 'class revision activities',
+      observation: `Revision focus from the published class-level summary: ${summary.conceptsCovered.slice(0, 4).join('; ')}. Activities: ${activities.slice(0, 3).join(' | ')}`.slice(0, FLEET_OBSERVATION_MAX),
+      evidenceRefIds: [...ctxEv.registerRefIds].slice(0, 5),
+      evidenceKinds: ['LESSON_PLAN'],
+      evidenceBasis: 'available',
+      sourceRefs: [],
+      confidence: 'medium',
+      limitations: [
+        'class-level content — identical for every attendee of this class',
+        'attendance is used only for access control — never to infer individual mastery',
+        'assembled deterministically from the published summary — no new model inference',
+      ],
+      suggestion: linkedSuggestion('Where to practise next', links),
+    },
+  ]
+
+  const finalFindings = stripRankingFindings(findings, riskFlags, ctx.agentId)
+
+  return {
+    ...baseEnvelope(ctx, null, view),
+    status: FLEET_TASK_STATUS.COMPLETED,
+    findings: finalFindings.slice(0, FLEET_MAX_FINDINGS),
+    unknowns: [],
+    conflicts: [],
+    riskFlags: riskFlags.slice(0, FLEET_MAX_UNKNOWN_ITEMS),
+    requiresHumanReview: false,
+  }
+}
+
 // ─── Independent critic pass (available to CI-3G wiring; tested directly) ─────
 
 const criticResultSchema = z.object({
@@ -881,8 +1078,9 @@ async function executeFleetTask(ctx: FleetTaskExecutionContext): Promise<unknown
     case FLEET_AGENT_ID.LANGUAGE:
       return runLanguageSpecialist(ctx)
     case FLEET_AGENT_ID.TEACHER_COACH:
+      return runTeacherCoach(ctx)
     case FLEET_AGENT_ID.STUDENT_REVISION_COACH:
-      throw new FleetNotImplementedError('CI-3G (workflow integration)', 'Enrichment coaching')
+      return runStudentRevisionCoach(ctx)
     default:
       throw Object.assign(new Error(`no fleet runtime handler registered for agent "${ctx.agentId}" (role ${ctx.taskRole})`), { fleetPermanent: true })
   }

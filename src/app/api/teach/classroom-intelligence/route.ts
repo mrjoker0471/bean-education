@@ -36,10 +36,22 @@ function toSummary(
       updatedAt: Date
       reports: { version: number; status: string; insufficientEvidence: boolean; requiresHumanReview: boolean }[]
     } | null
+    fleetTasks?: { status: string }[]
   },
 ): CiClassEvaluationSummaryDTO {
   const job = cls.classroomEvaluationJob
   const current = job?.reports.find((r) => r.status === 'CURRENT') ?? null
+  // CI-3G: honest fleet summary for the class (additive, ownership-scoped by
+  // the query below). Counts only — never findings here; the coach surfaces
+  // live through the classroom evaluation flow.
+  const fleet = cls.fleetTasks
+    ? {
+        total: cls.fleetTasks.length,
+        completed: cls.fleetTasks.filter((t) => t.status === 'COMPLETED').length,
+        failed: cls.fleetTasks.filter((t) => t.status === 'FAILED').length,
+        running: cls.fleetTasks.filter((t) => t.status === 'QUEUED' || t.status === 'RUNNING').length,
+      }
+    : undefined
   return {
     classSessionId: cls.id,
     title: cls.title,
@@ -60,6 +72,7 @@ function toSummary(
     currentVersion: current?.version ?? null,
     insufficientEvidence: current?.insufficientEvidence ?? false,
     requiresHumanReview: current?.requiresHumanReview ?? false,
+    ...(fleet ? { fleet } : {}),
   }
 }
 
@@ -97,6 +110,7 @@ export async function GET() {
             },
           },
         },
+        fleetTasks: { select: { status: true } },
       },
     })
 

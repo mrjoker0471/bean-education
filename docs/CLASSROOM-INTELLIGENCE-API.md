@@ -234,3 +234,33 @@ still honestly IN_REVIEW pending the human VERIFIED gate (§6.4).
   without an adapter it measures nothing and touches no capability. Results
   and the Omnilingual ASR licence/consent-fit decision live in
   `docs/BEAN-CLASSROOM-INTELLIGENCE-LANGUAGE-COVERAGE.md`.
+
+## CI-3G — Teacher/student workflow integration
+
+- **Teacher development coach** (`BEAN_TEACHER_COACH`): converts terminal
+  specialist outputs into 2–4 bounded, advisory recommendations — one bounded
+  model pass when an adapter exists, deterministic aggregation of specialist
+  suggestions otherwise; abstains honestly when nothing is terminal. Every
+  finding carries `advisory only — never alters official reviews, ratings,
+  payouts or bookings`, `no trend claims`, `no public rankings`. Real BEAN
+  learning links (syllabus topic, exam practice, the `#/learning` revision
+  planner) are attached through the CI-2D deterministic link builder.
+- **Student revision coach** (`BEAN_STUDENT_REVISION_COACH`): deterministic
+  assembly from the published class-level student summary (CI-1) — no model
+  call, no new inference. Limitations state the class-level boundary verbatim
+  (`identical for every attendee`, `attendance is used only for access
+  control — never to infer individual mastery`). Links are real catalogue
+  matches or honestly absent.
+- **Ranking/decision-language guard**: both coaches strip findings whose
+  category/observation/suggestion matches ranking or decision vocabulary
+  (`\b(rank|ranking|top-N|best/worst teacher|leaderboard|payout|salary
+  deduction|fired from)\b`) and record a risk flag — a coach can never emit a
+  disciplinary, rating or payment instruction (charter §5 must-nevers,
+  deterministically enforced).
+- **Surface**: the teacher's CI overview (`GET /api/teach/classroom-
+  intelligence`) now includes an additive, ownership-scoped `fleet` block per
+  class — honest counts only (`total/completed/failed/running`), never
+  findings; coach content flows through the classroom evaluation flow.
+- **Dispute/privacy boundaries unchanged**: coach outputs are advisory rows on
+  the class; the dispute flow, report rebuild rules and student summary access
+  control are untouched (verified by the existing CI-1/CI-2 suites).

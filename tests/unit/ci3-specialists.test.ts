@@ -587,7 +587,7 @@ describe('CI-3E core pair mapping (M1)', () => {
 // ─── D1: honest deferrals ─────────────────────────────────────────────────────
 
 describe('CI-3E honest deferrals (D1)', () => {
-  test('D1.1 LANGUAGE runs honestly since CI-3F (abstains without notes); enrichment coaches (CI-3G) fail immediately and permanently with milestone pointers', async () => {
+  test('D1.1 deferrals resolve as milestones land: LANGUAGE abstains (CI-3F), coaches abstain honestly (CI-3G)', async () => {
     const seeded = await seedEndedClass({ subject: 'Hindi literature', title: 'Kabir dohas — meaning and metre' })
     try {
       await grantCiConsent(seeded.teacherId)
@@ -605,9 +605,13 @@ describe('CI-3E honest deferrals (D1)', () => {
       const langOut = JSON.parse(langRow.outputJson!) as { unknowns: string[] }
       expect(langOut.unknowns.some((u) => u.includes('no teacher notes'))).toBe(true)
       expect(langOut.unknowns.some((u) => u.includes('§9.2'))).toBe(true)
+      // CI-3G implemented the coaches: with NO terminal specialist output
+      // (the specialist FAILED under the disabled adapter) the coach honestly
+      // abstains — coaching needs verified observations to convert.
       const coach = rowOf(rows, FLEET_AGENT_ID.TEACHER_COACH)
-      expect(coach.status).toBe(FLEET_TASK_STATUS.FAILED)
-      expect(coach.error).toContain('CI-3G')
+      expect(coach.status).toBe(FLEET_TASK_STATUS.INSUFFICIENT_EVIDENCE)
+      const coachOut = JSON.parse(coach.outputJson!) as { unknowns: string[] }
+      expect(coachOut.unknowns[0]).toContain('no specialist outputs were terminal')
     } finally {
       await cleanupTeacher(seeded.teacherId)
     }
