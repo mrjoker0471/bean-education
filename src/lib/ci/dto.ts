@@ -10,6 +10,7 @@
 
 import type { FinalReport, StudentSummary } from './schemas'
 import type { CiConsentState } from './trigger'
+import type { CiLearningLinks } from './learning-links'
 
 export interface CiConsentDTO {
   granted: boolean
@@ -84,10 +85,73 @@ export interface CiStudentSummaryDTO {
   timeZone: string
   summary: StudentSummary
   generatedAt: string
+  /** CI-2D: deterministic navigation to existing BEAN learning surfaces
+   *  (syllabus topics, practice, revision planner, curated resources). */
+  learningLinks: CiLearningLinks
 }
 
 export interface CiStudentSummariesResponse {
   summaries: CiStudentSummaryDTO[]
+}
+
+// ─── CI-2C: teacher improvement trends (deterministic aggregation) ───────────
+
+export interface CiTrendSubjectCoverage {
+  subject: string
+  evaluatedClasses: number
+  coveredObjectives: number
+  unverifiableObjectives: number
+  coverageRatio: number | null
+  sufficientSample: boolean
+}
+
+export interface CiTrendCategory {
+  category: string
+  evaluatedCount: number
+  insufficientCount: number
+  strengthCount: number
+  improvementCount: number
+  missingEvidenceNote: string | null
+  subjectBreakdown: { subject: string; evaluated: number; strengths: number; improvements: number; evaluatedClasses: number }[]
+}
+
+export interface CiTrendImprovementSignal {
+  subject: string
+  category: string
+  direction: 'improving' | 'steady' | 'needs-attention'
+  earlierCount: number
+  recentCount: number
+  classesCompared: number
+  caveat: string
+}
+
+export interface CiTrendRecurringSuggestion {
+  text: string
+  occurrences: number
+  categories: string[]
+}
+
+export interface CiTrendSuggestedResource {
+  category: string
+  title: string
+  description: string
+}
+
+export interface CiTeacherTrends {
+  evaluatedClasses: number
+  insufficientData: boolean
+  subjects: { subject: string; evaluatedClasses: number }[]
+  coverage: CiTrendSubjectCoverage[]
+  categories: CiTrendCategory[]
+  recurringSuggestions: CiTrendRecurringSuggestion[]
+  improvementSignals: CiTrendImprovementSignal[]
+  suggestedResources: CiTrendSuggestedResource[]
+}
+
+export interface CiTeacherTrendsResponse {
+  trends: CiTeacherTrends
+  generatedAt: string
+  scopeNote: string
 }
 
 export function toConsentDTO(state: CiConsentState): CiConsentDTO {

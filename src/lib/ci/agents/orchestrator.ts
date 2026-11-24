@@ -201,13 +201,26 @@ export function buildFinalReport(input: OrchestrationInput, generatedAt: Date = 
   improvements.sort(byQuality)
   otherFindings.sort(byQuality)
 
-  // 3. Category table — all ten, honestly.
+  // 3. Category table — all ten, honestly. A category is EVALUATED only when
+  //    it has at least one finding NOT resting on unavailable evidence; if all
+  //    its findings are advisory-only (flagged), the category stays
+  //    INSUFFICIENT_EVIDENCE with the advisory findings noted for human review.
   const categories = ALL_CATEGORIES.map((category) => {
     const catFindings = allFindings.filter((f) => f.source === 'TEACHER_JUDGE' && f.category === category)
     const notEvaluable = judge.categoriesNotEvaluable.find((c) => c.category === category)
-    if (catFindings.length > 0) {
-      const best = [...catFindings].sort(byQuality)[0]
+    const grounded = catFindings.filter((f) => !f.flaggedForReview)
+    if (grounded.length > 0) {
+      const best = [...grounded].sort(byQuality)[0]
       return { category, status: 'EVALUATED' as const, summary: best.observation.slice(0, 600) }
+    }
+    if (catFindings.length > 0) {
+      return {
+        category,
+        status: 'INSUFFICIENT_EVIDENCE' as const,
+        summary:
+          `${catFindings.length} advisory-only finding(s) exist but rest on unavailable evidence and await human review; ` +
+          (notEvaluable?.reason ?? 'no grounded observation is available for this category.'),
+      }
     }
     return {
       category,

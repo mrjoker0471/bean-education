@@ -30,6 +30,7 @@ import type {
 } from '@/lib/ci/dto'
 import type { ReportFinding } from '@/lib/ci/schemas'
 import { formatClassInZone } from '@/components/bean/teach-format'
+import { TeacherTrendsSection } from '@/components/bean/classroom-intelligence/teacher-trends'
 
 const CATEGORY_LABELS: Record<string, string> = {
   SUBJECT_ACCURACY: 'Subject accuracy',
@@ -502,6 +503,9 @@ export function TeacherClassroomIntelligencePanel() {
 
       {consent.granted && (
         <>
+          {/* Growth over time — deterministic trends from the teacher's own reports */}
+          <TeacherTrendsSection />
+
           {/* Evaluated classes */}
           <section aria-label="Evaluated classes">
             <h3 className="mb-2 text-sm font-semibold text-foreground">

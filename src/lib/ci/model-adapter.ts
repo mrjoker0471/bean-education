@@ -110,9 +110,16 @@ export async function completeJson<T>(opts: {
     const msg = err instanceof Error ? err.message : String(err)
     const isMalformed = /JSON|parse|Expected|invalid_type|required|unterminated|no JSON/i.test(msg) && !isRateLimitError(err)
     if (isMalformed) {
-      return await attempt(
-        `${opts.user}\n\nIMPORTANT: Your previous reply was not usable: ${msg.slice(0, 200)}. Return ONLY the JSON value matching the requested shape — no markdown fences, no commentary.`,
-      )
+      try {
+        return await attempt(
+          `${opts.user}\n\nIMPORTANT: Your previous reply was not usable: ${msg.slice(0, 200)}. Return ONLY the JSON value matching the requested shape — no markdown fences, no commentary.`,
+        )
+      } catch (retryErr) {
+        // Both attempts produced unusable output — fail with the honest error
+        // contract so the queue records a clear, classified failure.
+        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr)
+        throw new CiModelOutputError(retryMsg.slice(0, 400))
+      }
     }
     throw err
   }

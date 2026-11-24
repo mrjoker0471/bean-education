@@ -1,52 +1,82 @@
 'use client'
 
-// ─── BEAN Education brand mark ────────────────────────────────────────────────
-// The product wordmark is "BEAN Education". The glyph is a gold bean on an
-// obsidian tile. The public logo asset lives at /logo.svg so it can be swapped
-// for the final BEAN Education logo without touching any component — every
-// surface renders the mark through this one component (or the SVG file).
-// Colours follow the brand palette: obsidian #0B0B0C, metallic gold #C6A05E,
-// champagne #E9DCBD.
+// ─── BEAN Education brand assets ─────────────────────────────────────────────
+// The supplied artwork is the single source of brand identity:
+//   • /brand/bean-emblem.png   — complete stacked logo (graduation-cap "B"
+//     emblem). Used wherever a full brand presentation is appropriate (auth
+//     screens, loading/empty stages, footer emblem, favicon source).
+//   • /brand/bean-wordmark.png — horizontal BEAN EDUCATION wordmark. Used in
+//     the header lockup and footer. NEVER recreated with HTML text or fonts.
+//   • /brand/bean-icon.png     — square favicon derived from the emblem.
+//
+// Every image renders with object-contain so the artwork is never cropped,
+// stretched or distorted, and preserves its original aspect ratio. The old
+// text-based wordmark and the placeholder bean-tile SVG were removed so the
+// two can never appear together (no duplicated branding).
 
 import { cn } from '@/lib/utils'
 
-export function BeanMark({ className, tileSize = 'md' }: { className?: string; tileSize?: 'sm' | 'md' | 'lg' }) {
-  const size = tileSize === 'sm' ? 'h-7 w-7' : tileSize === 'lg' ? 'h-11 w-11' : 'h-9 w-9'
+export function BeanEmblem({ className, alt = 'BEAN Education emblem' }: { className?: string; alt?: string }) {
   return (
-    <span
-      aria-hidden
-      className={cn('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[26%] border border-hairline', size, className)}
-      style={{ background: 'linear-gradient(145deg, #161512 0%, #0B0B0C 100%)' }}
-    >
-      <svg viewBox="0 0 64 64" className="h-[72%] w-[72%]" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="bean-gold" x1="20" y1="13" x2="44" y2="51" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#E9DCBD" />
-            <stop offset="0.5" stopColor="#C6A05E" />
-            <stop offset="1" stopColor="#8C744C" />
-          </linearGradient>
-        </defs>
-        <g transform="rotate(-24 32 32)">
-          <ellipse cx="32" cy="32" rx="12.5" ry="17.5" fill="url(#bean-gold)" />
-          <path d="M32 15.5 C 23.5 23, 40.5 41, 32 48.5" stroke="#0B0B0C" strokeWidth="3.2" strokeLinecap="round" fill="none" />
-        </g>
-      </svg>
-    </span>
+    <img
+      src="/brand/bean-emblem.png"
+      alt={alt}
+      draggable={false}
+      className={cn('object-contain select-none', className)}
+    />
   )
 }
 
-/** The full product wordmark: BEAN Education. Used in header, footer, auth and empty states. */
-export function Wordmark({ className, size = 'md' }: { className?: string; size?: 'sm' | 'md' }) {
+export function BeanWordmarkImage({ className, alt = 'BEAN Education' }: { className?: string; alt?: string }) {
   return (
-    <span className={cn('inline-flex items-baseline gap-1.5 leading-none', className)}>
-      <span className={cn('font-sans font-bold tracking-[0.14em] text-foreground', size === 'sm' ? 'text-sm' : 'text-lg')}>
-        BEAN
-      </span>
-      <span
-        className={cn('font-display italic text-champagne', size === 'sm' ? 'text-sm' : 'text-lg')}
-      >
-        Education
-      </span>
+    <img
+      src="/brand/bean-wordmark.png"
+      alt={alt}
+      draggable={false}
+      className={cn('object-contain select-none', className)}
+    />
+  )
+}
+
+/**
+ * The header brand lockup: the complete emblem artwork in a refined obsidian
+ * glass container with a champagne-gold hairline highlight, and the supplied
+ * horizontal wordmark beside it. One container, one lockup — the emblem keeps
+ * its aspect ratio, the wordmark keeps its aspect ratio, nothing is cropped.
+ * On the smallest screens the wordmark scales down but stays readable; the
+ * container padding keeps breathing room without becoming an oversized box.
+ */
+export function BrandLockup({ onClick, className }: { onClick?: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="BEAN Education home"
+      className={cn(
+        'group flex items-center gap-2.5 rounded-xl border border-hairline bg-white/[0.04] px-2.5 py-1.5',
+        'shadow-[0_1px_0_rgba(233,220,189,0.08)_inset,0_8px_24px_-18px_rgba(0,0,0,0.9)] backdrop-blur-md',
+        'transition-colors duration-200 hover:border-gold/40 hover:bg-white/[0.06]',
+        className,
+      )}
+    >
+      <BeanEmblem
+        alt=""
+        className="h-9 w-9 shrink-0 transition-transform duration-300 group-hover:scale-105 sm:h-10 sm:w-10"
+      />
+      <BeanWordmarkImage
+        alt="BEAN Education"
+        className="h-[18px] w-auto min-w-[118px] sm:h-5 sm:min-w-[132px] lg:h-[22px] lg:min-w-[146px]"
+      />
+    </button>
+  )
+}
+
+/** Compact lockup for the mobile navigation sheet and the footer. */
+export function BrandLockupCompact({ className }: { className?: string }) {
+  return (
+    <span className={cn('inline-flex items-center gap-2', className)}>
+      <BeanEmblem alt="" className="h-7 w-7 shrink-0" />
+      <BeanWordmarkImage alt="BEAN Education" className="h-[15px] w-auto min-w-[100px]" />
     </span>
   )
 }

@@ -28,9 +28,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "BEAN Education" }],
   icons: {
-    icon: [{ url: "/logo.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/logo.svg" }],
-    shortcut: ["/logo.svg"],
+    icon: [{ url: "/brand/bean-icon.png", type: "image/png" }],
+    apple: [{ url: "/brand/bean-icon.png" }],
+    shortcut: ["/brand/bean-icon.png"],
   },
 };
 

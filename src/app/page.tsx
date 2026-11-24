@@ -51,7 +51,7 @@ import { AdminCareerView } from '@/components/bean/views/admin-career-view'
 import { AuthView } from '@/components/bean/auth-view'
 import { PdfViewerPage } from '@/components/bean/pdf-viewer'
 import { resolvePostAuthRoute } from '@/lib/teacher-intent'
-import { BeanMark, Wordmark } from '@/components/bean/brand-mark'
+import { BeanEmblem, BeanWordmarkImage } from '@/components/bean/brand-mark'
 import { Compass, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -181,8 +181,8 @@ function AuthStage({ children }: { children: React.ReactNode }) {
         style={{ background: 'linear-gradient(90deg, transparent 8%, rgba(198,160,94,0.30) 50%, transparent 92%)' }}
       />
       <div className="relative flex w-full max-w-md flex-col items-center text-center">
-        <BeanMark tileSize="lg" />
-        <Wordmark className="mt-4" />
+        <BeanEmblem className="h-16 w-16" />
+        <BeanWordmarkImage className="mt-4 h-7 w-auto min-w-[190px]" />
         <p className="mt-2.5 text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
           Learn. Practise. Teach. Grow.
         </p>

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { useAppStore, parseHash } from '@/lib/store'
-import { BeanMark, Wordmark } from '@/components/bean/brand-mark'
+import { BrandLockup, BrandLockupCompact } from '@/components/bean/brand-mark'
 import { cn } from '@/lib/utils'
 import {
   BookOpen,
@@ -147,20 +147,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-hairline glass">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'home' })}
-          className="group flex items-center gap-3"
-          aria-label="BEAN Education home"
-        >
-          <BeanMark className="transition-transform duration-300 group-hover:scale-105" />
-          <span className="flex flex-col items-start leading-tight">
-            <Wordmark />
-            <span className="hidden whitespace-nowrap text-[10px] uppercase tracking-[0.28em] text-muted-foreground 2xl:block">
-              Learn. Practise. Teach. Grow.
-            </span>
-          </span>
-        </button>
+        <BrandLockup onClick={() => navigate({ view: 'home' })} />
 
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary">
           {navItems.map(item => navButton(item, false))}
@@ -184,8 +171,7 @@ export function Header() {
             </SheetTrigger>
             <SheetContent side="right" className="w-72 border-hairline bg-[#131210]/95 backdrop-blur-xl">
               <SheetTitle className="flex items-center gap-3 py-1">
-                <BeanMark tileSize="sm" />
-                <Wordmark size="sm" />
+                <BrandLockupCompact />
               </SheetTitle>
               <nav className="mt-4 flex flex-col gap-1" aria-label="Mobile">
                 {navItems.map(item => navButton(item, true))}
