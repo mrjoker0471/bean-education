@@ -39,12 +39,14 @@ export function BeanWordmarkImage({ className, alt = 'BEAN Education' }: { class
 }
 
 /**
- * The header brand lockup: the complete emblem artwork in a refined obsidian
- * glass container with a champagne-gold hairline highlight, and the supplied
- * horizontal wordmark beside it. One container, one lockup — the emblem keeps
- * its aspect ratio, the wordmark keeps its aspect ratio, nothing is cropped.
- * On the smallest screens the wordmark scales down but stays readable; the
- * container padding keeps breathing room without becoming an oversized box.
+ * The header brand lockup: the complete emblem artwork with the supplied
+ * horizontal wordmark immediately beside it, sitting directly on the normal
+ * header background — no enclosing box, no card, no border, no background,
+ * no card-like shadow, no container glow or container hover effect (design
+ * correction, CI-2 homepage redesign). The emblem and wordmark are vertically
+ * aligned with a natural gap; both keep their original aspect ratios and are
+ * never cropped or stretched. On the smallest screens the lockup scales down
+ * but the complete wordmark stays readable.
  */
 export function BrandLockup({ onClick, className }: { onClick?: () => void; className?: string }) {
   return (
@@ -53,16 +55,11 @@ export function BrandLockup({ onClick, className }: { onClick?: () => void; clas
       onClick={onClick}
       aria-label="BEAN Education home"
       className={cn(
-        'group flex items-center gap-2.5 rounded-xl border border-hairline bg-white/[0.04] px-2.5 py-1.5',
-        'shadow-[0_1px_0_rgba(233,220,189,0.08)_inset,0_8px_24px_-18px_rgba(0,0,0,0.9)] backdrop-blur-md',
-        'transition-colors duration-200 hover:border-gold/40 hover:bg-white/[0.06]',
+        'flex items-center gap-2.5 transition-opacity duration-200 hover:opacity-85',
         className,
       )}
     >
-      <BeanEmblem
-        alt=""
-        className="h-9 w-9 shrink-0 transition-transform duration-300 group-hover:scale-105 sm:h-10 sm:w-10"
-      />
+      <BeanEmblem alt="" className="h-9 w-9 shrink-0 sm:h-10 sm:w-10" />
       <BeanWordmarkImage
         alt="BEAN Education"
         className="h-[18px] w-auto min-w-[118px] sm:h-5 sm:min-w-[132px] lg:h-[22px] lg:min-w-[146px]"
