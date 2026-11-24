@@ -151,6 +151,7 @@ import type {
   CiConsentDTO,
   CiStudentSummariesResponse,
   CiTeacherSummaryResponse,
+  CiTeacherTrendsResponse,
 } from './ci/dto'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -776,6 +777,7 @@ export const api = {
       { method: 'POST', body: JSON.stringify(teacherNotes ? { teacherNotes } : {}) },
     ),
   ciStudentSummaries: () => jsonFetch<CiStudentSummariesResponse>('/api/learn/class-summaries'),
+  ciTeacherTrends: () => jsonFetch<CiTeacherTrendsResponse>('/api/teach/classroom-intelligence/trends'),
 
   // ─── BEAN Trust & Quality (Phase 6): reviews, complaints, appeals ───
   classReviews: (classId: string) =>
