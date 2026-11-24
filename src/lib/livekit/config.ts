@@ -173,3 +173,64 @@ export async function createParticipantToken(opts: {
   token.addGrant(grant)
   return await token.toJwt()
 }
+
+// ─── CI-3D: the consent-gated classroom observer (least privilege, VISIBLE) ───
+
+/** LiveKit identity prefix of the programmatic observer — never a "bean:" student identity. */
+export const OBSERVER_IDENTITY_PREFIX = 'bean-observer:'
+
+/** Visible participant name inside the room (charter §10.1: identify itself clearly). */
+export const OBSERVER_DISPLAY_NAME = 'BEAN Classroom Observer (AI)'
+
+export function observerIdentity(observerSessionId: string): string {
+  return `${OBSERVER_IDENTITY_PREFIX}${observerSessionId}`
+}
+
+export function isObserverIdentity(identity: string): boolean {
+  return identity.startsWith(OBSERVER_IDENTITY_PREFIX) && identity.length > OBSERVER_IDENTITY_PREFIX.length
+}
+
+/**
+ * The observer's exact video grant — exported for tests and audits.
+ * Structured-only mode (charter §9.1): the observer receives NO media and can
+ * never publish anything. `hidden: false` keeps it a VISIBLE participant —
+ * the observer must always identify itself (charter §10.1).
+ */
+export function observerVideoGrant(room: string): VideoGrant {
+  return {
+    room,
+    roomJoin: true,
+    canSubscribe: false, // receives no audio/video at all
+    canPublish: false, // never publishes media
+    canPublishData: false, // never sends data messages
+    roomAdmin: false,
+    roomCreate: false,
+    roomList: false,
+    roomRecord: false,
+    ingressAdmin: false,
+    hidden: false, // VISIBLE — disclosed presence, never a silent bot
+  }
+}
+
+/**
+ * Mint the observer's access token. Same secret handling as
+ * createParticipantToken; grants are FIXED (observerVideoGrant) so no caller
+ * can widen them. `metadata` carries the visible, human-readable disclosure.
+ */
+export async function createObserverToken(opts: {
+  identity: string
+  room: string
+  ttlSeconds: number
+  metadata: string
+}): Promise<string> {
+  const creds = livekitCredentials()
+  if (!creds) throw new Error('LiveKit is not configured')
+  const token = new AccessToken(creds.apiKey, creds.apiSecret, {
+    identity: opts.identity,
+    name: OBSERVER_DISPLAY_NAME,
+    ttl: opts.ttlSeconds,
+    metadata: opts.metadata,
+  })
+  token.addGrant(observerVideoGrant(opts.room))
+  return await token.toJwt()
+}

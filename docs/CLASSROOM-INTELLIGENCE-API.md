@@ -123,3 +123,54 @@ Evaluation jobs are created by two server-internal, error-isolated triggers:
 `room_finished` webhook (PROVIDER_ROOM_FINISHED). Both are consent-gated and
 deduplicated; they can never delay or fail the classroom operation that
 triggered them. Teacher requests go exclusively through the API above.
+
+## CI-3D — Live classroom observer (explicit dispatch, structured-only)
+
+The observer is the charter's Agent 01 (`BEAN_CLASSROOM_OBSERVER`): ONE visible
+programmatic LiveKit participant per consented room (DB-unique per live
+session), joined ONLY through an explicit teacher action, in charter §9.1
+**Mode A (structured-only)** — the observer subscribes to no media at all
+(token `canSubscribe/canPublish/canPublishData` all `false`, `hidden: false`)
+and records only identity-free aggregate signals. Audio/transcript processing
+does not exist in CI-3D; `transcriptionEnabled` stays `false` on the row and in
+the evidence contract.
+
+### `GET /api/teach/classes/:id/live/observer`
+**Auth**: approved class owner. Returns `{ liveStatus, observer }` where
+`observer` (or `null`) is:
+`{ observerSessionId, status, leftReason, consentMode, transcriptionEnabled,
+canPublishMedia, reconnectCount, connectedSeconds, dispatchedAt, connectedAt,
+leftAt, hasEvidence }`. Statuses: `PLANNED | CONNECTING | OBSERVING | LEFT |
+FAILED | CANCELLED`.
+
+### `POST /api/teach/classes/:id/live/observer`
+**Auth**: approved class owner + same-origin. **Explicit dispatch.** All
+charter §11 Phase 0 checks run server-side (ownership, approved teacher,
+LIVE room, current CI consent, one-observer-per-room, global observer pool
+bound, provider configured); the authorising identity is the session-resolved
+teacher — never a request body. Errors are honest typed reasons with statuses
+`404/403/409/503` (`class_not_found`, `teacher_not_authorised`, `room_not_live`,
+`no_consent`, `already_observing`, `observer_capacity_full`,
+`livekit_not_configured`). Re-dispatch after a terminal run resets the room's
+single observer row (CAS-guarded) for a fresh run.
+
+### `DELETE /api/teach/classes/:id/live/observer`
+**Auth**: approved class owner + same-origin. Withdraws the observer: an
+in-process run disconnects its room and finalises `CANCELLED/teacher_cancelled`;
+a run owned by another process is terminal-marked directly (stale remote rows
+are recovered honestly by `recoverStaleObserverSessions`, never resurrected).
+
+### Lifecycle hooks (no public API)
+`POST /api/teach/classes/:id/live/end` and the LiveKit `room_finished` webhook
+also fire-and-forget `cancelObserverForEndedSession` — the observer always
+leaves a finished class, and its failure can never affect attendance, booking
+or class completion (charter acceptance criterion 6).
+
+### Evidence (written once at finalisation, strictly validated)
+`consentMode` (literal `STRUCTURED_ONLY`), `transcriptionEnabled` (literal
+`false`), observer identity/room name, `connectedSeconds`, `reconnectCount`,
+bounded `presenceSamples` (timestamps + aggregate participant counts only),
+bounded `evidenceGaps` (reconnects, server restarts), `dataMessageCount`
+(counts only — payloads never read), `whiteboardSnapshotVersion` (structure
+count from the authorised whiteboard row). No student identities, no media, no
+payloads — asserted by tests (`tests/unit/ci3-observer.test.ts`).

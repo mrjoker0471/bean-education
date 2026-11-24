@@ -655,6 +655,9 @@ model ClassSession {
   // (one row per planned agent — taskKey is unique, so duplicate prevention is
   // a DB guarantee, not a best effort).
   fleetTasks ClassroomFleetTask[]
+  // BEAN Classroom Intelligence (CI-3D): observer sessions across this class's
+  // live sessions (one per live session — enforced by the unique FK there).
+  observerSessions ClassroomObserverSession[]
   // BEAN Institution (Phase 7): private institution classes. Nullable + safe
   // defaults — every existing class stays PUBLIC and unchanged.
   audience            String?     @default("PUBLIC") // PUBLIC | ORGANIZATION | GROUP
@@ -725,6 +728,9 @@ model LiveClassSession {
   classSession                ClassSession        @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
   participants                LiveClassParticipant[]
   whiteboard                  LiveWhiteboardState?
+  // BEAN Classroom Intelligence (CI-3D): the consent-gated observer — exactly
+  // ONE per room (unique FK below is the DB guarantee).
+  observerSession             ClassroomObserverSession?
 
   @@index([status])
   @@index([usageMonthKey])
@@ -1995,6 +2001,48 @@ model ClassroomFleetTask {
   @@index([classSessionId, status])
   @@index([teacherProfileId, status])
   @@index([taskRole, priority])
+}
+
+// BEAN Classroom Intelligence (CI-3D): the consent-gated, VISIBLE live
+// classroom observer (charter §4.1, §5 Agent 01, §9.1 Mode A). Exactly ONE per
+// room — the liveClassSessionId unique FK is the DB guarantee. Explicit
+// dispatch only: a row is created by server-side code after every §11 Phase 0
+// eligibility check passed (never auto-attached, never client-authorised).
+// Structured-only: the observer receives NO media (token canSubscribe=false,
+// canPublish=false, canPublishData=false — provenance columns below) and
+// records only aggregate, identity-free signals. transcriptionEnabled is an
+// honest column that stays false in CI-3D — audio processing requires a
+// separate consent/legal milestone (charter §9.2) and this model cannot
+// silently pretend otherwise.
+model ClassroomObserverSession {
+  id                  String    @id @default(cuid())
+  liveClassSessionId  String    @unique
+  classSessionId      String    // denormalised for class-scoped queries
+  roomName            String    // denormalised LiveKit room name
+  observerIdentity    String    @unique // "bean-observer:<id>" — never a "bean:" student identity
+  status              String    @default("PLANNED") // PLANNED | CONNECTING | OBSERVING | LEFT | FAILED | CANCELLED
+  leftReason          String?   // session_ended | teacher_cancelled | consent_withdrawn | provider_finished | connection_failed | server_restart | room_closed
+  consentMode         String    @default("STRUCTURED_ONLY") // charter §9.1 Mode A — the ONLY mode in CI-3D
+  transcriptionEnabled Boolean  @default(false) // honest column — no audio processing exists in CI-3D
+  canPublishMedia     Boolean   @default(false) // token provenance: the observer can never publish media
+  attempts            Int       @default(0)
+  maxAttempts         Int       @default(5)
+  reconnectCount      Int       @default(0)
+  connectedSeconds    Int       @default(0)
+  evidenceJson        String?   // validated identity-free structured summary, written once at finalisation
+  eligibilityJson     String?   // server-side §11 Phase 0 check snapshot that authorised the dispatch
+  error               String?   // bounded operator-facing failure detail — FAILED rows carry one
+  dispatchedBy        String    // Student.id of the authorising teacher (owner) — server-resolved, never client-supplied
+  lastHeartbeatAt     DateTime?
+  connectedAt         DateTime?
+  leftAt              DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  liveSession         LiveClassSession @relation(fields: [liveClassSessionId], references: [id], onDelete: Cascade)
+  classSession        ClassSession     @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+
+  @@index([status, lastHeartbeatAt])
+  @@index([classSessionId, status])
 }
 
 // Append-only dispute history (matches ComplaintEvent/AppealEvent discipline).
