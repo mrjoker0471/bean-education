@@ -734,9 +734,9 @@
    "remoteFeatureSha": "7abd15ff1dad751170efff3d75f52e7369520c8d",
    "pushVerifiedAt": "2026-11-24T05:35:00Z",
    "pr": {
-    "number": null,
-    "state": "NONE",
-    "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci2"
+    "number": 34,
+    "state": "MERGED",
+    "url": "https://github.com/mrjoker0471/bean-education/pull/34"
    },
    "ci": [
     {
@@ -765,12 +765,13 @@
      "subject": "docs-only commit 267fe65 superseded by the next push (content contained in the passing tip run)"
     }
    ],
-   "finalMainSha": null,
-   "syncStatus": "SYNCED",
-   "status": "PUSHED",
+   "finalMainSha": "d6ef91722e1dd66d8a82b5fead417dc86f30b759",
+   "syncStatus": "SYNCHRONIZED",
+   "status": "COMPLETE",
    "evidence": "CI-1 verified merged via PR #32 (merge commit e5782af). CI-2A part 1: real-pipeline evaluation fixtures (2 live provider evaluations COMPLETED), agent-browser authenticated walkthrough — student bookings/summaries/scope note verified, 9/9 server-side ownership denials verified, teacher consent pause/re-enable + report categories/evidence register verified, admin trust center renders; 12 genuine screenshots in docs/screenshots/ci2/. Dispute UI gap found and scheduled for CI-2E with a part-2 walkthrough. | Header logo & branding fix (owner-request): supplied artwork adopted as the single brand source — public/brand/bean-emblem.png (stacked emblem), bean-wordmark.png (horizontal wordmark), bean-icon.png (favicon); header lockup rebuilt (obsidian glass container, hairline border, champagne-gold highlight, object-contain artwork, old text wordmark removed everywhere: header/mobile sheet/footer/auth-stage/not-found); favicon+metadata repointed; verified at 1440/768/390 + mobile sheet + auth screen with genuine before/after screenshots in docs/screenshots/branding/; lint+tsc+1314 tests+production build green. | Push verified: remote feature branch tip = 6dc2986 (git ls-remote) after owner registered the sandbox SSH key (ADR-008 procedure).",
-   "ciNote": "CI runs appended per push. | 2026-11-24 session: full suite re-run 1339/0; tip 7abd15f verified via git ls-remote; later commits d7851f4/2c5c5fb belong to the homepage editorial refresh entry, not CI-2.",
-   "updatedAt": "2026-11-24T05:35:00Z"
+   "ciNote": "CI runs appended per push. | 2026-11-24 session: full suite re-run 1339/0; tip 7abd15f verified via git ls-remote; later commits d7851f4/2c5c5fb belong to the homepage editorial refresh entry, not CI-2. | 2026-11-24: owner merged PR #34 (feat/bean-classroom-intelligence-ci2 through 7abd15f) into main; merge commit d6ef917 verified via git fetch + merge-base (7abd15f is ancestor of main). The branch now carries 3 further commits (d7851f4, 2c5c5fb, d488539 + ledger) that belong exclusively to the bean-homepage-editorial-refresh entry and its follow-up PR.",
+   "updatedAt": "2026-11-24T05:47:00Z",
+   "mergeCommitSha": "d6ef91722e1dd66d8a82b5fead417dc86f30b759"
   },
   {
    "id": "bean-homepage-editorial-refresh",
@@ -800,12 +801,129 @@
      "subject": "quality workflow on 2c5c5fb (homepage editorial refresh, branch tip) — 2m4s, verified via Actions HTML"
     }
    ],
-   "ciNote": "Work unit rides on the CI-2 feature branch (owner-directed continuation); baseMainSha therefore null — content sits on top of the CI-2 tip 7abd15f, not directly on main. Ledger commit for this entry is itself a docs-only commit created after remoteFeatureSha was verified (same accepted pattern as CI-2 entries 267fe65/d272042).",
+   "ciNote": "Work unit rides on the CI-2 feature branch (owner-directed continuation); baseMainSha therefore null — content sits on top of the CI-2 tip 7abd15f, not directly on main. Ledger commit for this entry is itself a docs-only commit created after remoteFeatureSha was verified (same accepted pattern as CI-2 entries 267fe65/d272042). | 2026-11-24: PR #34 merged the CI-2 prefix (through 7abd15f) so this entry’s commits are the only unmerged work on the branch (ahead 3+ledger docs commit, behind 2 merge commits — DIVERGENT by classification). Follow-up PR to main NOT opened by the sandbox: no authorised PR-creation credential exists here (deploy key is push-only; no gh CLI, no API token, browser unauthenticated). Per docs/GIT-BRANCH-HYGIENE.md step 11 the PR gate stops and reports the manual action: open PR from feat/bean-classroom-intelligence-ci2 → main via the compare URL with the prepared title/body (delivered in session report). Branch tip d488539 CI run #213 SUCCESS (2m9s, Actions HTML); run 45331311419 (owner-cited) SUCCESS.",
    "finalMainSha": null,
    "syncStatus": "PENDING",
    "status": "PUSHED",
    "evidence": "docs/screenshots/homepage/ (8 genuine browser screenshots: hero 1440/768/390, teacher section 1440/390, footer 1440, teach-apply navigation 1440/390); full suite re-run 1339/0 before push; lint and tsc clean",
-   "updatedAt": "2026-11-24T05:35:00Z"
+   "updatedAt": "2026-11-24T05:47:00Z"
   }
- ]
+ ],
+ "branchReconciliation": {
+  "date": "2026-11-24T05:47:00Z",
+  "targetMainSha": "d6ef91722e1dd66d8a82b5fead417dc86f30b759",
+  "method": "per-branch: fresh git ls-remote -> git merge-base --is-ancestor proof -> ordinary fast-forward push of the main SHA (no force) -> fresh git ls-remote verification; script stops at first anomaly",
+  "pinnedMainNote": "Owner message pinned main at 4f4cbe7 (PR #33 merge); by execution time the owner had also merged PR #34 (CI-2 prefix through 7abd15f), moving main to d6ef917. d6ef917 contains 4f4cbe7; branches were advanced to the current tip so they are IN SYNC, not re-stalled one merge behind.",
+  "branchesUpdated": [
+   {
+    "branch": "chore/brand-redesign-ledger-sync",
+    "oldSha": "e96c76d47a436e74d8c813692c2c112d39e2d37c"
+   },
+   {
+    "branch": "chore/git-branch-hygiene",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "chore/phase3h-ledger-reconciliation",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-classroom-intelligence",
+    "oldSha": "adc1100e4c3c038ef9cbad8693b7193f04cdb334"
+   },
+   {
+    "branch": "feat/bean-legal-pages-redesign",
+    "oldSha": "0d98a107ca9764176de7c61e3d10257a1c337e68"
+   },
+   {
+    "branch": "feat/bean-institution-career-phase-7",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-learn-phase-2a",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-learn-phase-2b",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-live-classroom-phase-5",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-personal-learning-intelligence",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-phase7-ui-completion",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-premium-brand-ui-redesign",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-public-experience-auth-legal",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3a-deep-research",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3c-advanced-tutor",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3d-conversation-continuity",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3e-interactive-learning-studio",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3f-learning-continuity",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3g-next-milestone",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-riishe-phase3h-history-retention",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-teach-marketplace",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "feat/bean-trust-quality-phase-6",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "fix/bean-education-phase3b-hardening",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   },
+   {
+    "branch": "fix/branch-health-runtime-compat",
+    "oldSha": "c585db4aa8ad7f3d403f2976d0c12d45fdd28765"
+   }
+  ],
+  "newSha": "d6ef91722e1dd66d8a82b5fead417dc86f30b759",
+  "result": "24/24 FF-VERIFIED via fresh ls-remote after each push; 0 failures, 0 non-fast-forward cases, 0 deletions, 0 force pushes",
+  "notTouched": [
+   {
+    "branch": "feat/bean-classroom-intelligence-ci2",
+    "sha": "d48853953c8cbae0c1ba2db40b5fcd2743fc75b9",
+    "reason": "DIVERGENT (ahead 3 + ledger docs commit, behind 2 merge commits) — carries the bean-homepage-editorial-refresh commits awaiting the follow-up PR; never reset over unique work"
+   },
+   {
+    "branch": "main",
+    "reason": "protected integration branch — advances only through owner-reviewed PRs"
+   }
+  ]
+ }
 }
