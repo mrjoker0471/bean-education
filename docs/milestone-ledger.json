@@ -924,6 +924,18 @@
     "branch": "main",
     "reason": "protected integration branch — advances only through owner-reviewed PRs"
    }
-  ]
+  ],
+  "ciAfterReconcile": {
+   "note": "Each fast-forward push triggered the push-triggered BEAN Education CI workflow on identical-to-main content (d6ef917). 23 of 24 branch runs completed successfully (incl. main push run #234 and tip run #235 on dff560e).",
+   "failedRun": {
+    "runId": "45335628856",
+    "runNumber": 229,
+    "branch": "feat/bean-riishe-phase3g-next-milestone",
+    "job": "quality",
+    "cause": "Prisma DB setup step failed: bun x prisma db push --skip-generate exited 1 (annotation from tests/unit/learning-mastery-pagination.test.ts:38 execFileSync) — transient runner failure under 24 concurrent runs; commit d6ef917 is identical to main, which passed on run #234 and on 20+ sibling branches, so the content is proven green and the flag is spurious",
+    "ownerAction": "one click: Re-run failed jobs on https://github.com/mrjoker0471/bean-education/actions/runs/45335628856 (or disregard — any future push on the branch re-runs CI on the same content)"
+   },
+   "historicalNote": "old failure #184 (PR #29, chore/brand-redesign-ledger-sync) predates this reconciliation and is superseded by that branch’s passing run on d6ef917"
+  }
  }
 }
