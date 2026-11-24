@@ -714,7 +714,7 @@
   },
   {
    "id": "bean-classroom-intelligence-ci2",
-   "title": "BEAN Classroom Intelligence CI-2 \u2014 production hardening: authenticated browser verification (student/teacher/admin walkthroughs + screenshots), evaluation-quality harness, teacher longitudinal intelligence, student learning experience, admin trust review dashboard, multi-class reliability, security audit",
+   "title": "BEAN Classroom Intelligence CI-2 \u2014 production hardening: authenticated browser verification (student/teacher/admin walkthroughs + screenshots), evaluation-quality harness, teacher longitudinal intelligence, student learning experience, admin trust review dashboard, multi-class reliability, security audit | CI-2H final: 1339/0 suite, lint+tsc+prisma valid, production build green, runtime smoke clean, CI SUCCESS on branch tip",
    "branch": "feat/bean-classroom-intelligence-ci2",
    "baseMainSha": "e5782af5080e4b008748088fe7fc6e7de8368e01",
    "commits": [
@@ -722,16 +722,47 @@
     "803928f44aad8988895ec56d397cb6aff4218206",
     "8c03d804915501c725c7d68a4deae0d51df0a120",
     "69ba4935398e1a1838acdd0b83c8b9048bb9284a",
-    "6dc2986ac2401f28ac9db0a8d1b76346eed472b6"
+    "6dc2986ac2401f28ac9db0a8d1b76346eed472b6",
+    "267fe650934cdc02cc87752728b5fbbbe46169e3",
+    "cfbd1bbf5ae9b78254cd03f7819cca6aeb29f4ad",
+    "0e6f10fb613bb70f97bbb05a34394fc62b236941",
+    "6a18cb2952aaacd1db09a2ed9ac0e429975012d6",
+    "cefe751fbceabe7e3489722522b121efa5201ab6"
    ],
-   "remoteFeatureSha": "6dc2986ac2401f28ac9db0a8d1b76346eed472b6",
+   "remoteFeatureSha": null,
    "pushVerifiedAt": "2026-11-24T03:05:00Z",
    "pr": {
     "number": null,
     "state": "NONE",
     "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci2"
    },
-   "ci": [],
+   "ci": [
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on cfbd1bb (CI-2E) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 6a18cb2 (CI-2F) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on cefe751 (CI-2G) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 0e6f10f (CI-2A part 2, branch tip) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "CANCELLED",
+     "subject": "docs-only commit 267fe65 superseded by the next push (content contained in the passing tip run)"
+    }
+   ],
    "finalMainSha": null,
    "syncStatus": "PENDING",
    "status": "PUSHED",
