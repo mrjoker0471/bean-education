@@ -879,8 +879,8 @@
           "summary": "Closure unit: fleet registry register() accepts Zod INPUT type (clears 19 pre-existing tsc TS2345 errors that fail CI's tsc step on current main; identical fix on the CI-3C branch — first PR to merge wins, the other dedupes on re-sync); onboarding skip button routed through postOnboardingDestination (was hard-coded dashboard, bypassed the single handoff) with honest neutral label; header desktop nav moved from lg to xl (measured 143px horizontal overflow at 1024×768 before; 0px at 1440/1280/1024/768/390/320 after); browser golden-path verification (student→#/dashboard, institution→#/institution hub with two genuine actions and honest empty state, teacher→#/teach/apply; teacher form has no DOB/bank/government-ID fields and says so; validation errors near-field with values retained). Suite 1396/0, tsc clean, lint clean."
         }
       ],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "45b8f1211360c13314b74c5d0ffa4c90625aa399",
+      "pushVerifiedAt": "2026-11-24T15:28:23Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -892,7 +892,7 @@
       "status": "PUSHED",
       "evidence": "docs/BEAN-PUBLIC-EXPERIENCE-AUTH-INSTITUTION.md + docs/screenshots/auth/",
       "ciNote": "PR = manual owner action per GIT-BRANCH-HYGIENE.md step 11; CI quality job covers lint+tsc+tests+production build on the PR.",
-      "updatedAt": "2026-11-24T15:27:38Z"
+      "updatedAt": "2026-11-24T15:28:23Z"
     }
   ],
   "branchReconciliation": {
