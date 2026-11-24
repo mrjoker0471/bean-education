@@ -27,6 +27,7 @@ import type {
   CiClassEvaluationSummaryDTO,
   CiReportVersionDTO,
   CiTeacherSummaryResponse,
+  CiTeacherDisputeDTO,
 } from '@/lib/ci/dto'
 import type { ReportFinding } from '@/lib/ci/schemas'
 import { formatClassInZone } from '@/components/bean/teach-format'
@@ -240,6 +241,220 @@ function ReportVersion({ version, classId }: { version: CiReportVersionDTO; clas
   )
 }
 
+// ─── CI-2E: teacher dispute creation + dispute history ────────────────────────
+
+function DisputeDialog({ reportId, report, onClose }: { reportId: string; report: { strengths: ReportFinding[]; improvements: ReportFinding[]; otherFindings: ReportFinding[] }; onClose: () => void }) {
+  const [findingId, setFindingId] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const all = [...report.strengths, ...report.improvements, ...report.otherFindings]
+  const selected = all.find((f) => f.findingId === findingId)
+
+  const submit = async () => {
+    if (!findingId || reason.trim().length < 20) return
+    setBusy(true)
+    try {
+      await api.ciCreateDispute(reportId, [{ findingId, reason: reason.trim() }])
+      toast({ title: 'Dispute submitted', description: 'An authorised BEAN administrator will review it. The report is never changed automatically.' })
+      onClose()
+    } catch (e) {
+      toast({ title: 'Could not submit the dispute', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="font-display">Dispute a finding</DialogTitle>
+          <DialogDescription>
+            Disputes go to authorised BEAN administrators — never to an AI. The original report is never silently rewritten; a human decides and the
+            case history is append-only. One open dispute per report at a time.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Finding to dispute">
+          {all.map((f) => (
+            <button
+              key={f.findingId}
+              type="button"
+              role="radio"
+              aria-checked={findingId === f.findingId}
+              onClick={() => setFindingId(f.findingId)}
+              className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${findingId === f.findingId ? 'border-gold/50 bg-gold/10' : 'border-border bg-elevated/60 hover:bg-elevated'}`}
+            >
+              <span className="font-medium text-foreground">{f.findingId}</span>
+              <span className="text-muted-foreground"> · {f.category.replaceAll('_', ' ').toLowerCase()} · {f.confidence} confidence</span>
+              <span className="mt-1 block text-muted-foreground">{f.observation.slice(0, 160)}</span>
+            </button>
+          ))}
+        </div>
+        <Textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Explain why this finding is wrong or misleading (20-1000 characters)…"
+          rows={4}
+          maxLength={1000}
+          aria-label="Dispute reason"
+        />
+        {selected && reason.trim().length >= 20 && (
+          <p className="text-[11px] text-muted-foreground">Disputing {selected.findingId} with a {reason.trim().length}-character explanation.</p>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={submit} disabled={busy || !findingId || reason.trim().length < 20}>
+            Submit dispute
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DisputeHistoryDialog({ dispute, onClose, onChanged }: { dispute: CiTeacherDisputeDTO; onClose: () => void; onChanged: () => void }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const reconsidered = dispute.events.some((e) => e.action === 'RECONSIDER_REQUESTED')
+  const closed = dispute.status === 'RESOLVED' || dispute.status === 'DISMISSED'
+
+  const submitReconsider = async () => {
+    if (note.trim().length < 20) return
+    setBusy(true)
+    try {
+      await api.ciReconsiderDispute(dispute.id, note.trim())
+      toast({ title: 'Reconsideration requested', description: 'A different administrator will review the case; the original decision-maker is barred from reviewing it.' })
+      onChanged()
+      onClose()
+    } catch (e) {
+      toast({ title: 'Could not submit the reconsideration', description: e instanceof Error ? e.message : 'Please try again.', variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="font-display">Dispute — {dispute.classTitle} (report v{dispute.reportVersion})</DialogTitle>
+          <DialogDescription>
+            Status: {dispute.status}{dispute.resolution ? ` · ${dispute.resolution}` : ''}. The history below is append-only — nothing is edited or
+            removed. You cannot change an administrator&apos;s decision; you may request ONE reconsideration on a closed dispute, decided by a different
+            administrator.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="flex max-h-40 flex-col gap-1.5 overflow-y-auto rounded-lg border border-border bg-elevated/60 px-3 py-2">
+          {dispute.findings.map((f) => (
+            <li key={f.findingId} className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{f.findingId}</span> — {f.reason}
+            </li>
+          ))}
+        </ul>
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-elevated/60 px-3 py-2" aria-label="Dispute history">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Case history (append-only)</p>
+          <ul className="flex flex-col gap-1.5">
+            {dispute.events.map((e) => (
+              <li key={e.id} className="text-xs text-muted-foreground">
+                <span className="mr-1.5 inline-block rounded border border-border bg-card px-1.5 py-0.5 text-[10px] text-foreground/80">{e.action.replaceAll('_', ' ').toLowerCase()}</span>
+                {e.detail ?? e.action}
+                <span className="ml-1 text-[10px] text-muted-foreground/70">{new Date(e.createdAt).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {dispute.resolutionNote && <p className="text-xs text-muted-foreground">Decision note: {dispute.resolutionNote}</p>}
+        {closed && !reconsidered && (
+          <>
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Grounds for reconsideration (20-1000 characters)…"
+              rows={3}
+              maxLength={1000}
+              aria-label="Reconsideration note"
+            />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={onClose} disabled={busy}>
+                Close
+              </Button>
+              <Button className="bg-gold text-primary-foreground hover:bg-gold-hover" onClick={submitReconsider} disabled={busy || note.trim().length < 20}>
+                Request reconsideration
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+        {(!closed || reconsidered) && (
+          <DialogFooter>
+            <Button variant="outline" className="border-border text-muted-foreground hover:bg-elevated" onClick={onClose}>
+              Close
+            </Button>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function TeacherDisputesSection({ onChanged }: { onChanged: () => void }) {
+  const [data, setData] = useState<CiTeacherDisputeDTO[] | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [openDispute, setOpenDispute] = useState<CiTeacherDisputeDTO | null>(null)
+
+  const load = useCallback(() => {
+    api
+      .ciTeacherDisputes()
+      .then((d) => { setData(d.disputes); setFailed(null) })
+      .catch((e) => setFailed(e instanceof Error ? e.message : 'Could not load your disputes.'))
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  if (failed) {
+    return (
+      <p className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        {failed} <Button size="sm" variant="ghost" className="ml-2 text-muted-foreground hover:bg-elevated" onClick={load}>Retry</Button>
+      </p>
+    )
+  }
+  if (data === null) return null
+  if (data.length === 0) return null
+
+  return (
+    <section aria-label="Your disputes">
+      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        <Scale className="h-4 w-4 text-gold" aria-hidden /> Your disputes <span className="font-normal text-muted-foreground">({data.length})</span>
+      </h3>
+      <p className="mb-2 text-xs text-muted-foreground">
+        Disputed findings are reviewed by authorised BEAN administrators. Decisions are human, documented, and never applied automatically.
+      </p>
+      <div className="flex flex-col gap-2">
+        {data.map((d) => (
+          <div key={d.id} className="rounded-xl border border-border bg-card px-4 py-3" data-ci-teacher-dispute={d.id}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className={`text-[10px] ${d.status === 'RESOLVED' ? 'border-success/40 bg-success/10 text-success' : d.status === 'DISMISSED' ? 'border-border bg-elevated text-muted-foreground' : 'border-gold/40 bg-gold/10 text-gold'}`}>
+                {d.status}
+              </Badge>
+              {d.resolution && <Badge variant="outline" className="text-[10px]">{d.resolution}</Badge>}
+              <span className="text-sm text-foreground">{d.classTitle}</span>
+              <span className="text-xs text-muted-foreground">· report v{d.reportVersion} · {d.findings.map((f) => f.findingId).join(', ')}</span>
+              <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:bg-elevated" onClick={() => setOpenDispute(d)}>
+                {d.status === 'RESOLVED' || d.status === 'DISMISSED' ? 'View & reconsider' : 'View status'}
+              </Button>
+            </div>
+            {d.resolutionNote && <p className="mt-1.5 text-xs text-muted-foreground">Decision note: {d.resolutionNote}</p>}
+          </div>
+        ))}
+      </div>
+      {openDispute && <DisputeHistoryDialog dispute={openDispute} onClose={() => setOpenDispute(null)} onChanged={() => { load(); onChanged() }} />}
+    </section>
+  )
+}
+
 // ─── Class row (expanded detail fetches its evaluation on demand) ─────────────
 
 function ClassEvaluationRow({
@@ -257,6 +472,7 @@ function ClassEvaluationRow({
   const [notesOpen, setNotesOpen] = useState(false)
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
+  const [disputeVersion, setDisputeVersion] = useState<CiReportVersionDTO | null>(null)
 
   const loadDetail = useCallback(() => {
     setDetail(null)
@@ -364,12 +580,29 @@ function ClassEvaluationRow({
                   <span className="text-xs font-medium text-foreground">Version {v.version}</span>
                   <span className="text-[11px] text-muted-foreground">{new Date(v.createdAt).toLocaleString()}</span>
                   {v.modelId && <span className="text-[10px] text-muted-foreground/70">engine: {v.modelId}</span>}
+                  {v.status === 'CURRENT' && v.report && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto border-border text-muted-foreground hover:bg-elevated"
+                      onClick={() => setDisputeVersion(v)}
+                    >
+                      <Scale className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Dispute a finding
+                    </Button>
+                  )}
                 </div>
                 <ReportVersion version={v} classId={detail.classSession.id} />
               </div>
             ))
           )}
         </div>
+      )}
+      {disputeVersion?.report && (
+        <DisputeDialog
+          reportId={disputeVersion.id}
+          report={disputeVersion.report}
+          onClose={() => { setDisputeVersion(null); loadDetail(); onChanged() }}
+        />
       )}
 
       <Dialog open={notesOpen} onOpenChange={setNotesOpen}>
@@ -528,6 +761,9 @@ export function TeacherClassroomIntelligencePanel() {
               </div>
             )}
           </section>
+
+          {/* The teacher's disputes with status and append-only history (CI-2E) */}
+          <TeacherDisputesSection onChanged={load} />
 
           {/* Pending evaluations */}
           {pending.length > 0 && (

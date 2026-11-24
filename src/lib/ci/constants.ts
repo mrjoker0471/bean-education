@@ -68,6 +68,10 @@ export const CI_DISPUTE_EVENT_ACTION = {
   RESOLVED: 'RESOLVED',
   DISMISSED: 'DISMISSED',
   NOTE_ADDED: 'NOTE_ADDED',
+  /** CI-2E: the teacher's one reconsideration request on a closed dispute —
+   *  the appeal step. The admin who made the original decision is then
+   *  barred (server-side) from reviewing the reconsidered case. */
+  RECONSIDER_REQUESTED: 'RECONSIDER_REQUESTED',
 } as const
 
 /** Consent purpose reused on the existing ConsentRecord model (per teacher account). */

@@ -154,6 +154,77 @@ export interface CiTeacherTrendsResponse {
   scopeNote: string
 }
 
+// ─── CI-2E: disputes (teacher + admin review) ──────────────────────────────
+
+export interface CiDisputeEventDTO {
+  id: string
+  action: string
+  detail: string | null
+  actorRole: string
+  createdAt: string
+}
+
+export interface CiTeacherDisputeDTO {
+  id: string
+  reportId: string
+  reportVersion: number
+  classTitle: string
+  status: string
+  findings: { findingId: string; reason: string }[]
+  resolution: string | null
+  resolutionNote: string | null
+  resolvedAt: string | null
+  createdAt: string
+  events: CiDisputeEventDTO[]
+}
+
+export interface CiTeacherDisputesResponse {
+  disputes: CiTeacherDisputeDTO[]
+}
+
+export interface CiAdminDisputeDTO {
+  id: string
+  reportId: string
+  reportVersion: number
+  reportStatus: string
+  classTitle: string
+  classSubject: string
+  requiresHumanReview: boolean
+  teacherId: string
+  assignedAdminId: string | null
+  status: string
+  findings: { findingId: string; reason: string }[]
+  resolution: string | null
+  resolutionNote: string | null
+  resolvedAt: string | null
+  createdAt: string
+  events: CiDisputeEventDTO[]
+}
+
+export interface CiAdminDisputesResponse {
+  disputes: CiAdminDisputeDTO[]
+}
+
+export interface CiAdminReportDTO {
+  report: {
+    id: string
+    version: number
+    status: string
+    insufficientEvidence: boolean
+    requiresHumanReview: boolean
+    modelId: string | null
+    createdAt: string
+    supersededAt: string | null
+    report: FinalReport | null
+    reportError: string | null
+    classSession: { id: string; title: string; subject: string; startsAt: string; timeZone: string }
+    job: { id: string; status: string; stage: string; trigger: string; attempts: number; error: string | null }
+    evidenceRefs: { kind: string; refId: string | null; summary: string; available: boolean }[]
+    disputes: { id: string; status: string; findingsJson: string | null; resolution: string | null; createdAt: string }[]
+    agentRuns: { id: string; agent: string; status: string; attempt: number; modelId: string | null; error: string | null; startedAt: string; durationMs: number | null; outputPreview: string | null }[]
+  }
+}
+
 export function toConsentDTO(state: CiConsentState): CiConsentDTO {
   return { granted: state.granted, grantedAt: state.grantedAt, withdrawnAt: state.withdrawnAt }
 }
