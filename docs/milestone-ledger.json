@@ -717,9 +717,15 @@
    "title": "BEAN Classroom Intelligence CI-2 \u2014 production hardening: authenticated browser verification (student/teacher/admin walkthroughs + screenshots), evaluation-quality harness, teacher longitudinal intelligence, student learning experience, admin trust review dashboard, multi-class reliability, security audit",
    "branch": "feat/bean-classroom-intelligence-ci2",
    "baseMainSha": "e5782af5080e4b008748088fe7fc6e7de8368e01",
-   "commits": [],
-   "remoteFeatureSha": null,
-   "pushVerifiedAt": null,
+   "commits": [
+    "1756e58aa2a22ae20f685e1225ee2c3d84eb8202",
+    "803928f44aad8988895ec56d397cb6aff4218206",
+    "8c03d804915501c725c7d68a4deae0d51df0a120",
+    "69ba4935398e1a1838acdd0b83c8b9048bb9284a",
+    "6dc2986ac2401f28ac9db0a8d1b76346eed472b6"
+   ],
+   "remoteFeatureSha": "6dc2986ac2401f28ac9db0a8d1b76346eed472b6",
+   "pushVerifiedAt": "2026-11-24T03:05:00Z",
    "pr": {
     "number": null,
     "state": "NONE",
@@ -728,8 +734,8 @@
    "ci": [],
    "finalMainSha": null,
    "syncStatus": "PENDING",
-   "status": "IN_PROGRESS",
-   "evidence": "CI-1 verified merged via PR #32 (merge commit e5782af). CI-2A part 1: real-pipeline evaluation fixtures (2 live provider evaluations COMPLETED), agent-browser authenticated walkthrough \u2014 student bookings/summaries/scope note verified, 9/9 server-side ownership denials verified, teacher consent pause/re-enable + report categories/evidence register verified, admin trust center renders; 12 genuine screenshots in docs/screenshots/ci2/. Dispute UI gap found and scheduled for CI-2E with a part-2 walkthrough. | Header logo & branding fix (owner-request): supplied artwork adopted as the single brand source \u2014 public/brand/bean-emblem.png (stacked emblem), bean-wordmark.png (horizontal wordmark), bean-icon.png (favicon); header lockup rebuilt (obsidian glass container, hairline border, champagne-gold highlight, object-contain artwork, old text wordmark removed everywhere: header/mobile sheet/footer/auth-stage/not-found); favicon+metadata repointed; verified at 1440/768/390 + mobile sheet + auth screen with genuine before/after screenshots in docs/screenshots/branding/; lint+tsc+1314 tests+production build green.",
+   "status": "PUSHED",
+   "evidence": "CI-1 verified merged via PR #32 (merge commit e5782af). CI-2A part 1: real-pipeline evaluation fixtures (2 live provider evaluations COMPLETED), agent-browser authenticated walkthrough \u2014 student bookings/summaries/scope note verified, 9/9 server-side ownership denials verified, teacher consent pause/re-enable + report categories/evidence register verified, admin trust center renders; 12 genuine screenshots in docs/screenshots/ci2/. Dispute UI gap found and scheduled for CI-2E with a part-2 walkthrough. | Header logo & branding fix (owner-request): supplied artwork adopted as the single brand source \u2014 public/brand/bean-emblem.png (stacked emblem), bean-wordmark.png (horizontal wordmark), bean-icon.png (favicon); header lockup rebuilt (obsidian glass container, hairline border, champagne-gold highlight, object-contain artwork, old text wordmark removed everywhere: header/mobile sheet/footer/auth-stage/not-found); favicon+metadata repointed; verified at 1440/768/390 + mobile sheet + auth screen with genuine before/after screenshots in docs/screenshots/branding/; lint+tsc+1314 tests+production build green. | Push verified: remote feature branch tip = 6dc2986 (git ls-remote) after owner registered the sandbox SSH key (ADR-008 procedure).",
    "ciNote": "CI runs appended per push."
   }
  ]
