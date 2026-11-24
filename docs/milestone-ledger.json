@@ -819,7 +819,7 @@
         "c3be302ba254671832a78fd4a769793cb71e5af2",
         "8ddb16307df9a2ee93ec86f98a7f0b0e1e922ab4",
         "4141379c70989aee2cc093dbc405e8c192e4055f",
-        "94b71dbf1d13306910a3003e8fe58a05362e591f"
+        "90f6df9c23ce7dd5f27860337acf2d1a5f54be58"
       ],
       "units": [
         {
@@ -863,6 +863,13 @@
           "remoteVerifiedSha": "94b71dbf1d13306910a3003e8fe58a05362e591f",
           "verifiedAt": "2026-11-24T11:15:00Z",
           "summary": "Multilingual foundation: language capability registry (11 charter §8.3 languages with script metadata + variation notes; per-task records — unmeasured=EXPERIMENTAL, TRANSLATION=NEEDS_HUMAN_REVIEW, TRANSCRIPTION=UNSUPPORTED for every language and recordCapabilityMeasurement structurally cannot flip it: the §9.2 consent/legal gate is a fact, tested); pure Unicode-range script detection + contiguous code-switch segment splitting (preserved, never flattened §10.2); detectMultilingualEvidence (only teacher notes can carry multilingual evidence — declared language alone is never evidence) wired into dispatch server-side (explicit flag = SERVER-caller authority); LANGUAGE specialist executor now real (deterministic script analysis + capability-refusal unknowns + code-switch preservation finding + human review; one bounded model terminology pass; honest INSUFFICIENT_EVIDENCE without notes — never invented transcription); gatherContext fills teacherNotes from the evaluation job row (same permitted evidence as CI-1, never more); text benchmark harness (6 deterministic BEAN-authored cases: terminology preservation en/ta, comprehension hi/ta with JSON, code-switch recognition naming both scripts, §14 refusal structure — acceptance is code, no model judges a model; honest ran=false without adapter and zero registry mutation); Omnilingual ASR evaluated and REJECTED for now: licence re-check required + §9.2 consent fit unsatisfied → no dependency added, transcription stays disabled; docs/BEAN-CLASSROOM-INTELLIGENCE-LANGUAGE-COVERAGE.md (charter §22) states the matrix, protocol, ASR decision and gaps honestly (zero VERIFIED capabilities until a recorded measured run; dialect variants not separately benchmarked; TTS out of scope; same-script pairs need model-assisted identification). One CI-3E test updated for the kept promise (LANGUAGE deferral resolved by the real implementation — now asserts honest abstention instead of a FAILED pointer). 16 new tests; suite 1470/0, tsc clean, lint clean."
+        },
+        {
+          "id": "CI-3G",
+          "commitSha": "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
+          "remoteVerifiedSha": "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
+          "verifiedAt": "2026-11-24T12:10:00Z",
+          "summary": "Teacher/student workflow integration: enrichment coaches live — teacher development coach converts terminal specialist outputs into 2-4 bounded advisory recommendations (one bounded model pass when an adapter exists; deterministic aggregation fallback; honest abstention when nothing is terminal) with verbatim limitations (advisory only — never alters official reviews/ratings/payouts/bookings; single-class no-trend-claims; no public rankings); student revision coach assembles deterministically from the published class-level student summary (no model call, no new inference; class-level limitations verbatim: identical for every attendee + attendance used only for access control never to infer individual mastery; honest abstention without a published summary); BOTH coaches pass a deterministic ranking/decision-language guard (word-bounded rank/ranking/top-N/best-worst teacher/leaderboard/payout/salary deduction/fired-from → finding stripped + risk flag — found and fixed a literal-backspace byte that had silently neutralised the regex, proving the guard's own test); real BEAN learning links via the CI-2D deterministic link builder (syllabus #/exam/<slug>?tab=study, practice ?tab=practice, planner #/learning — honest absence without catalogue matches); teacher CI overview gains an additive ownership-scoped fleet counts block (counts only, never findings); dispute/privacy boundaries untouched (CI-1/CI-2 suites green). One CI-3E deferral test updated for the kept promise (coaches now run and abstain honestly). 7 new tests; suite 1477/0, tsc clean, lint clean."
         }
       ],
       "remoteFeatureSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
