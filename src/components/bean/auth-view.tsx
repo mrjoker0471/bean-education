@@ -324,6 +324,10 @@ export function AuthView({ onAuthed }: AuthViewProps) {
     // The validated age declaration is captured by the signup guards below —
     // the payload carries exactly what the user declared, never a hardcoded
     // value (and the server re-validates + refuses UNDER_18 fail-safe).
+    // SIGN-IN requires NO fresh declaration: the account already carries its
+    // server-verified age band, and the server-side under-18 guard is
+    // untouched. (Regression fix: the declaration gate previously blocked
+    // every password sign-in because the sign-in panel renders no radios.)
     let declaredAge: 'ADULT_18_PLUS' | null = null
     if (panel === 'signup') {
       if (password.length < 8) {
@@ -344,10 +348,10 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         return
       }
       declaredAge = ageBand
-    }
-    if (!declaredAge) {
-      setError('Please complete the age declaration.')
-      return
+      if (!declaredAge) {
+        setError('Please complete the age declaration.')
+        return
+      }
     }
 
     setBusy(true)
@@ -370,6 +374,12 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         return
       }
 
+      // Honest guard: the signup gates above guarantee a declaration, but the
+      // compiler cannot narrow it across branches — fail closed, never default.
+      if (declaredAge === null) {
+        setError('Please complete the age declaration.')
+        return
+      }
       const { student } = await api.authRegister({
         email: normalizedEmail,
         password,

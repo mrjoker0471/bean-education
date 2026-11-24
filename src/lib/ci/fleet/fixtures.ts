@@ -78,6 +78,24 @@ export const DOMAIN_GROUNDING_FIXTURES: readonly DomainFixture[] = [
     expected: { verdict: 'handoff', reason: 'target domain is declared in the pack relatedSubjectDomainIds' },
   },
   {
+    id: 'ci3-fixture-health-refusal',
+    domainId: 'health-medicine-edu',
+    claim: {
+      observation: 'The lesson material requested diagnosis and treatment recommendations for a student\u2019s symptoms; the HIGH_STAKES pack prohibits both outright and routes to a qualified professional.',
+      sourceRefs: [],
+    },
+    expected: { verdict: 'refused', reason: 'charter §14 health boundary — diagnosis/treatment is a prohibited task' },
+  },
+  {
+    id: 'ci3-fixture-physics-unregistered-source',
+    domainId: 'physics-space',
+    claim: {
+      observation: 'A mechanics claim grounded in a source id that is not in the registry.',
+      sourceRefs: ['random-blog-post-99'],
+    },
+    expected: { verdict: 'demoted', reason: 'unregistered sourceRef — the claim survives only as an unverified note' },
+  },
+  {
     id: 'ci3-fixture-languages-unverified-translation',
     domainId: 'languages-literature',
     claim: {

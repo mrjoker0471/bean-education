@@ -135,28 +135,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       )
     }
 
-    // When this process owns the run, report the connected state promptly.
-    const run = observerRunPromise(outcome.observerSessionId)
-    if (run) await run.then(() => undefined).catch(() => undefined)
-
-    const fresh = await db.classroomObserverSession.findUnique({
-      where: { id: outcome.observerSessionId },
-      select: {
-        id: true,
-        status: true,
-        leftReason: true,
-        consentMode: true,
-        transcriptionEnabled: true,
-        canPublishMedia: true,
-        reconnectCount: true,
-        connectedSeconds: true,
-        createdAt: true,
-        connectedAt: true,
-        leftAt: true,
-        evidenceJson: true,
-      },
-    })
-    return NextResponse.json({ observer: fresh ? toObserverDTO(fresh) : null })
+    // When this process owns the run, wait BOUNDED for a stable status
+    // (OBSERVING or terminal) — never for the run itself, which lives until
+    // the class ends. The client gets the current honest state either way.
+    const deadline = Date.now() + 3000
+    for (;;) {
+      const fresh = await db.classroomObserverSession.findUnique({
+        where: { id: outcome.observerSessionId },
+        select: {
+          id: true,
+          status: true,
+          leftReason: true,
+          consentMode: true,
+          transcriptionEnabled: true,
+          canPublishMedia: true,
+          reconnectCount: true,
+          connectedSeconds: true,
+          createdAt: true,
+          connectedAt: true,
+          leftAt: true,
+          evidenceJson: true,
+        },
+      })
+      if (!fresh || !['PLANNED', 'CONNECTING'].includes(fresh.status) || Date.now() > deadline) {
+        return NextResponse.json({ observer: fresh ? toObserverDTO(fresh) : null })
+      }
+      await new Promise((r) => setTimeout(r, 25))
+    }
   } catch (err) {
     console.error('[api/teach/classes/:id/live/observer POST]', err)
     return NextResponse.json({ error: 'Could not dispatch the observer — please try again.' }, { status: 500 })
@@ -182,6 +187,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: 'No observer has been attached to this classroom.' }, { status: 409 })
     }
     const cancelled = await cancelObserverSession(observerId, OBSERVER_LEFT_REASON.TEACHER_CANCELLED)
+    if (!cancelled) {
+      // the observer row exists but is already terminal — nothing to withdraw
+      return NextResponse.json({ error: 'No active observer is attached to this classroom.' }, { status: 409 })
+    }
     const run = observerRunPromise(observerId)
     if (run) await run.then(() => undefined).catch(() => undefined)
     return NextResponse.json({ cancelled })
