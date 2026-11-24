@@ -594,6 +594,8 @@ model TeacherProfile {
   complaintsAbout    TeachComplaint[]
   // BEAN Classroom Intelligence (CI-1): durable evaluation jobs for this teacher's classes.
   classroomEvaluationJobs ClassroomEvaluationJob[]
+  // BEAN Classroom Intelligence (CI-3): per-agent fleet tasks across this teacher's classes.
+  fleetTasks ClassroomFleetTask[]
 
   @@index([verificationStatus])
 }
@@ -649,6 +651,10 @@ model ClassSession {
   reviews           ClassReview[]
   // BEAN Classroom Intelligence (CI-1): one evaluation job per scheduled class (unique FK).
   classroomEvaluationJob ClassroomEvaluationJob?
+  // BEAN Classroom Intelligence (CI-3): per-agent fleet tasks for this class
+  // (one row per planned agent — taskKey is unique, so duplicate prevention is
+  // a DB guarantee, not a best effort).
+  fleetTasks ClassroomFleetTask[]
   // BEAN Institution (Phase 7): private institution classes. Nullable + safe
   // defaults — every existing class stays PUBLIC and unchanged.
   audience            String?     @default("PUBLIC") // PUBLIC | ORGANIZATION | GROUP
@@ -1948,6 +1954,47 @@ model ClassroomEvaluationDispute {
 
   @@index([reportId, status])
   @@index([teacherId, status])
+}
+
+// BEAN Classroom Intelligence (CI-3C): durable per-agent fleet task queue.
+// One row per planned agent per class — taskKey
+// "<classSessionId>:<agentId>[:<domain>]" is UNIQUE, so duplicate prevention is
+// a DB guarantee. Claims are CAS conditional updates (safe across processes);
+// leases with heartbeats recover dead workers; skips are HONEST and recorded
+// (skipReason — capacity backpressure, consent withdrawn, pack no longer
+// dispatchable) rather than silently dropped. Terminal status follows the
+// charter §12 vocabulary: COMPLETED | PARTIAL | INSUFFICIENT_EVIDENCE are the
+// model's honest outcomes (outputJson carries the validated contract output);
+// FAILED is a real failure with an explanation; CANCELLED is an explicit
+// cancel; SKIPPED never ran.
+model ClassroomFleetTask {
+  id              String    @id @default(cuid())
+  taskKey         String    @unique
+  classSessionId  String
+  teacherProfileId String   // denormalised from the class for teacher-scoped queries
+  agentId         String    // resolved registry instance id (e.g. BEAN_SUBJECT_EXPERT::mathematics)
+  taskRole        String    // CORE | MANDATORY_AUDIT | DOMAIN_SPECIALIST | LANGUAGE | ENRICHMENT
+  priority        Int       @default(100) // lower runs first (core before enrichment)
+  status          String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | PARTIAL | INSUFFICIENT_EVIDENCE | FAILED | CANCELLED | SKIPPED
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(3)
+  skipReason      String?   // honest skip: capacity_backpressure | consent_not_granted | agent_unresolvable
+  contractVersion String    // fleet contract version the task was dispatched under
+  outputJson      String?   // validated charter §12 envelope (FleetTaskOutput)
+  error           String?   // bounded failure explanation — FAILED rows always carry one
+  claimedAt       DateTime?
+  leaseUntil      DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  classSession    ClassSession   @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  teacherProfile  TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([status, leaseUntil])
+  @@index([classSessionId, status])
+  @@index([teacherProfileId, status])
+  @@index([taskRole, priority])
 }
 
 // Append-only dispute history (matches ComplaintEvent/AppealEvent discipline).
