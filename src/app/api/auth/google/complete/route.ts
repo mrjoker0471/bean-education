@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { SESSION_COOKIE, createSession, sameOrigin } from '@/lib/auth'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal-config'
 import { clientKey, rateLimited } from '@/lib/rate-limit'
+import { SIGNUP_INTENTS } from '@/lib/teacher-intent'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -17,8 +18,10 @@ const bodySchema = z.object({
   // Minimal age self-declaration. Under-18 accounts are refused (fail-safe)
   // until verifiable parental consent ships — never silently accepted.
   ageDeclaration: z.enum(['ADULT_18_PLUS', 'UNDER_18']),
-  // Onboarding/navigation intent — NEVER an authorization role.
-  intent: z.enum(['STUDENT', 'TEACHER']).default('STUDENT'),
+  // Onboarding/navigation intent — NEVER an authorization role. Same shared
+  // vocabulary as password registration (STUDENT | TEACHER | INSTITUTION);
+  // INSTITUTION creates no privilege and approves no organization.
+  intent: z.enum(SIGNUP_INTENTS).default('STUDENT'),
 })
 
 // POST — finish a first-time Google SIGNUP with the exact same acceptance and

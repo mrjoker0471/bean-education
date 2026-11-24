@@ -1,9 +1,10 @@
 'use client'
 
-// ─── Student / Teacher-first authentication (public experience milestone) ────
-// Flow: 1) "How would you like to use BEAN?" (Student | Teacher), 2) Sign in /
-// Create account / Continue with Google, with a clear way to change the
-// audience without losing entered information.
+// ─── Student / Teacher / Institution-first authentication (public experience +
+// institution-access milestones) ───────────────────────────────────────────────
+// Flow: 1) "How would you like to use BEAN?" (Student | Teacher | Institution),
+// 2) Sign in / Create account / Continue with Google, with a clear way to
+// change the audience without losing entered information.
 //
 // CRITICAL identity rule — the audience choice is an onboarding and navigation
 // intent ONLY:
@@ -11,7 +12,10 @@
 //     cannot be set from the client and Google cannot grant teacher/admin).
 //   • Teacher capability = an approved TeacherProfile from the existing
 //     application workflow — never this choice.
-//   • One account can be used for both learning and teaching.
+//   • Institution capability = real OrganizationMembership from the existing
+//     organization system — this choice registers nothing, joins nothing and
+//     approves nothing by itself.
+//   • One account can be used for learning, teaching and institutions.
 //
 // Google sign-in uses the real server-side OAuth/OIDC flow (PKCE S256, state,
 // nonce, JWKS-verified ID tokens). Without credentials the button is disabled
@@ -29,11 +33,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Loader2, GraduationCap, LogIn, ShieldCheck, UserPlus, Users } from 'lucide-react'
+import { Loader2, GraduationCap, Building2, LogIn, ShieldCheck, UserPlus, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AuthedStudent, LegalConfigDTO } from '@/lib/types'
+import { SIGNUP_INTENTS } from '@/lib/teacher-intent'
 
-type Audience = 'STUDENT' | 'TEACHER'
+type Audience = 'STUDENT' | 'TEACHER' | 'INSTITUTION'
 type Panel = 'audience' | 'signin' | 'signup' | 'link' | 'google-signup'
 
 interface AuthViewProps {
@@ -226,10 +231,10 @@ export function AuthView({ onAuthed }: AuthViewProps) {
 
   useEffect(() => {
     // Restore a previously chosen audience so navigation intent survives
-    // the Google redirect round-trip.
+    // the Google redirect round-trip (and revisits within this tab).
     try {
       const saved = sessionStorage.getItem(INTENT_KEY)
-      if (saved === 'TEACHER' || saved === 'STUDENT') setAudience(saved)
+      if ((SIGNUP_INTENTS as readonly string[]).includes(saved ?? '')) setAudience(saved as Audience)
     } catch { /* no sessionStorage — default STUDENT */ }
 
     const hash = window.location.hash
@@ -249,8 +254,17 @@ export function AuthView({ onAuthed }: AuthViewProps) {
       setGoogleEmail(params.get('google_email') ?? '')
       setPanel('google-signup')
     } else if (done) {
-      // OAuth sign-in completed server-side — confirm and route.
+      // OAuth sign-in completed server-side — confirm and route. The audience
+      // chosen before the redirect is restored from sessionStorage and passed
+      // through as the navigation intent so a Google sign-in never silently
+      // loses the Teacher/Institution selection (the account's recorded
+      // signupIntent is NOT overwritten — resolvePostAuthRoute only navigates).
       setBusy(true)
+      let intentAfterRedirect: Audience | null = null
+      try {
+        const saved = sessionStorage.getItem(INTENT_KEY)
+        if ((SIGNUP_INTENTS as readonly string[]).includes(saved ?? '')) intentAfterRedirect = saved as Audience
+      } catch { /* no sessionStorage — fall back to the account's intent */ }
       api
         .authMe()
         .then(({ student }) => {
@@ -266,6 +280,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
                 signupIntent: student.signupIntent,
               },
               'signin',
+              intentAfterRedirect ?? undefined,
             )
           } else {
             setError('Google sign-in completed, but your session could not be confirmed — please try again.')
@@ -306,6 +321,10 @@ export function AuthView({ onAuthed }: AuthViewProps) {
       setError('Please enter a valid email address.')
       return
     }
+    // The validated age declaration is captured by the signup guards below —
+    // the payload carries exactly what the user declared, never a hardcoded
+    // value (and the server re-validates + refuses UNDER_18 fail-safe).
+    let declaredAge: 'ADULT_18_PLUS' | null = null
     if (panel === 'signup') {
       if (password.length < 8) {
         setError('Your password must be at least 8 characters.')
@@ -324,6 +343,11 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         setError('Guardian-verified accounts are not available yet, so an account cannot be created right now. You can keep using guest mode.')
         return
       }
+      declaredAge = ageBand
+    }
+    if (!declaredAge) {
+      setError('Please complete the age declaration.')
+      return
     }
 
     setBusy(true)
@@ -352,7 +376,9 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         displayName: displayName.trim() || undefined,
         acceptedTermsVersion: legalCfg?.termsVersion ?? '',
         privacyNoticeVersion: legalCfg?.privacyVersion ?? '',
-        ageDeclaration: 'ADULT_18_PLUS',
+        // Honest passthrough: declaredAge is the declaration the user actually
+        // made (validated above) — never a hardcoded value.
+        ageDeclaration: declaredAge,
         intent: audience,
       })
       onAuthed?.(
@@ -427,7 +453,8 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         pendingId: googleSignupPending,
         acceptedTermsVersion: legalCfg?.termsVersion ?? '',
         privacyNoticeVersion: legalCfg?.privacyVersion ?? '',
-        ageDeclaration: 'ADULT_18_PLUS',
+        // Honest passthrough (see submit()): the declaration the user made.
+        ageDeclaration: ageBand,
         intent: audience,
       })
       onAuthed?.(
@@ -457,63 +484,89 @@ export function AuthView({ onAuthed }: AuthViewProps) {
     window.location.assign('/api/auth/google/start')
   }
 
-  const audienceTitle = audience === 'TEACHER' ? 'Teach on BEAN' : 'Learn on BEAN'
+  const audienceTitle =
+    audience === 'TEACHER' ? 'Teach on BEAN' : audience === 'INSTITUTION' ? 'Institutions on BEAN' : 'Learn on BEAN'
+  const audienceNoun = audience === 'TEACHER' ? 'a teacher' : audience === 'INSTITUTION' ? 'an institution member' : 'a student'
   const audienceBlurb =
     audience === 'TEACHER'
-      ? 'Apply to teach, create classes, manage teaching activities and access approved teacher features.'
-      : 'Learn, prepare for examinations, use Riishe AI, organise study materials and track your progress.'
+      ? 'One BEAN account for teaching: apply once, and after administrator approval publish classes, manage students and grow through BEAN Teach.'
+      : audience === 'INSTITUTION'
+        ? 'One BEAN account for your organisation: register a new institution or join an existing one through an invitation. Verification and member permissions are separate, administrator-controlled steps.'
+        : 'Learn, prepare for examinations, use Riishe AI, organise study materials and track your learning progress.'
 
   // ─── Step 1: audience choice ────────────────────────────────────────────────
   if (panel === 'audience') {
     return (
-      <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
-        <CardHeader>
+      <Card className="w-full glass rounded-2xl border border-hairline">
+        <CardHeader className="text-left">
           <CardTitle className="font-display text-2xl text-foreground">How would you like to use BEAN?</CardTitle>
           <CardDescription className="text-muted-foreground">
-            Pick the experience you want first — you can always use both with one account.
+            Pick the experience you want first — one BEAN account can learn, teach and manage an institution.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <button
-            type="button"
-            onClick={() => chooseAudience('STUDENT')}
-            className="w-full rounded-xl border border-hairline bg-white/[0.03] p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold"
-            aria-describedby="bean-audience-student-desc"
-          >
-            <div className="flex items-center gap-2 text-foreground">
-              <GraduationCap className="h-5 w-5 text-gold" aria-hidden />
-              <span className="font-display text-lg">Student</span>
-            </div>
-            <p id="bean-audience-student-desc" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Learn, prepare for examinations, use Riishe AI, organise study materials and track your progress.
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => chooseAudience('TEACHER')}
-            className="w-full rounded-xl border border-hairline bg-white/[0.03] p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold"
-            aria-describedby="bean-audience-teacher-desc"
-          >
-            <div className="flex items-center gap-2 text-foreground">
-              <Users className="h-5 w-5 text-gold" aria-hidden />
-              <span className="font-display text-lg">Teacher</span>
-            </div>
-            <p id="bean-audience-teacher-desc" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Apply to teach, create classes, manage teaching activities and access approved teacher features.
-            </p>
-          </button>
-
+        <CardContent className="space-y-3">
           {error && (
             <Alert variant="destructive" role="alert">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => chooseAudience('STUDENT')}
+            aria-pressed={audience === 'STUDENT'}
+            className={`w-full rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold ${audience === 'STUDENT' ? 'border-gold/40 bg-gold/[0.04]' : 'border-hairline bg-white/[0.03]'}`}
+            aria-describedby="bean-audience-student-desc"
+          >
+            <div className="flex items-center gap-2 text-foreground">
+              <GraduationCap className="h-5 w-5 shrink-0 text-gold" aria-hidden />
+              <span className="font-display text-lg">Student</span>
+            </div>
+            <p id="bean-audience-student-desc" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              Learn, prepare for examinations, use Riishe AI, organise study materials and track your learning
+              progress.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => chooseAudience('TEACHER')}
+            aria-pressed={audience === 'TEACHER'}
+            className={`w-full rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold ${audience === 'TEACHER' ? 'border-gold/40 bg-gold/[0.04]' : 'border-hairline bg-white/[0.03]'}`}
+            aria-describedby="bean-audience-teacher-desc"
+          >
+            <div className="flex items-center gap-2 text-foreground">
+              <Users className="h-5 w-5 shrink-0 text-gold" aria-hidden />
+              <span className="font-display text-lg">Teacher</span>
+            </div>
+            <p id="bean-audience-teacher-desc" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              Apply to teach, publish classes after approval, manage students and grow through BEAN Teach.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => chooseAudience('INSTITUTION')}
+            aria-pressed={audience === 'INSTITUTION'}
+            className={`w-full rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40 hover:bg-gold/[0.06] focus-visible:outline-2 focus-visible:outline-gold ${audience === 'INSTITUTION' ? 'border-gold/40 bg-gold/[0.04]' : 'border-hairline bg-white/[0.03]'}`}
+            aria-describedby="bean-audience-institution-desc"
+          >
+            <div className="flex items-center gap-2 text-foreground">
+              <Building2 className="h-5 w-5 shrink-0 text-gold" aria-hidden />
+              <span className="font-display text-lg">Institution</span>
+            </div>
+            <p id="bean-audience-institution-desc" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              Register your school, college, coaching centre or organisation, manage members and classes, or join an
+              existing institution through an invitation.
+            </p>
+          </button>
+
+          <p className="flex items-start gap-2 pt-1 text-xs leading-relaxed text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" aria-hidden />
-            Choosing “Teacher” does not grant teaching rights — every teacher completes the application and an
-            authorised review. You can keep using BEAN without an account.
+            Choosing “Teacher” does not grant teaching rights — every teacher completes an application and an
+            authorised review. Choosing “Institution” does not verify or approve an organisation — registration,
+            verification and membership are separate administrator-controlled steps. You can keep using BEAN without
+            an account.
           </p>
         </CardContent>
       </Card>
@@ -523,8 +576,8 @@ export function AuthView({ onAuthed }: AuthViewProps) {
   // ─── Google account linking (proof of ownership) ────────────────────────────
   if (panel === 'link') {
     return (
-      <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
-        <CardHeader>
+      <Card className="w-full glass rounded-2xl border border-hairline">
+        <CardHeader className="text-left">
           <CardTitle className="font-display text-2xl text-foreground">Link your Google account</CardTitle>
           <CardDescription className="text-muted-foreground">
             {googleEmail ? <>A Google account for <span className="text-foreground">{googleEmail}</span> wants to link to this BEAN account. Enter your BEAN password to prove you own it.</> : 'Enter your BEAN password to prove you own this account before linking Google.'}
@@ -565,8 +618,8 @@ export function AuthView({ onAuthed }: AuthViewProps) {
   // ─── Google first-time signup (same legal acceptance as normal signup) ──────
   if (panel === 'google-signup') {
     return (
-      <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
-        <CardHeader>
+      <Card className="w-full glass rounded-2xl border border-hairline">
+        <CardHeader className="text-left">
           <CardTitle className="font-display text-2xl text-foreground">Complete your Google sign-up</CardTitle>
           <CardDescription className="text-muted-foreground">
             {googleEmail ? <>Create your BEAN account for <span className="text-foreground">{googleEmail}</span>.</> : 'Finish creating your BEAN account.'} Your audience choice ({audienceTitle}) is kept.
@@ -603,19 +656,19 @@ export function AuthView({ onAuthed }: AuthViewProps) {
 
   // ─── Step 2: sign in / create account (+ Google) ────────────────────────────
   return (
-    <Card className="mx-auto w-full max-w-md glass rounded-2xl border border-hairline">
-      <CardHeader>
+    <Card className="w-full glass rounded-2xl border border-hairline">
+      <CardHeader className="text-left">
         <CardTitle className="font-display text-2xl text-foreground">{audienceTitle}</CardTitle>
         <CardDescription className="text-muted-foreground">{audienceBlurb}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="mb-4 flex items-center justify-between rounded-lg border border-hairline bg-white/[0.03] px-3 py-2">
           <span className="text-xs text-muted-foreground">
-            Using BEAN as <span className="text-foreground">{audience === 'TEACHER' ? 'a teacher' : 'a student'}</span>
+            Using BEAN as <span className="text-foreground">{audienceNoun}</span>
           </span>
           <button
             type="button"
-            className="text-xs text-gold underline underline-offset-2 hover:text-gold-hover"
+            className="rounded text-xs text-gold underline underline-offset-2 hover:text-gold-hover"
             onClick={() => setPanel('audience')}
           >
             Change

@@ -506,7 +506,7 @@ export const api = {
     acceptedTermsVersion: string
     privacyNoticeVersion: string
     ageDeclaration: 'ADULT_18_PLUS' | 'UNDER_18'
-    intent: 'STUDENT' | 'TEACHER'
+    intent: 'STUDENT' | 'TEACHER' | 'INSTITUTION'
   }) =>
     jsonFetch<{ student: AuthedStudent }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
   authLogin: (body: { email: string; password: string }) =>
