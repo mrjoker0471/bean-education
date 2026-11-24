@@ -1,0 +1,15 @@
+PASS: admin B signed in
+PASS: admin B sees the reconsidered dispute in queue
+FAIL: decision dialog
+FAIL: admin B resolution
+shot 1440-admin-b-resolution
+PASS: teacher signed in
+FAIL: dispute dialog
+FAIL: findings not rendered
+radio selection attempted
+PASS: new dispute created through the UI (SUBMITTED)
+shot 1440-teacher-dispute-ui-created
+FAIL: governance wording
+FAIL: history
+shot 1440-teacher-dispute-history-b
+=== CI-2A part 2c complete ===

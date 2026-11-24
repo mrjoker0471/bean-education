@@ -91,3 +91,39 @@ bun scripts/ci2-walkthrough-seed.ts --clean  # remove all ci2 fixtures
 - The evaluation content in the fixtures was produced by the live model provider; a different run produces different wording. What is deterministic is the pipeline behaviour (schema validation, evidence register, versioning), not the prose.
 - The seeded dispute fixture is created directly against a real finding id so the review walkthrough has stable data; dispute creation through the UI is exercised in CI-2A part 2 / CI-2E.
 - Login rate limiting (10 attempts / 5 min) applies to the walkthrough too; runs spaced ≥5 minutes apart succeed (observed 429s are recorded above as genuine behaviour).
+
+## Part 2 — dispute and administrator review walkthrough (CI-2E delivered)
+
+Executed with `scripts/ci2-walkthrough-browser2.sh` (+ focused gap-closing passes in `scripts/ci2-walkthrough-browser4.sh` / `-5.sh`; raw logs in `docs/ci2-browser*.txt`). The dispute lifecycle below is the REAL browser flow on the seeded fixture — every decisive step is also confirmed by the append-only event history in the database:
+
+1. **Administrator review queue** — admin signs in → Trust Center → new **Classroom Intelligence** tab → review queue lists the pending dispute with class reference, disputed finding ids and SUBMITTED status.
+2. **Review workspace** — Review opens the workspace: the teacher's explanation, the ORIGINAL evaluation (report version, engine provenance, all agent findings), the evidence register (available/unavailable markers), the agent-run audit rows and the append-only case history.
+3. **Human decision** — Assign to me → Decide → UPHELD with a mandatory documented note → the dispute moves to Closed with its resolution recorded (`RESOLVED — UPHELD — Human review: …` in the event history).
+4. **Teacher dispute creation through the UI** — teacher opens the evaluated report → "Dispute a finding" → the dialog shows the human-review disclosure ("Disputes go to authorised BEAN administrators — never to an AI"), the finding radio list, and a bounded reason → submit → POST `/api/teach/classroom-intelligence/reports/:id/dispute` returns 200 and the new dispute appears as SUBMITTED in "Your disputes".
+5. **Teacher governance** — the dispute history dialog states plainly: *"You cannot change an administrator's decision; you may request ONE reconsideration on a closed dispute, decided by a different administrator."* The teacher UI has NO decision controls.
+6. **Reconsideration (the appeal)** — teacher requests reconsideration with a documented note → the dispute returns to SUBMITTED with a `RECONSIDER_REQUESTED` event; the teacher's one-appeal limit is enforced server-side.
+7. **Reviewer separation** — the original decision-maker's "Assign to me" is refused by the server (403, honest refusal surfaced in the UI as "Action refused — The administrator who made the original decision cannot review this reconsideration"); a SECOND administrator (granted via the operator CLI) then reviews and resolves the reconsidered case (UPHELD with a documented note).
+8. **Mobile** — the teacher's disputes section renders and is reachable at 390×844.
+
+Append-only event chain in the database for the fixture dispute: `SUBMITTED → ASSIGNED → RESOLVED (UPHELD) → RECONSIDER_REQUESTED → ASSIGNED (admin B) → RESOLVED (UPHELD)` — six events, nothing rewritten.
+
+### Additional screenshots (part 2)
+
+| File | Shows |
+| --- | --- |
+| `1440-admin-ci-queue.png` | Administrator dispute queue |
+| `1440-admin-review-workspace.png` / `-b.png` | Review workspace: original evaluation + evidence register |
+| `1440-admin-ci-decision-recorded.png` | Decision recorded (UPHELD, Closed section) |
+| `1440-admin-b-resolution.png` | Second administrator resolving the reconsidered case |
+| `1440-admin-reviewer-separation-refusal.png` | Honest 403 refusal for the original decision-maker |
+| `1440-teacher-dispute-dialog.png` | Dispute dialog with human-review disclosure |
+| `1440-teacher-dispute-submitted.png` / `-b.png` | New dispute listed as SUBMITTED |
+| `1440-teacher-dispute-ui-created.png` | UI-created dispute |
+| `1440-teacher-dispute-history.png` | Governance wording + append-only history |
+| `1440-teacher-disputes-list.png` | Both disputes with statuses |
+| `390-teacher-disputes.png` | Mobile disputes experience |
+
+### Findings recorded during part 2 (and fixed)
+
+- The auth screen's sign-in switcher was unreachable by substring `--name` matching (the header's "Sign in or create an account" matches first) and the whole auth view re-renders on a 4s Google-status poll, detaching elements between find and click — the walkthrough login now takes fresh accessibility refs and verifies the panel state (no application change needed; walkthrough hardening only).
+- Dialog content checks must read `body` (Radix portals mount outside `<main>`), and the dispute dialog needs a tall viewport for its footer button — walkthrough-only adjustments.
