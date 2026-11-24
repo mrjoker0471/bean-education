@@ -546,8 +546,12 @@ export function OnboardingView({ edit }: { edit?: boolean }) {
 
       {!edit && (
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          <button type="button" className="underline hover:text-foreground" onClick={() => navigate({ view: 'dashboard' })}>
-            Skip everything and go to my dashboard
+          {/* Skipping uses the SAME intent resolver as finishing: teacher →
+              application, institution → organization hub, student →
+              dashboard. One handoff, no second hidden routing table — and the
+              label stays honest for every audience. */}
+          <button type="button" className="underline hover:text-foreground" onClick={() => navigate(postOnboardingDestination(authedStudent?.signupIntent))}>
+            Skip setup and continue
           </button>
         </p>
       )}

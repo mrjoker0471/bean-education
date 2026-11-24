@@ -844,6 +844,55 @@
       "evidence": "",
       "ciNote": "",
       "updatedAt": "2026-11-24T06:15:59Z"
+    },
+    {
+      "id": "bean-public-experience-auth-institution",
+      "title": "BEAN Public Experience — Authentication & Institution Access: institution as the third signup audience (navigation intent only, shared SIGNUP_INTENTS through password + Google Zod schemas, single post-auth/onboarding routing resolver, Google round-trip intent restoration, three-audience panel with red-line copy, honest age declaration with untouched under-18 guard, teacher schema free of DOB/age/bank/identity), plus closure unit: autofill consistency on dark glass inputs, onboarding skip routed through the single intent handoff, header overflow fix at 1024px (desktop nav from xl), fleet registry tsc fix, browser verification + screenshots",
+      "branch": "feat/bean-auth-institution-ux",
+      "baseMainSha": "d64df69bee6c4f7aefea9c0ea3b24f62eff58576",
+      "commits": [
+        "62abe14a9678723f1849735f29ae8885b9c02070",
+        "dc3fd5ca72549e699ebb4c8187827aafe32be220",
+        "45f5ee0",
+        "7c705c2"
+      ],
+      "units": [
+        {
+          "id": "AUTH-1",
+          "commitSha": "62abe14a9678723f1849735f29ae8885b9c02070",
+          "remoteVerifiedSha": "merged to main via PR #37 (merge 20415fb) — remote state proven by main's history",
+          "verifiedAt": "2026-11-24T00:00:00Z",
+          "summary": "Institution as third signup audience: shared SIGNUP_INTENTS (STUDENT|TEACHER|INSTITUTION) through registration + Google completion Zod schemas and client types; institution routing branch (onboarded → real #/institution hub, new accounts via onboarding first); postOnboardingDestination single handoff (teacher→apply, institution→hub, student→dashboard); Google round-trip intent restoration; three-audience panel with exact milestone copy + Building2 icon + keyboard-accessible selection; honest ageDeclaration passthrough (server under-18 guard untouched + tested per intent); auth stage fills viewport below header; 18 new tests. MERGED by owner via PR #37."
+        },
+        {
+          "id": "AUTH-2",
+          "commitSha": "dc3fd5ca72549e699ebb4c8187827aafe32be220",
+          "remoteVerifiedSha": "dc3fd5ca72549e699ebb4c8187827aafe32be220",
+          "verifiedAt": "2026-11-24T15:27:38Z",
+          "summary": "Autofill consistency on dark glass inputs (Chromium/Safari opaque-background override, ivory caret/text) + per-audience chip wording. HONEST NOTE: PR #37 merged only 62abe14 — this commit stayed unique on the branch and ships in the follow-up PR (branch re-synced with main d64df69 via merge 45f5ee0 per hygiene rule 4)."
+        },
+        {
+          "id": "AUTH-3",
+          "commitSha": "7c705c2 + onboarding-skip fix + header overflow fix + docs/screenshots/auth (9 browser screenshots: audience panel 1440/1024/768/390/320, institution hub 1440/390, teacher apply 1440/390) + docs/BEAN-PUBLIC-EXPERIENCE-AUTH-INSTITUTION.md",
+          "remoteVerifiedSha": "recorded on push in the same commit set",
+          "verifiedAt": "2026-11-24T15:27:38Z",
+          "summary": "Closure unit: fleet registry register() accepts Zod INPUT type (clears 19 pre-existing tsc TS2345 errors that fail CI's tsc step on current main; identical fix on the CI-3C branch — first PR to merge wins, the other dedupes on re-sync); onboarding skip button routed through postOnboardingDestination (was hard-coded dashboard, bypassed the single handoff) with honest neutral label; header desktop nav moved from lg to xl (measured 143px horizontal overflow at 1024×768 before; 0px at 1440/1280/1024/768/390/320 after); browser golden-path verification (student→#/dashboard, institution→#/institution hub with two genuine actions and honest empty state, teacher→#/teach/apply; teacher form has no DOB/bank/government-ID fields and says so; validation errors near-field with values retained). Suite 1396/0, tsc clean, lint clean."
+        }
+      ],
+      "remoteFeatureSha": null,
+      "pushVerifiedAt": null,
+      "pr": {
+        "number": null,
+        "state": "NONE",
+        "url": null
+      },
+      "ci": [],
+      "finalMainSha": null,
+      "syncStatus": "AHEAD_ONLY",
+      "status": "PUSHED",
+      "evidence": "docs/BEAN-PUBLIC-EXPERIENCE-AUTH-INSTITUTION.md + docs/screenshots/auth/",
+      "ciNote": "PR = manual owner action per GIT-BRANCH-HYGIENE.md step 11; CI quality job covers lint+tsc+tests+production build on the PR.",
+      "updatedAt": "2026-11-24T15:27:38Z"
     }
   ],
   "branchReconciliation": {

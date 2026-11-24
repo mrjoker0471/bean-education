@@ -149,7 +149,10 @@ export function Header() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <BrandLockup onClick={() => navigate({ view: 'home' })} />
 
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary">
+        {/* Desktop nav only from xl (1280px): at lg (1024) the full primary nav
+            + brand + account button measurably overflows the viewport (143px),
+            so tablet widths keep the sheet menu — no horizontal overflow. */}
+        <nav className="hidden items-center gap-1 xl:flex" aria-label="Primary">
           {navItems.map(item => navButton(item, false))}
           {navButton(riisheItem, false)}
           <Button
@@ -162,7 +165,7 @@ export function Header() {
           {accountButton(false)}
         </nav>
 
-        <div className="lg:hidden">
+        <div className="xl:hidden">
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
               <Button variant="outline" size="icon" className="border-hairline bg-white/[0.03]" aria-label="Open menu">
