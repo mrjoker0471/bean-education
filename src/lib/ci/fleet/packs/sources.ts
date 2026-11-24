@@ -1,0 +1,138 @@
+// ─── BEAN Classroom Intelligence (CI-3B): pack seed sources ──────────────────
+// Sources cited by the first seed domain packs, registered in the source &
+// licence registry on import. Every entry is a genuinely stable, well-known
+// open-licensed reference; the licence statements record what was verified on
+// the verification date and what must be re-read before any *content* (beyond
+// referencing the source itself) is imported or retrieved into prompts.
+//
+// IMPORTANT: no copyrighted text from these sources is reproduced anywhere in
+// this repository. The registry records provenance; the packs reference the
+// sources; retrieval against them happens only through the licence-gated
+// retrieval path (CI-3E) and never by wholesale copying.
+
+import { registerSource } from '../sources'
+import { SOURCE_QUALITY_CLASS } from '../constants'
+import { ensureTaxonomySourcesRegistered } from '../taxonomy'
+
+const VERIFIED_AT = '2026-11-24'
+
+let registered = false
+
+export function ensurePackSourcesRegistered(): void {
+  if (registered) return
+  ensureTaxonomySourcesRegistered()
+
+  registerSource({
+    sourceId: 'openstax-mathematics',
+    title: 'OpenStax Mathematics series (college algebra, precalculus, calculus, introductory statistics)',
+    canonicalRef: 'https://openstax.org/subjects/math',
+    publisher: 'OpenStax, Rice University',
+    authors: [],
+    publishedAt: null,
+    jurisdiction: null,
+    version: 'current editions (per-volume versioning upstream)',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.PROFESSION_BODY,
+    licence: {
+      spdx: 'CC-BY-4.0',
+      statement:
+        'OpenStax textbooks are published under Creative Commons Attribution 4.0 International (CC BY 4.0): reuse and adaptation permitted with attribution; specific check required per volume for embedded third-party figures. Verified against openstax.org licence statements; re-read the per-volume licence page before importing any content.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse:
+      'Authoritative peer-reviewed open textbook reference for mathematics/statistics concept grounding, glossary anchoring and retrieval scoping (attribution required).',
+    attribution:
+      'OpenStax Mathematics titles © Rice University, licensed CC BY 4.0. View free at openstax.org.',
+  })
+
+  registerSource({
+    sourceId: 'mdn-web-docs',
+    title: 'MDN Web Docs',
+    canonicalRef: 'https://developer.mozilla.org',
+    publisher: 'Mozilla',
+    authors: [],
+    publishedAt: null,
+    jurisdiction: null,
+    version: 'continuously updated upstream',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.ASSESSED_SECONDARY,
+    licence: {
+      spdx: 'CC-BY-SA-2.5',
+      statement:
+        'MDN Web Docs content is available under Creative Commons Attribution-ShareAlike 2.5; code samples under their own licences. Verified against the MDN content licence page; ShareAlike obligations apply to derived adaptations.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse: 'Reference for web-platform terminology and definitions in computing packs (attribution + share-alike on adaptations).',
+    attribution: 'MDN Web Docs by Mozilla Contributors, licensed CC-BY-SA 2.5.',
+  })
+
+  registerSource({
+    sourceId: 'python-docs-psf',
+    title: 'Python Official Documentation',
+    canonicalRef: 'https://docs.python.org/3/',
+    publisher: 'Python Software Foundation',
+    authors: [],
+    publishedAt: null,
+    jurisdiction: null,
+    version: 'per-language-version (e.g. 3.x series docs)',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.OFFICIAL_CURRICULUM,
+    licence: {
+      spdx: 'PSF-2.0',
+      statement:
+        'Python documentation is published under the PSF License Version 2 (permissive; attribution preserved in the licence notice). Version-specific docs must be pinned when retrieved — a claim valid for one Python version may be wrong for another.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse: 'Official reference for Python terminology, semantics and standard library behaviour in computing packs (version-pinned).',
+    attribution: 'Python documentation © Python Software Foundation (PSF License 2.0).',
+  })
+
+  registerSource({
+    sourceId: 'openstax-anatomy-physiology',
+    title: 'OpenStax Anatomy and Physiology 2e',
+    canonicalRef: 'https://openstax.org/details/books/anatomy-and-physiology-2e',
+    publisher: 'OpenStax, Rice University',
+    authors: [],
+    publishedAt: '2022',
+    jurisdiction: null,
+    version: '2e',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.PROFESSION_BODY,
+    licence: {
+      spdx: 'CC-BY-4.0',
+      statement:
+        'OpenStax A&P 2e is published under CC BY 4.0 with attribution. This is an EDUCATIONAL reference only — it never authorises diagnosis or personalised medical guidance (charter §14 health boundaries).',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse: 'Educational concept grounding for health-science education packs; never for clinical decision support.',
+    attribution: 'OpenStax Anatomy and Physiology 2e © Rice University, licensed CC BY 4.0.',
+  })
+
+  registerSource({
+    sourceId: 'un-feed-the-minds-financial-literacy-note',
+    title: 'BEAN-authored financial-literacy competency seed (no external dataset imported yet)',
+    canonicalRef: 'bean:ci3:source:bean-authored-seed',
+    publisher: 'BEAN Education',
+    authors: [],
+    publishedAt: '2026-11-24',
+    jurisdiction: null,
+    version: '1.0.0',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.ASSESSED_SECONDARY,
+    licence: {
+      spdx: null,
+      statement:
+        'BEAN-authored seed content. Jurisdiction-specific finance/tax regulation datasets (e.g. national regulators or standards boards) require per-source licence verification before import — none imported in CI-3B.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse: 'Concept-level glossary authored by BEAN; explicitly NOT a regulatory source.',
+    attribution: 'BEAN Education original content.',
+  })
+
+  registered = true
+}
+
+/** Clear the once-only flag so the next ensure call re-registers (tests only). */
+export function resetPackSourcesForTests(): void {
+  registered = false
+}
