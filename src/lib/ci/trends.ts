@@ -141,7 +141,7 @@ const RESOURCE_CATALOGUE: Record<string, SuggestedResource> = {
   },
 }
 
-const CATEGORY_ORDER = [
+const CATEGORY_ORDER: readonly string[] = [
   'SUBJECT_ACCURACY',
   'EXPLANATION_CLARITY',
   'LESSON_STRUCTURE',
@@ -306,7 +306,7 @@ export function buildTeacherTrends(inputs: TrendReportInput[]): TeacherTrends {
   // ── Suggested resources for the top recurring improvement categories ──
   const topImprovementCategories = [...categories]
     .filter((c) => c.improvementCount > 0)
-    .sort((a, b) => b.improvementCount - a.improvementCount || CATEGORY_ORDER.indexOf(a.category as typeof a.category) - CATEGORY_ORDER.indexOf(b.category as typeof b.category))
+    .sort((a, b) => b.improvementCount - a.improvementCount || CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category))
     .slice(0, 3)
     .map((c) => c.category)
   const suggestedResources = topImprovementCategories

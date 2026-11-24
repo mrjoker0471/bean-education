@@ -1,7 +1,7 @@
 'use client'
 
 import { useAppStore } from '@/lib/store'
-import { BeanMark, Wordmark } from '@/components/bean/brand-mark'
+import { BeanEmblem, BeanWordmarkImage } from '@/components/bean/brand-mark'
 import { ShieldCheck } from 'lucide-react'
 
 export function Footer() {
@@ -30,9 +30,9 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="flex flex-col items-start justify-between gap-8 md:flex-row md:items-start">
           <div className="flex items-center gap-3">
-            <BeanMark tileSize="sm" />
+            <BeanEmblem alt="" className="h-10 w-10 shrink-0" />
             <div>
-              <Wordmark size="sm" />
+              <BeanWordmarkImage className="h-[15px] w-auto min-w-[100px]" />
               <p className="mt-1.5 text-xs text-muted-foreground">Learn. Practise. Teach. Grow. Honest availability.</p>
             </div>
           </div>
