@@ -32,6 +32,7 @@ import {
 import { FLEET_CONTRACT_VERSION, fleetTaskId } from './contracts'
 import { resolveAgentId } from './registry'
 import { resolveDomainsForSubject } from './taxonomy'
+import { detectMultilingualEvidence } from './language'
 // Importing the seed packs guarantees the deployed knowledge base exists
 // wherever dispatch runs (same pattern as the registry's auto-registration):
 // subject experts resolve against the REAL pack state — a deployment without
@@ -194,9 +195,12 @@ export async function dispatchFleetForSession(opts: {
   classSessionId: string
   includeEnrichment?: boolean
   /**
-   * Must be backed by real multilingual evidence (transcription/language
-   * signals). No such pipeline exists yet — the default stays `false` and the
-   * plan records that honestly. CI-3D wires the evidence source.
+   * Must be backed by real multilingual evidence. When omitted (undefined),
+   * CI-3F detection decides server-side: the ONLY permitted text channel is
+   * teacher-supplied notes on the evaluation job — a code-switched script
+   * pattern there plans the language specialist; anything else does not.
+   * Passing `true` without real evidence is a caller bug and is overridden by
+   * detection (never guessed into existence).
    */
   multilingualEvidence?: boolean
 }): Promise<DispatchOutcome> {
@@ -209,6 +213,7 @@ export async function dispatchFleetForSession(opts: {
       title: true,
       teacherProfile: { select: { studentId: true } },
       liveSession: { select: { id: true, status: true } },
+      classroomEvaluationJob: { select: { teacherNotes: true } },
     },
   })
   if (!cls) return { dispatched: false, reason: 'class_not_found' }
@@ -220,11 +225,16 @@ export async function dispatchFleetForSession(opts: {
     return { dispatched: false, reason: 'no_consent' }
   }
 
+  // CI-3F: real multilingual evidence, detected server-side from the only
+  // permitted text channel (teacher notes). The plan records the decision.
+  const detection = detectMultilingualEvidence(cls.classroomEvaluationJob?.teacherNotes ?? null)
+  const multilingualEvidence = opts.multilingualEvidence === true ? true : opts.multilingualEvidence === false ? false : detection.detected
+
   const plan = planFleetTasks({
     classSessionId: cls.id,
     teacherProfileId: cls.teacherProfileId,
     subjectText: `${cls.subject} ${cls.title}`,
-    multilingualEvidence: opts.multilingualEvidence === true,
+    multilingualEvidence,
     includeEnrichment: opts.includeEnrichment,
   })
 

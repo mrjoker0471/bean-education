@@ -587,7 +587,7 @@ describe('CI-3E core pair mapping (M1)', () => {
 // ─── D1: honest deferrals ─────────────────────────────────────────────────────
 
 describe('CI-3E honest deferrals (D1)', () => {
-  test('D1.1 LANGUAGE (CI-3F) and enrichment coaches (CI-3G) fail immediately and permanently with milestone pointers', async () => {
+  test('D1.1 LANGUAGE runs honestly since CI-3F (abstains without notes); enrichment coaches (CI-3G) fail immediately and permanently with milestone pointers', async () => {
     const seeded = await seedEndedClass({ subject: 'Hindi literature', title: 'Kabir dohas — meaning and metre' })
     try {
       await grantCiConsent(seeded.teacherId)
@@ -598,10 +598,13 @@ describe('CI-3E honest deferrals (D1)', () => {
       expect(outcome.dispatched).toBe(true)
       await drainQueue()
       const rows = await rowsFor(seeded.classId)
+      // CI-3F implemented the language specialist: without notes it abstains
+      // honestly (INSUFFICIENT_EVIDENCE) — the deferral promise was kept.
       const langRow = rowOf(rows, FLEET_AGENT_ID.LANGUAGE)
-      expect(langRow.status).toBe(FLEET_TASK_STATUS.FAILED)
-      expect(langRow.error).toContain('CI-3F')
-      expect(langRow.attempts).toBe(1) // permanent — no retry churn
+      expect(langRow.status).toBe(FLEET_TASK_STATUS.INSUFFICIENT_EVIDENCE)
+      const langOut = JSON.parse(langRow.outputJson!) as { unknowns: string[] }
+      expect(langOut.unknowns.some((u) => u.includes('no teacher notes'))).toBe(true)
+      expect(langOut.unknowns.some((u) => u.includes('§9.2'))).toBe(true)
       const coach = rowOf(rows, FLEET_AGENT_ID.TEACHER_COACH)
       expect(coach.status).toBe(FLEET_TASK_STATUS.FAILED)
       expect(coach.error).toContain('CI-3G')

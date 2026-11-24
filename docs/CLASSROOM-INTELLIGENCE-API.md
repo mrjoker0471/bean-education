@@ -211,3 +211,26 @@ fixture suite referenced by the packs' benchmarks (no model needed); the CI-3E
 core-family packs (`physics-space`, `chemistry-materials`, `biology-life`,
 `languages-literature`) extend the catalogue to 8 dispatchable packs — all
 still honestly IN_REVIEW pending the human VERIFIED gate (§6.4).
+
+## CI-3F — Multilingual foundation
+
+- **Language capability registry** (`src/lib/ci/fleet/language.ts`): the 11
+  charter §8.3 audience languages with per-task records. Unmeasured tasks are
+  EXPERIMENTAL; TRANSLATION is NEEDS_HUMAN_REVIEW; TRANSCRIPTION is UNSUPPORTED
+  for every language and `recordCapabilityMeasurement` structurally cannot flip
+  it (the §9.2 consent/legal gate — no ASR dependency exists).
+- **Script/code-switch handling**: pure Unicode-range detection and contiguous
+  segment splitting — segments are preserved, never flattened (§10.2).
+- **Dispatch wiring**: `dispatchFleetForSession` detects real multilingual
+  evidence server-side (the only permitted text channel is teacher-supplied
+  notes on the evaluation job); the explicit `multilingualEvidence` flag is
+  SERVER-caller authority, never client input. The LANGUAGE specialist runs
+  deterministically (script analysis + capability unknowns) plus one bounded
+  model terminology pass when an adapter exists; without notes it abstains
+  honestly.
+- **Benchmark harness**: `runTextBenchmarkHarness()` — 6 deterministic cases
+  (terminology preservation en/ta, comprehension hi/ta with JSON output,
+  code-switch recognition, §14 refusal structure) against the current adapter;
+  without an adapter it measures nothing and touches no capability. Results
+  and the Omnilingual ASR licence/consent-fit decision live in
+  `docs/BEAN-CLASSROOM-INTELLIGENCE-LANGUAGE-COVERAGE.md`.
