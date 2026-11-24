@@ -14,6 +14,7 @@ import { db } from '@/lib/db'
 import { requireStudent } from '@/lib/auth'
 import type { CiStudentSummariesResponse, CiStudentSummaryDTO } from '@/lib/ci/dto'
 import { studentSummarySchema, type StudentSummary } from '@/lib/ci/schemas'
+import { buildLearningLinks } from '@/lib/ci/learning-links'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -65,6 +66,13 @@ export async function GET() {
         timeZone: row.booking.classSession.timeZone,
         summary,
         generatedAt: row.createdAt.toISOString(),
+        // CI-2D: deterministic links to EXISTING BEAN learning surfaces
+        // (syllabus topics, practice, revision planner, curated resources).
+        learningLinks: buildLearningLinks({
+          subject: row.booking.classSession.subject,
+          conceptsCovered: summary.conceptsCovered,
+          revisionTopics: summary.revisionRecommendations,
+        }),
       })
     }
 

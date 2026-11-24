@@ -10,6 +10,7 @@
 
 import type { FinalReport, StudentSummary } from './schemas'
 import type { CiConsentState } from './trigger'
+import type { CiLearningLinks } from './learning-links'
 
 export interface CiConsentDTO {
   granted: boolean
@@ -84,6 +85,9 @@ export interface CiStudentSummaryDTO {
   timeZone: string
   summary: StudentSummary
   generatedAt: string
+  /** CI-2D: deterministic navigation to existing BEAN learning surfaces
+   *  (syllabus topics, practice, revision planner, curated resources). */
+  learningLinks: CiLearningLinks
 }
 
 export interface CiStudentSummariesResponse {
