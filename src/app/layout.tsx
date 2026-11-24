@@ -19,7 +19,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "BEAN Education — Learn. Practise. Teach. Grow.",
+  title: "BEAN Education — Learn with purpose. Teach with impact.",
   description:
     "A premium education platform for Indian learners: examination preparation with honest coverage, AI-grounded practice through Riishe, live classrooms and verified teachers on BEAN Teach, institution workspaces and career opportunities.",
   keywords: [

@@ -2,27 +2,33 @@
 
 // ─── Public homepage (BEAN Education brand redesign) ──────────────────────────
 // A comprehensive introduction to the real BEAN Education product:
-//   • Hero on an obsidian-ambient glass stage with the platform message and
-//     four primary actions.
+//   • Editorial hero — the brand slogan "Learn with purpose. Teach with
+//     impact.", focused actions and a hairline "where to begin" index that
+//     navigates into the real platform surfaces. No glowing eyebrow badges and
+//     no statistic chips — the zero-value counter strip was removed by design
+//     decision and is never replaced with invented numbers.
 //   • The actual implemented features (11 cards in three groups), each linked
 //     to its real destination route — no simulated features, no invented
 //     statistics. Sign-in and teacher-approval requirements are shown honestly.
 //   • Clear distinction between the student and teacher experiences.
-//   • Backend-powered catalogue counts are retained (hidden on fetch failure).
+//   • A dedicated boxed teacher-recruitment section wired to the real
+//     application and BEAN Teach routes.
+//   • Typography: the existing two-family system only — Playfair Display
+//     (editorial display serif) for headings, Geist (contemporary sans) for
+//     navigation, buttons and body text. Both OFL-licensed and locally
+//     bundled by next/font.
 //   • The BEAN Education identity throughout: obsidian, metallic gold,
 //     champagne hairlines and warm ivory — restrained glass, never cluttered.
 
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-import type { CatalogResponse } from '@/lib/types'
 import { useAppStore, parseHash, type Route } from '@/lib/store'
 import { SectionHeading } from '@/components/bean/section-heading'
-import { CountPill } from '@/components/bean/count-pill'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import {
-  BookOpen, Brain, Building2, Briefcase, ClipboardCheck, Compass, FileText, GraduationCap,
+  ArrowRight, BookOpen, Brain, Building2, Briefcase, ClipboardCheck, Compass, FileText, GraduationCap,
   LayoutDashboard, LineChart, LogIn, ShieldCheck, Sparkles, Target, Upload, Users, Video,
 } from 'lucide-react'
 
@@ -152,22 +158,13 @@ export const FEATURE_GROUPS: { eyebrow: string; title: string; blurb: string; fe
 ]
 
 export function HomeView() {
-  const [catalog, setCatalog] = useState<CatalogResponse | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    api.catalog()
-      .then(c => { if (alive) setCatalog(c) })
-      .catch(() => { /* totals are optional — the pills simply stay hidden */ })
-    return () => { alive = false }
-  }, [])
-
   return (
     <div className="flex flex-col">
-      <Hero totals={catalog?.totals} />
+      <Hero />
       <AudienceSplit />
       <FeatureShowcase />
       <BeanMethod />
+      <BecomeTeacherSection />
       <TrustStrip />
       <FinalCta />
     </div>
@@ -175,7 +172,39 @@ export function HomeView() {
 }
 
 // ─── Hero ───
-function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
+// Design decisions (homepage redesign unit):
+//   • No glowing eyebrow badge, no statistic chips — the overline is plain
+//     tracked small caps beside a short gold hairline.
+//   • The headline uses the editorial display serif (Playfair Display) with
+//     one restrained champagne-gold italic line.
+//   • Composition is asymmetric on desktop (7/5 split) — headline block left,
+//     a hairline "where to begin" index right that navigates into the three
+//     real platform audiences; stacked on small screens.
+//   • Exactly one primary and one secondary action; returning visitors
+//     additionally see their real continuation target.
+
+const BEGIN_PATHS = [
+  {
+    key: 'students',
+    label: 'For students',
+    description: 'Examination preparation, practice and an AI tutor grounded in your own material.',
+    hash: '#/catalog',
+  },
+  {
+    key: 'teachers',
+    label: 'For teachers',
+    description: 'Apply for approval, publish classes and teach in live classrooms.',
+    hash: '#/teach-apply',
+  },
+  {
+    key: 'institutions',
+    label: 'For institutions',
+    description: 'Group workspaces, assignments and reporting for schools and organisations.',
+    hash: '#/institution',
+  },
+] as const
+
+function Hero() {
   const navigate = useAppStore(s => s.navigate)
   const authedStudent = useAppStore(s => s.authedStudent)
   const guestId = useAppStore(s => s.guestId)
@@ -229,49 +258,84 @@ function Hero({ totals }: { totals?: CatalogResponse['totals'] }) {
         className="pointer-events-none absolute inset-x-0 bottom-0 h-px"
         style={{ background: 'linear-gradient(90deg, transparent 4%, rgba(198,160,94,0.35) 50%, transparent 96%)' }}
       />
-      <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-hairline glass-soft px-3.5 py-1.5 text-xs font-medium tracking-wide text-champagne">
-            <Sparkles className="h-3.5 w-3.5 text-gold" /> The education platform built around your own material
+      <div className="relative mx-auto grid w-full max-w-7xl gap-14 px-4 pb-16 pt-16 sm:px-6 sm:pb-24 sm:pt-24 lg:grid-cols-12 lg:gap-10 lg:px-8 lg:pb-28 lg:pt-28">
+        {/* Headline block */}
+        <div className="lg:col-span-7">
+          <p className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-champagne">
+            <span aria-hidden className="h-px w-9 bg-gold/60" />
+            Bean Education
           </p>
-          <h1 className="font-display text-4xl font-bold leading-[1.12] tracking-tight text-foreground text-balance sm:text-5xl lg:text-6xl">
-            Learn. Practise. Teach.
-            <span className="mt-2 block text-gold">Grow. All in one place.</span>
+          <h1 className="mt-6 font-display text-5xl font-medium leading-[1.06] tracking-tight text-foreground sm:text-6xl lg:text-[4.25rem]">
+            Learn with purpose.
+            <span className="mt-1 block italic text-champagne">Teach with impact.</span>
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            BEAN Education is one platform for students, teachers, institutions and learners preparing for
-            examinations or building skills — from an examination catalogue and AI-grounded practice to live
-            classrooms, institution workspaces and career opportunities.
+          <p className="mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+            One connected education platform for students, teachers and institutions — bringing learning,
+            live teaching and educational opportunities together.
           </p>
-          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap">
-            <Button size="lg" className="w-full bg-gold text-primary-foreground shadow-[inset_0_1px_0_rgba(233,220,189,0.3)] hover:bg-gold-hover sm:w-auto" onClick={() => navigate({ view: 'catalog' })}>
-              <Compass className="mr-2 h-4 w-4" /> Explore BEAN
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <Button
+              size="lg"
+              className="w-full bg-gold text-primary-foreground shadow-[inset_0_1px_0_rgba(233,220,189,0.3)] hover:bg-gold-hover sm:w-auto"
+              onClick={() => navigate(authedStudent ? { view: 'materials' } : { view: 'auth' })}
+            >
+              Start learning
             </Button>
-            <Button size="lg" variant="outline" className="w-full border-gold/40 bg-transparent text-gold hover:bg-gold/10 sm:w-auto" onClick={() => navigate(authedStudent ? { view: 'materials' } : { view: 'auth' })}>
-              <GraduationCap className="mr-2 h-4 w-4" /> Start learning
-            </Button>
-            <Button size="lg" variant="outline" className="w-full border-hairline bg-white/[0.03] text-foreground hover:bg-white/[0.06] sm:w-auto" onClick={() => navigate({ view: 'classes' })}>
-              <Users className="mr-2 h-4 w-4" /> Explore classes
-            </Button>
-            <Button size="lg" variant="ghost" className="w-full text-muted-foreground hover:bg-white/[0.04] hover:text-champagne sm:w-auto" onClick={() => navigate({ view: 'teach-apply' })}>
-              Become a teacher
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-gold/40 bg-transparent text-gold hover:bg-gold/10 sm:w-auto"
+              onClick={() => navigate({ view: 'catalog' })}
+            >
+              Explore the catalogue
             </Button>
             {continueHash && continueHash !== '#/progress' && (
-              <Button size="lg" variant="ghost" className="w-full text-muted-foreground hover:bg-white/[0.04] sm:w-auto" onClick={goContinue}>
+              <Button
+                size="lg"
+                variant="ghost"
+                className="w-full text-muted-foreground hover:bg-white/[0.04] sm:w-auto"
+                onClick={goContinue}
+              >
                 Continue where you left off
               </Button>
             )}
           </div>
-          {totals && (
-            <div className="mt-12 flex flex-wrap items-center justify-center gap-2">
-              <CountPill label="examinations" value={totals.exams} />
-              <CountPill label="syllabus topics" value={totals.topics} />
-              <CountPill label="original study notes" value={totals.uniqueNotes ?? totals.notes} />
-              <CountPill label="practice questions" value={totals.questions} />
-              <CountPill label="ready tests" value={totals.tests} />
-            </div>
-          )}
+          <p className="mt-8 max-w-lg text-xs leading-relaxed text-muted-foreground/80">
+            Prefer to look around first? Guest mode works across the catalogue, practice and Riishe — your
+            attempts and progress save on this device automatically.
+          </p>
         </div>
+
+        {/* Where-to-begin index — hairline rows into the three real audiences */}
+        <nav className="lg:col-span-5 lg:pl-8" aria-label="Where to begin">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+            Where to begin
+          </p>
+          <ul className="mt-5 border-t border-hairline">
+            {BEGIN_PATHS.map(p => (
+              <li key={p.key}>
+                <button
+                  type="button"
+                  onClick={() => navigate(parseHash(p.hash) as Route)}
+                  className="group flex w-full items-center justify-between gap-4 border-b border-hairline py-4 text-left transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-gold"
+                >
+                  <span>
+                    <span className="block text-sm font-semibold text-foreground transition-colors group-hover:text-champagne">
+                      {p.label}
+                    </span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                      {p.description}
+                    </span>
+                  </span>
+                  <ArrowRight
+                    className="h-4 w-4 shrink-0 text-gold/60 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-gold"
+                    aria-hidden
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </div>
     </section>
   )
@@ -451,6 +515,74 @@ function BeanMethod() {
             </li>
           ))}
         </ol>
+      </div>
+    </section>
+  )
+}
+
+// ─── Teacher recruitment (the one deliberately boxed section) ───
+// Wired to the real application route (#/teach-apply) and the real BEAN Teach
+// marketplace (#/classes). No invented benefits, no earnings claims — the only
+// promise is the true one: every application is reviewed by the BEAN team.
+function BecomeTeacherSection() {
+  const navigate = useAppStore(s => s.navigate)
+  return (
+    <section
+      aria-labelledby="become-a-teacher-heading"
+      className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8"
+    >
+      <div className="glass relative overflow-hidden rounded-2xl border border-champagne/25 p-8 sm:p-12">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-10 top-0 h-px"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(233,220,189,0.55), transparent)' }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-gold/[0.07] blur-3xl"
+        />
+        <div className="relative grid gap-10 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-7">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gold">
+              Teach with Bean
+            </p>
+            <h2
+              id="become-a-teacher-heading"
+              className="mt-4 font-display text-3xl font-medium leading-tight text-foreground text-balance sm:text-4xl"
+            >
+              Your knowledge can take someone further.
+            </h2>
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+              Bring your expertise to BEAN Education. Create your teaching profile, apply for approval and
+              build meaningful learning experiences for students.
+            </p>
+          </div>
+          <div className="lg:col-span-5">
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:flex-col lg:items-stretch lg:gap-4">
+              <Button
+                size="lg"
+                className="w-full bg-gold text-primary-foreground shadow-[inset_0_1px_0_rgba(233,220,189,0.3)] hover:bg-gold-hover sm:w-auto lg:w-full"
+                onClick={() => navigate({ view: 'teach-apply' })}
+              >
+                Become a teacher
+              </Button>
+              <button
+                type="button"
+                onClick={() => navigate({ view: 'classes' })}
+                className="group inline-flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-champagne transition-colors hover:text-gold focus-visible:outline-2 focus-visible:outline-gold sm:justify-start lg:justify-center"
+              >
+                Explore BEAN Teach
+                <ArrowRight
+                  className="h-4 w-4 text-gold/70 transition-transform duration-200 group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </button>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground lg:mt-4">
+              Every application is reviewed by the BEAN team before classes go live.
+            </p>
+          </div>
+        </div>
       </div>
     </section>
   )
