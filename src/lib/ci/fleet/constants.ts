@@ -169,12 +169,15 @@ export const FLEET_TASK_ROLE = {
 } as const
 export type FleetTaskRole = (typeof FLEET_TASK_ROLE)[keyof typeof FLEET_TASK_ROLE]
 
-/** Lower runs first. Core honesty work beats enrichment, always. */
+/** Lower runs first. Honest ordering (charter §4/§11): the core pair first,
+ * then domain/language specialists so their outputs EXIST, then the mandatory
+ * audit pair (which challenges specialist outputs — it can only do that after
+ * them), then enrichment coaching last. */
 export const FLEET_TASK_PRIORITY = {
   CORE: 10,
-  MANDATORY_AUDIT: 20,
-  DOMAIN_SPECIALIST: 30,
-  LANGUAGE: 40,
+  DOMAIN_SPECIALIST: 20,
+  LANGUAGE: 30,
+  MANDATORY_AUDIT: 40,
   ENRICHMENT: 50,
 } as const
 

@@ -37,6 +37,11 @@ import { resolveDomainsForSubject } from './taxonomy'
 // subject experts resolve against the REAL pack state — a deployment without
 // packs plans no specialists and records that honestly.
 import './packs'
+// Importing the CI-3E runtime guarantees the fleet executor exists behind the
+// worker's seam wherever dispatch runs — a deployment without the runtime
+// fails tasks honestly at claim time (worker contract), and one WITH it
+// executes them.
+import './runtime'
 import { hasCiConsent } from '../queue'
 import { ensureFleetWorker } from './worker'
 

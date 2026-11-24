@@ -295,7 +295,11 @@ export async function runFleetTask(task: ClaimableFleetTask): Promise<void> {
       where: { id: task.id },
       select: { attempts: true, maxAttempts: true },
     })
-    const canRetry = !!current && current.attempts < current.maxAttempts
+    // Permanent failures (missing pack, unparseable upstream output, missing
+    // handler) can never succeed on retry — failing immediately is honest
+    // capacity management, not impatience.
+    const permanent = (err as { fleetPermanent?: boolean }).fleetPermanent === true
+    const canRetry = !permanent && !!current && current.attempts < current.maxAttempts
     await db.classroomFleetTask.updateMany({
       where: { id: task.id, status: 'RUNNING' },
       data: canRetry

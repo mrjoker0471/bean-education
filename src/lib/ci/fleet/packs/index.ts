@@ -1,19 +1,23 @@
-// ─── BEAN Classroom Intelligence (CI-3B): first seed domain packs ────────────
-// The charter's first verified sample packs (§19 CI-3B). Four seed packs that
-// pass every machine gate (schema, provenance, checksum, risk boundaries):
+// ─── BEAN Classroom Intelligence (CI-3B/3E): seed domain packs ───────────────
+// Eight seed packs that pass every machine gate (schema, provenance, checksum,
+// risk boundaries):
 //
-//   mathematics-statistics   STANDARD
-//   computing-software-it    STANDARD
-//   accounting-finance       ELEVATED   (jurisdiction sensitivity)
-//   health-medicine-edu      HIGH_STAKES (charter §14 medical boundary)
+//   CI-3B:  mathematics-statistics   STANDARD
+//           computing-software-it    STANDARD
+//           accounting-finance       ELEVATED   (jurisdiction sensitivity)
+//           health-medicine-edu      HIGH_STAKES (charter §14 medical boundary)
+//   CI-3E:  physics-space            STANDARD
+//           chemistry-materials      STANDARD
+//           biology-life             STANDARD
+//           languages-literature     STANDARD
 //
-// Honest status note: all four ship as **IN_REVIEW**. They pass the full pack
+// Honest status note: all eight ship as **IN_REVIEW**. They pass the full pack
 // validation suite and carry complete licence-registered provenance, but the
 // charter's VERIFIED gate (§6.4) requires a recorded HUMAN reviewer — none is
-// available in this milestone, and the validator structurally refuses an
-// unreviewed VERIFIED pack. The packs' benchmark fixtures arrive with CI-3E's
-// specialist suite; the validator then lets the owner's designated reviewer
-// flip them to VERIFIED without code changes.
+// available, and the validator structurally refuses an unreviewed VERIFIED
+// pack. Deterministic domain fixtures now exist (src/lib/ci/fleet/fixtures.ts)
+// and run green in the CI-3E suite; the validator lets the owner's designated
+// reviewer flip packs to VERIFIED without code changes once human review happens.
 //
 // No copyrighted source text is reproduced here — glossary entries are
 // BEAN-authored concept definitions that *reference* registered sources.
@@ -211,6 +215,184 @@ const packs: DomainPack[] = [
       suiteId: 'ci3-domain-fixture-suite',
       description: 'Deterministic fixture suite including refusal cases (diagnosis/dosage requests must route to professional help). Fixtures land with CI-3E.',
       fixtureRefs: [],
+      lastResult: null,
+    },
+    status: PACK_STATUS.IN_REVIEW,
+    humanReview: null,
+  }),
+
+  // ─── CI-3E: core domain families expanded (charter §19 CI-3E) ────────────────
+  // Four further core-family packs following the CI-3B seed pattern. All are
+  // IN_REVIEW for the same honest reason as the originals: the charter's
+  // VERIFIED gate requires a recorded human reviewer, which no milestone can
+  // fabricate. The registered sources (OpenStax science series, NCERT,
+  // CEFR Companion Volume) were added to the source registry in CI-3E.
+
+  pack({
+    domainId: 'physics-space',
+    stableUri: 'bean:ci3:domain:physics-space',
+    title: 'Physics, astronomy and space sciences',
+    aliases: ['physics', 'astronomy'],
+    translations: [],
+    taxonomySourceId: 'unesco-isced-f-2013',
+    taxonomyVersion: 'ISCED-F 2013',
+    iscedCodes: ['05'],
+    parentDomainId: null,
+    childDomainIds: [],
+    relatedSubjectDomainIds: ['mathematics-statistics', 'chemistry-materials', 'engineering'],
+    relatedProfessionNote: null,
+    competencyLevels: SEED_COMPETENCIES,
+    glossary: [
+      { term: 'momentum', definition: 'The quantity of motion of a body, product of its mass and velocity; conserved in isolated systems.', sourceId: 'openstax-science-series', aliases: [] },
+      { term: 'energy conservation', definition: 'Energy is neither created nor destroyed in an isolated system; it changes form.', sourceId: 'openstax-science-series', aliases: ['conservation of energy'] },
+      { term: 'orbital motion', definition: 'Motion of a body under the influence of a central gravitational force, following a conic-section path in the two-body idealisation.', sourceId: 'openstax-science-series', aliases: ['orbits'] },
+    ],
+    standards: [
+      { label: 'ISCED-F 2013 broad field 05 (natural sciences, mathematics and statistics)', jurisdiction: 'international reference', sourceId: 'unesco-isced-f-2013' },
+    ],
+    sources: [{ sourceId: 'openstax-science-series', scope: 'Physics/astronomy concept grounding and glossary anchoring' }],
+    effectiveAt: AT,
+    reviewDueAt: '2027-05-24',
+    riskClass: 'STANDARD',
+    safetyBoundary: 'Educational explanations only. Any worked calculation must show its steps and units; the specialist abstains when the lesson material lacks the numbers or assumptions needed to check a result, and never presents a reproduced diagram or third-party figure as its own.',
+    allowedTasks: ['concept accuracy checking', 'calculation verification with shown steps', 'terminology clarity review', 'unit and order-of-magnitude sanity checks'],
+    prohibitedTasks: ['produce exam-grade answer keys without verification', 'safety-critical engineering guidance (structures, electrical installations)'],
+    agentProfileIds: ['BEAN_SUBJECT_EXPERT::physics-space'],
+    languageSupport: SEED_LANGUAGES,
+    benchmark: {
+      suiteId: 'ci3-domain-fixture-suite',
+      description: 'Deterministic fixture suite for physics claims (correct, misconception, ambiguous, insufficient-evidence cases) — see src/lib/ci/fleet/fixtures.ts.',
+      fixtureRefs: ['ci3-fixture-physics-misconception', 'ci3-fixture-grounding-generic'],
+      lastResult: null,
+    },
+    status: PACK_STATUS.IN_REVIEW,
+    humanReview: null,
+  }),
+
+  pack({
+    domainId: 'chemistry-materials',
+    stableUri: 'bean:ci3:domain:chemistry-materials',
+    title: 'Chemistry and materials science',
+    aliases: ['chemistry'],
+    translations: [],
+    taxonomySourceId: 'unesco-isced-f-2013',
+    taxonomyVersion: 'ISCED-F 2013',
+    iscedCodes: ['05'],
+    parentDomainId: null,
+    childDomainIds: [],
+    relatedSubjectDomainIds: ['physics-space', 'biology-life', 'engineering'],
+    relatedProfessionNote: null,
+    competencyLevels: SEED_COMPETENCIES,
+    glossary: [
+      { term: 'mole', definition: 'The amount of substance containing as many elementary entities as there are atoms in 0.012 kg of carbon-12.', sourceId: 'openstax-science-series', aliases: ['amount of substance'] },
+      { term: 'chemical bond', definition: 'A lasting attraction between atoms, ions or molecules that enables the formation of chemical compounds.', sourceId: 'openstax-science-series', aliases: ['bonding'] },
+      { term: 'oxidation state', definition: 'A formalism that tracks the hypothetical charge of an atom in a compound under assigned electron-accounting rules.', sourceId: 'openstax-science-series', aliases: ['oxidation number'] },
+    ],
+    standards: [
+      { label: 'ISCED-F 2013 broad field 05 (natural sciences, mathematics and statistics)', jurisdiction: 'international reference', sourceId: 'unesco-isced-f-2013' },
+    ],
+    sources: [{ sourceId: 'openstax-science-series', scope: 'Chemistry concept grounding and glossary anchoring' }],
+    effectiveAt: AT,
+    reviewDueAt: '2027-05-24',
+    riskClass: 'STANDARD',
+    safetyBoundary: 'Educational explanations only. Chemical-safety content stays at general education level; the specialist never gives synthesis routes for hazardous, controlled or weaponisable substances and routes any safety incident to qualified adults and emergency guidance.',
+    allowedTasks: ['concept accuracy checking', 'terminology clarity review', 'reaction-description sanity checks at education level'],
+    prohibitedTasks: ['hazardous-synthesis instructions', 'exam-grade answer keys without verification'],
+    agentProfileIds: ['BEAN_SUBJECT_EXPERT::chemistry-materials'],
+    languageSupport: SEED_LANGUAGES,
+    benchmark: {
+      suiteId: 'ci3-domain-fixture-suite',
+      description: 'Deterministic fixture suite including refusal cases (hazardous-synthesis requests must be refused). Fixtures see src/lib/ci/fleet/fixtures.ts.',
+      fixtureRefs: ['ci3-fixture-chemistry-refusal', 'ci3-fixture-grounding-generic'],
+      lastResult: null,
+    },
+    status: PACK_STATUS.IN_REVIEW,
+    humanReview: null,
+  }),
+
+  pack({
+    domainId: 'biology-life',
+    stableUri: 'bean:ci3:domain:biology-life',
+    title: 'Biology, biotechnology and life sciences',
+    aliases: ['biology', 'life sciences'],
+    translations: [],
+    taxonomySourceId: 'unesco-isced-f-2013',
+    taxonomyVersion: 'ISCED-F 2013',
+    iscedCodes: ['05'],
+    parentDomainId: null,
+    childDomainIds: [],
+    relatedSubjectDomainIds: ['health-medicine-edu', 'chemistry-materials', 'environment-earth'],
+    relatedProfessionNote: null,
+    competencyLevels: SEED_COMPETENCIES,
+    glossary: [
+      { term: 'cell theory', definition: 'The principle that living organisms are composed of cells, that the cell is the basic unit of life, and that cells arise from pre-existing cells.', sourceId: 'openstax-science-series', aliases: [] },
+      { term: 'photosynthesis', definition: 'The process by which photosynthetic organisms convert light energy into chemical energy stored in carbohydrates.', sourceId: 'openstax-science-series', aliases: [] },
+      { term: 'natural selection', definition: 'The differential survival and reproduction of individuals due to phenotypic differences, changing allele frequencies across generations.', sourceId: 'openstax-science-series', aliases: ['selection'] },
+    ],
+    standards: [
+      { label: 'ISCED-F 2013 broad field 05 (natural sciences, mathematics and statistics)', jurisdiction: 'international reference', sourceId: 'unesco-isced-f-2013' },
+    ],
+    sources: [{ sourceId: 'openstax-science-series', scope: 'Biology/life-sciences concept grounding and glossary anchoring' }],
+    effectiveAt: AT,
+    reviewDueAt: '2027-05-24',
+    riskClass: 'STANDARD',
+    safetyBoundary: 'Educational explanations only. Adjacent health questions route to the health-medicine-edu boundary (never diagnosis or treatment); genetic or biotechnology content stays at concept level and never supports self-experimentation or pathogen handling.',
+    allowedTasks: ['concept accuracy checking', 'terminology clarity review', 'curriculum-alignment sanity checks'],
+    prohibitedTasks: ['diagnosis or treatment recommendation', 'pathogen or bioweapon handling guidance', 'personal genetic advice'],
+    agentProfileIds: ['BEAN_SUBJECT_EXPERT::biology-life'],
+    languageSupport: SEED_LANGUAGES,
+    benchmark: {
+      suiteId: 'ci3-domain-fixture-suite',
+      description: 'Deterministic fixture suite for biology claims including refusal cases (health-adjacent questions route to the §14 boundary).',
+      fixtureRefs: ['ci3-fixture-grounding-generic'],
+      lastResult: null,
+    },
+    status: PACK_STATUS.IN_REVIEW,
+    humanReview: null,
+  }),
+
+  pack({
+    domainId: 'languages-literature',
+    stableUri: 'bean:ci3:domain:languages-literature',
+    title: 'Languages, linguistics, literature and translation',
+    aliases: ['english', 'languages', 'literature', 'grammar'],
+    translations: [
+      { language: 'hi', title: 'भाषा, भाषाविज्ञान और साहित्य' },
+      { language: 'ta', title: 'மொழி, மொழியியல் மற்றும் இலக்கியம்' },
+    ],
+    taxonomySourceId: 'unesco-isced-f-2013',
+    taxonomyVersion: 'ISCED-F 2013',
+    iscedCodes: ['02'],
+    parentDomainId: null,
+    childDomainIds: [],
+    relatedSubjectDomainIds: ['education-pedagogy', 'history-philosophy', 'journalism-media-info'],
+    relatedProfessionNote: null,
+    competencyLevels: SEED_COMPETENCIES,
+    glossary: [
+      { term: 'CEFR level', definition: 'A proficiency band (A1–C2) of the Common European Framework of Reference describing what a learner can do with language.', sourceId: 'cefr-companion-volume', aliases: ['CEFR'] },
+      { term: 'comprehensible input', definition: 'Language input slightly above the learner\u2019s current level that remains understandable in context, a central concept in second-language acquisition teaching.', sourceId: null, aliases: [] },
+      { term: 'literal translation', definition: 'A word-for-word rendering that preserves surface form rather than meaning; often misleading between unrelated languages.', sourceId: null, aliases: [] },
+    ],
+    standards: [
+      { label: 'ISCED-F 2013 broad field 02 (arts and humanities)', jurisdiction: 'international reference', sourceId: 'unesco-isced-f-2013' },
+      { label: 'CEFR Companion Volume level descriptors (referenced, never reproduced)', jurisdiction: 'international reference', sourceId: 'cefr-companion-volume' },
+    ],
+    sources: [
+      { sourceId: 'cefr-companion-volume', scope: 'Language-level descriptor reference (cited, never reproduced)' },
+      { sourceId: 'ncert-textbooks', scope: 'Indian school language-curriculum concept anchoring' },
+    ],
+    effectiveAt: AT,
+    reviewDueAt: '2027-05-24',
+    riskClass: 'STANDARD',
+    safetyBoundary: 'Language-learning support only. The specialist preserves regional and dialect variation (charter §8), never claims fluency or certification on a learner\u2019s behalf, and treats a translated term as unverified unless a pack source anchors it.',
+    allowedTasks: ['grammar and usage checking at class level', 'terminology clarity review', 'language-level descriptor referencing (cited)'],
+    prohibitedTasks: ['official certification or immigration-document language claims', 'reproduce copyrighted texts'],
+    agentProfileIds: ['BEAN_SUBJECT_EXPERT::languages-literature'],
+    languageSupport: SEED_LANGUAGES,
+    benchmark: {
+      suiteId: 'ci3-domain-fixture-suite',
+      description: 'Deterministic fixture suite for language/translation claims (code-switch preservation, unverified-translation honesty). Fixtures see src/lib/ci/fleet/fixtures.ts.',
+      fixtureRefs: ['ci3-fixture-languages-unverified-translation', 'ci3-fixture-grounding-generic'],
       lastResult: null,
     },
     status: PACK_STATUS.IN_REVIEW,

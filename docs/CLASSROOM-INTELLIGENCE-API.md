@@ -174,3 +174,40 @@ bounded `evidenceGaps` (reconnects, server restarts), `dataMessageCount`
 (counts only — payloads never read), `whiteboardSnapshotVersion` (structure
 count from the authorised whiteboard row). No student identities, no media, no
 payloads — asserted by tests (`tests/unit/ci3-observer.test.ts`).
+
+## CI-3E — Specialist fleet runtime (executors behind the CI-3C worker seam)
+
+The CI-3E runtime (`src/lib/ci/fleet/runtime.ts`) is the real executor behind
+`registerFleetTaskExecutor`, auto-registered wherever dispatch runs. Role map:
+`BEAN_SUBJECT_EXPERT::<domain>` (source-grounded specialist), `EVIDENCE_AUDITOR`
+(deterministic resolution + one bounded model challenge), `SAFETY_GUARDIAN`
+(deterministic-only §14 sweep), `LEARNER`/`TEACHER_JUDGE` (deterministic mapping
+of completed CI-1 pipeline runs — never a duplicate model call), `LANGUAGE`
+(honest FAILED until CI-3F), enrichment coaches (honest FAILED until CI-3G).
+Permanent failures (missing pack, unparseable upstream output, missing handler)
+skip retries via the worker's `fleetPermanent` contract.
+
+Queue honesty fix: task priorities were reordered (`CORE 10 → DOMAIN 20 →
+LANGUAGE 30 → MANDATORY_AUDIT 40 → ENRICHMENT 50`) so the audit pair challenges
+outputs that EXIST — auditing before specialists would be a vacuous pass.
+
+### Specialist guarantees (all enforced in code, tested in `tests/unit/ci3-specialists.test.ts`)
+- **Source grounding**: a finding may cite only registered sources that the
+  pack itself declares (pack `sources` or glossary anchors); everything else is
+  demoted to `partially_available` + low confidence + an honest unknown.
+- **Cross-domain handoff**: `handoffTargetDomainId` is honoured only when it is
+  a declared `relatedSubjectDomainIds` entry of the citing pack; undeclared
+  targets become unknowns, never guesses.
+- **Prohibited tasks**: claims matching a pack's `prohibitedTasks` are refused
+  (deterministic matcher) and recorded as risk flags, never answered.
+- **IN_REVIEW honesty**: outputs of under-review packs carry a limitation on
+  every finding, an explicit unknown, and `requiresHumanReview: true`.
+- **Disagreements preserved**: the auditor surfaces conflicts verbatim; it
+  never averages or smooths them (§10.2).
+
+### Deterministic domain fixtures
+`src/lib/ci/fleet/fixtures.ts` ships the grounding/demotion/handoff/refusal
+fixture suite referenced by the packs' benchmarks (no model needed); the CI-3E
+core-family packs (`physics-space`, `chemistry-materials`, `biology-life`,
+`languages-literature`) extend the catalogue to 8 dispatchable packs — all
+still honestly IN_REVIEW pending the human VERIFIED gate (§6.4).
