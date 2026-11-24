@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/bean/empty-state'
+import { AdminCiReviewPanel } from '@/components/bean/admin/ci-review-panel'
 import { api } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import type {
@@ -209,12 +210,14 @@ function TrustCenter() {
           <TabsTrigger value="complaints">Complaints</TabsTrigger>
           <TabsTrigger value="teachers">Teachers</TabsTrigger>
           <TabsTrigger value="appeals">Appeals</TabsTrigger>
+          <TabsTrigger value="classroom-intelligence">Classroom Intelligence</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4"><OverviewPanel /></TabsContent>
         <TabsContent value="reviews" className="mt-4"><ReviewsPanel /></TabsContent>
         <TabsContent value="complaints" className="mt-4"><ComplaintsPanel /></TabsContent>
         <TabsContent value="teachers" className="mt-4"><TeachersPanel /></TabsContent>
         <TabsContent value="appeals" className="mt-4"><AppealsPanel /></TabsContent>
+        <TabsContent value="classroom-intelligence" className="mt-4"><AdminCiReviewPanel /></TabsContent>
       </Tabs>
     </div>
   )

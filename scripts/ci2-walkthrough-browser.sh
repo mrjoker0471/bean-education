@@ -34,7 +34,11 @@ wait_text() {
 }
 
 login() {
-  # $1 = email, $2 = audience button text fragment ("Learn, prepare" | "Apply to teach")
+  # $1 = email, $2 = audience button text fragment
+  # The auth view re-renders on a 4s google-status poll, which can detach
+  # elements between find() and click() — so every interaction below takes a
+  # FRESH accessibility ref from a new snapshot, and the panel switch is
+  # verified (the "Display name" field only exists on the create panel).
   agent-browser cookies clear >/dev/null 2>&1
   agent-browser storage local clear >/dev/null 2>&1
   agent-browser open "$BASE/#/auth" >/dev/null 2>&1
@@ -42,11 +46,17 @@ login() {
   sleep 1
   agent-browser find role button click --name "$2" >/dev/null 2>&1
   sleep 1
-  agent-browser find role button click --name "Sign in" >/dev/null 2>&1
-  sleep 1
+  for i in 1 2 3; do
+    DISP=$(agent-browser snapshot -i 2>/dev/null | grep -c 'Display name')
+    [ "$DISP" = "0" ] && break
+    REF=$(agent-browser snapshot -i 2>/dev/null | grep 'button "Sign in"' | grep -v "or create" | grep -o 'ref=[a-z0-9]*' | cut -d= -f2 | head -1)
+    [ -n "$REF" ] && agent-browser click @$REF >/dev/null 2>&1
+    sleep 1
+  done
   agent-browser find label "Email" fill "$1" >/dev/null 2>&1
   agent-browser find label "Password" fill "$DEMO_PASS" >/dev/null 2>&1
-  agent-browser find last "button[type=submit]" click >/dev/null 2>&1
+  SUBREF=$(agent-browser snapshot -i 2>/dev/null | grep 'lucide-log-in' | grep -o 'ref=[a-z0-9]*' | cut -d= -f2 | head -1)
+  if [ -n "$SUBREF" ]; then agent-browser click @$SUBREF >/dev/null 2>&1; else agent-browser find last "button[type=submit]" click >/dev/null 2>&1; fi
   for i in $(seq 1 15); do
     u=$(agent-browser get url 2>/dev/null)
     case "$u" in *"#/auth"*) sleep 1;; *) return 0;; esac

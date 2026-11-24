@@ -1,0 +1,49 @@
+server up
+--- A1. admin opens the Trust Center Classroom Intelligence tab
+PASS: admin signed in
+PASS: trust center renders
+PASS: CI dispute queue renders
+PASS: seeded dispute listed with class reference
+PASS: dispute status SUBMITTED
+shot 1440-admin-ci-queue
+--- A2. review workspace: original evaluation + evidence register
+PASS: review workspace opens
+PASS: evidence register visible
+PASS: original finding ids visible
+FAIL: agent runs missing
+PASS: append-only history visible
+shot 1440-admin-review-workspace
+--- A3. human decision: assign + resolve UPHELD with a documented note
+FAIL: decision dialog missing
+PASS: dispute now RESOLVED (UPHELD)
+PASS: dispute moved to Closed section
+shot 1440-admin-ci-decision-recorded
+--- T1. teacher opens the evaluated report and the dispute dialog
+PASS: teacher signed in
+PASS: intelligence tab opens
+PASS: report open
+FAIL: dispute dialog missing
+shot 1440-teacher-dispute-dialog
+--- T2. submit the dispute against a real finding
+PASS: disputes section present
+FAIL: new dispute missing
+shot 1440-teacher-dispute-submitted
+--- T3. teacher cannot modify an administrator decision (no controls exist)
+FAIL: history dialog missing
+FAIL: governance wording missing
+shot 1440-teacher-dispute-history
+--- A4. admin resolves the new dispute (UPHELD)
+FAIL: queue empty
+PASS: second dispute RESOLVED (UPHELD)
+--- T4. teacher requests the reconsideration (the appeal)
+PASS: disputes section
+FAIL: reconsider missing
+PASS: dispute back to SUBMITTED after reconsideration
+--- A5. reviewer separation: the original decider is refused in the UI
+PASS: reconsidered dispute back in queue
+PASS: original decision-maker server-barred (honest refusal shown)
+shot 1440-admin-reviewer-separation-refusal
+--- T5. mobile teacher dispute experience
+PASS: disputes reachable on mobile
+shot 390-teacher-disputes
+=== CI-2A part 2 complete ===

@@ -148,16 +148,29 @@ export async function enqueueEvaluation(opts: {
     finishedAt: null,
     updatedAt: now,
   }
-  const job = existing
-    ? await db.classroomEvaluationJob.update({ where: { id: existing.id }, data: reset })
-    : await db.classroomEvaluationJob.create({
-        data: {
-          classSessionId: cls.id,
-          teacherProfileId: cls.teacherProfileId,
-          liveSessionId: cls.liveSession.id,
-          ...reset,
-        },
-      })
+  let job
+  try {
+    job = existing
+      ? await db.classroomEvaluationJob.update({ where: { id: existing.id }, data: reset })
+      : await db.classroomEvaluationJob.create({
+          data: {
+            classSessionId: cls.id,
+            teacherProfileId: cls.teacherProfileId,
+            liveSessionId: cls.liveSession.id,
+            ...reset,
+          },
+        })
+  } catch (err) {
+    // CI-2F: two concurrent triggers for the same class race the UNIQUE
+    // constraint (duplicate LiveKit webhooks). The loser re-reads the
+    // winner's job and reports it as already queued — full idempotency
+    // instead of an unhandled P2002.
+    if ((err as { code?: string }).code === 'P2002') {
+      const winner = await db.classroomEvaluationJob.findUnique({ where: { classSessionId: cls.id } })
+      if (winner) return { queued: true, jobId: winner.id, alreadyQueued: true }
+    }
+    throw err
+  }
 
   ensureCiWorker()
   return { queued: true, jobId: job.id, alreadyQueued: false }

@@ -243,6 +243,7 @@ export async function GET(_req: NextRequest) {
           resolutionNote: true,
           resolvedAt: true,
           createdAt: true,
+          events: { orderBy: { createdAt: 'asc' }, select: { action: true, detail: true, actorRole: true, createdAt: true } },
         },
       }),
     ])
@@ -602,6 +603,7 @@ export async function GET(_req: NextRequest) {
           resolutionNote: d.resolutionNote,
           resolvedAt: d.resolvedAt ? d.resolvedAt.toISOString() : null,
           createdAt: d.createdAt.toISOString(),
+          history: d.events.map(e => ({ action: e.action, detail: e.detail, actorRole: e.actorRole, createdAt: e.createdAt.toISOString() })),
         })),
       },
     }

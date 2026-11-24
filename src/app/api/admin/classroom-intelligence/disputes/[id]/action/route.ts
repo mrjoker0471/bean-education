@@ -33,6 +33,7 @@ type ActionOutcome =
   | { kind: 'notFound' }
   | { kind: 'invalid'; message: string }
   | { kind: 'rebuildImpossible' }
+  | { kind: 'forbidden'; message: string }
   | { kind: 'ok'; status: string; resolution?: string }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -74,6 +75,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!dispute) return { kind: 'notFound' }
       if (['RESOLVED', 'DISMISSED'].includes(dispute.status)) {
         return { kind: 'invalid', message: 'This dispute is already closed.' }
+      }
+      // Governance (CI-2E): the dispute is opened against the calling admin's
+      // own report → self-review forbidden. A reconsideration (appeal) is
+      // never reviewed by the administrator who made the original decision —
+      // the reconsider event records that decider and the case is barred to
+      // them. AI agents cannot resolve disputes: every decision here is a
+      // session-authenticated human action with a documented note.
+      if (dispute.teacherId === student.id) {
+        return { kind: 'forbidden', message: 'An administrator cannot decide a dispute on their own report.' }
+      }
+      const events = await tx.classroomDisputeEvent.findMany({
+        where: { disputeId: dispute.id },
+        orderBy: { createdAt: 'asc' },
+        select: { action: true, detail: true },
+      })
+      const reconsidered = events.some((e) => e.action === CI_DISPUTE_EVENT_ACTION.RECONSIDER_REQUESTED)
+      if (reconsidered && dispute.resolvedById === student.id) {
+        return { kind: 'forbidden', message: 'The administrator who made the original decision cannot review this reconsideration.' }
       }
 
       const now = new Date()
@@ -207,6 +226,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         { error: 'The corrected rebuild is impossible because the original agent outputs are unavailable — use RETRACTED instead.' },
         { status: 409 },
       )
+    }
+    if (outcome.kind === 'forbidden') {
+      return NextResponse.json({ error: outcome.message }, { status: 403 })
     }
     return NextResponse.json({ status: outcome.status, resolution: outcome.resolution ?? null })
   } catch (err) {

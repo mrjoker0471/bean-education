@@ -152,6 +152,9 @@ import type {
   CiStudentSummariesResponse,
   CiTeacherSummaryResponse,
   CiTeacherTrendsResponse,
+  CiTeacherDisputesResponse,
+  CiAdminDisputesResponse,
+  CiAdminReportDTO,
 } from './ci/dto'
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -778,6 +781,30 @@ export const api = {
     ),
   ciStudentSummaries: () => jsonFetch<CiStudentSummariesResponse>('/api/learn/class-summaries'),
   ciTeacherTrends: () => jsonFetch<CiTeacherTrendsResponse>('/api/teach/classroom-intelligence/trends'),
+  ciCreateDispute: (reportId: string, findings: { findingId: string; reason: string }[]) =>
+    jsonFetch<{ dispute: { id: string; reportId: string; status: string; createdAt: string } }>(
+      `/api/teach/classroom-intelligence/reports/${encodeURIComponent(reportId)}/dispute`,
+      { method: 'POST', body: JSON.stringify({ findings }) },
+    ),
+  ciTeacherDisputes: () => jsonFetch<CiTeacherDisputesResponse>('/api/teach/classroom-intelligence/disputes'),
+  ciReconsiderDispute: (id: string, note: string) =>
+    jsonFetch<{ dispute: { id: string; status: string }; note: string }>(
+      `/api/teach/classroom-intelligence/disputes/${encodeURIComponent(id)}/reconsider`,
+      { method: 'POST', body: JSON.stringify({ note }) },
+    ),
+
+  // ─── BEAN Classroom Intelligence (CI-2E): administrator review ───
+  adminCiDisputes: () => jsonFetch<CiAdminDisputesResponse>('/api/admin/classroom-intelligence/disputes'),
+  adminCiDisputeAction: (
+    id: string,
+    payload: { action: 'ASSIGN' | 'UNDER_REVIEW' | 'RESOLVE' | 'DISMISS'; resolution?: 'UPHELD' | 'CORRECTED' | 'RETRACTED'; note?: string },
+  ) =>
+    jsonFetch<{ status: string; resolution: string | null }>(
+      `/api/admin/classroom-intelligence/disputes/${encodeURIComponent(id)}/action`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  adminCiReport: (reportId: string) =>
+    jsonFetch<CiAdminReportDTO>(`/api/admin/classroom-intelligence/reports/${encodeURIComponent(reportId)}`),
 
   // ─── BEAN Trust & Quality (Phase 6): reviews, complaints, appeals ───
   classReviews: (classId: string) =>

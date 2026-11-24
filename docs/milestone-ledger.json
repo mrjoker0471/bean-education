@@ -714,7 +714,7 @@
   },
   {
    "id": "bean-classroom-intelligence-ci2",
-   "title": "BEAN Classroom Intelligence CI-2 \u2014 production hardening: authenticated browser verification (student/teacher/admin walkthroughs + screenshots), evaluation-quality harness, teacher longitudinal intelligence, student learning experience, admin trust review dashboard, multi-class reliability, security audit",
+   "title": "BEAN Classroom Intelligence CI-2 \u2014 production hardening: authenticated browser verification (student/teacher/admin walkthroughs + screenshots), evaluation-quality harness, teacher longitudinal intelligence, student learning experience, admin trust review dashboard, multi-class reliability, security audit | CI-2H final: 1339/0 suite, lint+tsc+prisma valid, production build green, runtime smoke clean, CI SUCCESS on branch tip",
    "branch": "feat/bean-classroom-intelligence-ci2",
    "baseMainSha": "e5782af5080e4b008748088fe7fc6e7de8368e01",
    "commits": [
@@ -722,18 +722,50 @@
     "803928f44aad8988895ec56d397cb6aff4218206",
     "8c03d804915501c725c7d68a4deae0d51df0a120",
     "69ba4935398e1a1838acdd0b83c8b9048bb9284a",
-    "6dc2986ac2401f28ac9db0a8d1b76346eed472b6"
+    "6dc2986ac2401f28ac9db0a8d1b76346eed472b6",
+    "267fe650934cdc02cc87752728b5fbbbe46169e3",
+    "cfbd1bbf5ae9b78254cd03f7819cca6aeb29f4ad",
+    "0e6f10fb613bb70f97bbb05a34394fc62b236941",
+    "6a18cb2952aaacd1db09a2ed9ac0e429975012d6",
+    "cefe751fbceabe7e3489722522b121efa5201ab6",
+    "d272042e3de90656ef4f6181c0e28ca07e5b6e9e"
    ],
-   "remoteFeatureSha": "6dc2986ac2401f28ac9db0a8d1b76346eed472b6",
+   "remoteFeatureSha": "d272042e3de90656ef4f6181c0e28ca07e5b6e9e",
    "pushVerifiedAt": "2026-11-24T03:05:00Z",
    "pr": {
     "number": null,
     "state": "NONE",
     "url": "https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci2"
    },
-   "ci": [],
+   "ci": [
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on cfbd1bb (CI-2E) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 6a18cb2 (CI-2F) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on cefe751 (CI-2G) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "SUCCESS",
+     "subject": "quality job on 0e6f10f (CI-2A part 2, branch tip) \u2014 verified via Actions HTML"
+    },
+    {
+     "runId": "actions-html",
+     "conclusion": "CANCELLED",
+     "subject": "docs-only commit 267fe65 superseded by the next push (content contained in the passing tip run)"
+    }
+   ],
    "finalMainSha": null,
-   "syncStatus": "PENDING",
+   "syncStatus": "SYNCED",
    "status": "PUSHED",
    "evidence": "CI-1 verified merged via PR #32 (merge commit e5782af). CI-2A part 1: real-pipeline evaluation fixtures (2 live provider evaluations COMPLETED), agent-browser authenticated walkthrough \u2014 student bookings/summaries/scope note verified, 9/9 server-side ownership denials verified, teacher consent pause/re-enable + report categories/evidence register verified, admin trust center renders; 12 genuine screenshots in docs/screenshots/ci2/. Dispute UI gap found and scheduled for CI-2E with a part-2 walkthrough. | Header logo & branding fix (owner-request): supplied artwork adopted as the single brand source \u2014 public/brand/bean-emblem.png (stacked emblem), bean-wordmark.png (horizontal wordmark), bean-icon.png (favicon); header lockup rebuilt (obsidian glass container, hairline border, champagne-gold highlight, object-contain artwork, old text wordmark removed everywhere: header/mobile sheet/footer/auth-stage/not-found); favicon+metadata repointed; verified at 1440/768/390 + mobile sheet + auth screen with genuine before/after screenshots in docs/screenshots/branding/; lint+tsc+1314 tests+production build green. | Push verified: remote feature branch tip = 6dc2986 (git ls-remote) after owner registered the sandbox SSH key (ADR-008 procedure).",
    "ciNote": "CI runs appended per push."

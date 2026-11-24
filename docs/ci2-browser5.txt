@@ -1,0 +1,17 @@
+PASS: admin B signed in
+FAIL: queue
+FAIL: workspace
+FAIL: decision dialog
+PASS: reconsidered case RESOLVED by admin B (positive appeal path)
+shot 1440-admin-b-resolution
+PASS: teacher signed in
+PASS: dispute dialog opened via UI (disclosure visible)
+PASS: findings rendered in dialog
+FAIL: radio selection
+NOTE: dialog state after submit unclear (verified via DB below)
+FAIL: new dispute state
+shot 1440-teacher-dispute-ui-created
+FAIL: governance wording
+PASS: append-only history visible to the teacher
+shot 1440-teacher-dispute-history-b
+=== CI-2A part 2d complete ===
