@@ -2440,3 +2440,28 @@ model ClassroomReportAuditReview {
   @@index([reportId, reportVersion])
   @@index([reviewerStudentId])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5H): re-review lifecycle ─────────────────
+// Expert validation is not permanent by assumption. When a trigger fires (pack
+// change, source revocation, licence change, benchmark update, material model
+// change, qualification expiry, safety-policy change, confirmed material
+// error), a renewal DEMAND is recorded. Previous approvals are never erased —
+// the demand marks the current status appropriately and the resolution is a
+// new, reasoned, admin-authorised event.
+model ExpertReviewRenewalDemand {
+  id          String    @id @default(cuid())
+  subjectType String    // DOMAIN_PACK | LANGUAGE_CAPABILITY | CLASSROOM_REPORT
+  subjectKey  String    // domainId | "tag:task:domain" | report id
+  trigger     String    // PACK_CHANGED | SOURCE_REVOKED | LICENCE_CHANGED | BENCHMARK_UPDATED | MODEL_CHANGED | QUALIFICATION_EXPIRED | SAFETY_POLICY_CHANGED | MATERIAL_ERROR
+  detail      String
+  demandedBy  String    // server-resolved actor
+  status      String    @default("OPEN") // OPEN | RESOLVED
+  resolution  String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([subjectType, subjectKey, status])
+  @@index([trigger, status])
+}

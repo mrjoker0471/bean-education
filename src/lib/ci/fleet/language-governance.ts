@@ -514,16 +514,26 @@ export interface EffectiveCapability {
   }
 }
 
+export interface ModelContext {
+  modelProvider?: string
+  modelVersion?: string
+  benchmarkVersion?: string
+}
+
 /**
  * Resolve the effective capability for a language+task from PERSISTED state
  * (falls back to the honest catalogue defaults when no durable row exists).
- * Resolution order: structural UNSUPPORTED for TRANSCRIPTION; a
- * HUMAN_APPROVED VERIFIED row; the best measured (non-revoked, non-superseded)
- * LIMITED row — a revoked binding never hides other bindings' machine
- * evidence, each binding is model/benchmark-specific; a REVOKED row surfaces
- * when nothing else stands; otherwise the catalogue default.
+ *
+ * Without a model context (registry views): VERIFIED binding → best measured
+ * LIMITED → REVOKED when nothing else stands → catalogue default.
+ *
+ * WITH a model context (the runtime gate): the binding matching the context
+ * wins; if the matching row is not VERIFIED — or no binding exists for the
+ * current model — the capability is at best LIMITED with an honest note.
+ * A previously VERIFIED binding is never silently treated as valid for a new
+ * model or benchmark version (CI-5H regression protection).
  */
-export async function resolveEffectiveCapability(db: LanguageGovernanceDb, languageTag: string, task: Ci3LanguageTask): Promise<EffectiveCapability> {
+export async function resolveEffectiveCapability(db: LanguageGovernanceDb, languageTag: string, task: Ci3LanguageTask, modelContext?: ModelContext): Promise<EffectiveCapability> {
   const tag = languageByTag(languageTag)?.tag ?? languageTag.toLowerCase()
   if (task === 'TRANSCRIPTION') {
     return {
@@ -536,6 +546,40 @@ export async function resolveEffectiveCapability(db: LanguageGovernanceDb, langu
     }
   }
   const rows = await db.languageCapabilityStatus.findMany({ where: { languageTag: tag, task }, orderBy: { updatedAt: 'desc' as const } })
+
+  if (modelContext) {
+    const matches = (r: LanguageStatusRow) =>
+      (!modelContext.modelProvider || r.modelProvider === modelContext.modelProvider) &&
+      (!modelContext.modelVersion || r.modelVersion === modelContext.modelVersion) &&
+      (!modelContext.benchmarkVersion || r.benchmarkVersion === modelContext.benchmarkVersion)
+    const exact = rows.find(matches)
+    if (exact) {
+      return {
+        languageTag: tag,
+        task,
+        status: exact.status as LanguageCapabilityStatusValue,
+        basis: exact.basis,
+        note: exact.note,
+        binding: { statusRowId: exact.id, modelProvider: exact.modelProvider, modelVersion: exact.modelVersion, benchmarkVersion: exact.benchmarkVersion, measurementId: exact.latestMeasurementId },
+      }
+    }
+    // no binding for the current model: the best this capability can be is LIMITED
+    const verifiedElsewhere = rows.find((r) => r.status === 'VERIFIED')
+    const measuredElsewhere = rows.find((r) => r.status === 'LIMITED')
+    const measuredId = measuredElsewhere?.latestMeasurementId ?? null
+    const note = verifiedElsewhere
+      ? `a VERIFIED binding exists for ${verifiedElsewhere.modelProvider}/${verifiedElsewhere.modelVersion ?? 'unversioned'} (benchmark ${verifiedElsewhere.benchmarkVersion ?? 'unversioned'}), but the CURRENT model ${modelContext.modelProvider ?? 'unknown'}/${modelContext.modelVersion ?? 'unknown'} is not verified for this task — machine-measured evidence only (LIMITED at best); a new qualified review is required`
+      : `no durable binding exists for the current model ${modelContext.modelProvider ?? 'unknown'}/${modelContext.modelVersion ?? 'unknown'} — machine-measured evidence only (LIMITED at best)`
+    return {
+      languageTag: tag,
+      task,
+      status: 'LIMITED',
+      basis: 'MEASUREMENT_ONLY',
+      note,
+      binding: { statusRowId: measuredElsewhere?.id ?? null, modelProvider: measuredElsewhere?.modelProvider ?? null, modelVersion: measuredElsewhere?.modelVersion ?? null, benchmarkVersion: measuredElsewhere?.benchmarkVersion ?? null, measurementId: measuredId },
+    }
+  }
+
   const verified = rows.find((r) => r.status === 'VERIFIED')
   if (verified) {
     return {
@@ -580,13 +624,13 @@ export async function resolveEffectiveCapability(db: LanguageGovernanceDb, langu
   }
 }
 
-export async function isCapabilityVerifiedDurable(db: LanguageGovernanceDb, languageTag: string, task: Ci3LanguageTask): Promise<boolean> {
-  return (await resolveEffectiveCapability(db, languageTag, task)).status === 'VERIFIED'
+export async function isCapabilityVerifiedDurable(db: LanguageGovernanceDb, languageTag: string, task: Ci3LanguageTask, modelContext?: ModelContext): Promise<boolean> {
+  return (await resolveEffectiveCapability(db, languageTag, task, modelContext)).status === 'VERIFIED'
 }
 
 /** Refusal reason for consumers — null when the capability is cleared. */
-export async function capabilityRefusalReasonDurable(db: LanguageGovernanceDb, languageTag: string, task: Ci3LanguageTask): Promise<string | null> {
-  const eff = await resolveEffectiveCapability(db, languageTag, task)
+export async function capabilityRefusalReasonDurable(db: LanguageGovernanceDb, languageTag: string, task: Ci3LanguageTask, modelContext?: ModelContext): Promise<string | null> {
+  const eff = await resolveEffectiveCapability(db, languageTag, task, modelContext)
   if (eff.status === 'VERIFIED') return null
   if (eff.status === 'UNSUPPORTED' && task === 'TRANSCRIPTION') {
     return `${eff.languageTag}/${eff.task} is UNSUPPORTED: ${eff.note}`

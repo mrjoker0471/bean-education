@@ -22,6 +22,7 @@ import { z } from 'zod'
 import { PACK_STATUS, PACK_REVIEW_DECISION, type PackStatus, type PackReviewDecision } from './constants'
 import { getDomainPack, listDomainPacks, computePackChecksum, dispatchableDomainPacks, type DomainPack } from './domain-packs'
 import { ensurePackSourcesRegistered } from './packs/sources'
+import './packs/registry'
 import { detectReviewDisagreement } from './assignments'
 
 // ─── Decision input ───────────────────────────────────────────────────────────
