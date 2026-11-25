@@ -168,6 +168,24 @@ export function resetSourcesForTests(): void {
   byId.clear()
 }
 
+/**
+ * Snapshot the full source register (tests only).
+ * Combined-run hygiene: bun executes every test file in ONE process, so any
+ * file that clears the register would otherwise leak that state into every
+ * file executed after it (order is filesystem-dependent). Tests that mutate
+ * the register must snapshot before their first mutation and restore in
+ * afterAll via restoreSourcesForTests.
+ */
+export function snapshotSourcesForTests(): Array<[string, SourceRecord]> {
+  return Array.from(byId.entries())
+}
+
+/** Restore a snapshot taken by snapshotSourcesForTests (tests only). */
+export function restoreSourcesForTests(snapshot: Array<[string, SourceRecord]>): void {
+  byId.clear()
+  for (const [sourceId, record] of snapshot) byId.set(sourceId, record)
+}
+
 /** Clear the once-only flag so the next ensure call re-registers (tests only). */
 export function resetSourceRegistrationFlagForTests(): void {
   // this file has no once-flag; kept for symmetry with the other seed modules

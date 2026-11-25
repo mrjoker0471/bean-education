@@ -306,6 +306,24 @@ export function resetDomainPacksForTests(): void {
   packs.clear()
 }
 
+/**
+ * Snapshot the pack store (tests only) — pair with restoreDomainPacksForTests
+ * in afterAll so a mutating test file never leaks pack registrations into
+ * other files in the same combined bun test process (execution order is
+ * filesystem-dependent).
+ */
+export function snapshotDomainPacksForTests(): Array<[string, { pack: DomainPack; checksum: string }]> {
+  return Array.from(packs.entries())
+}
+
+/** Restore a snapshot taken by snapshotDomainPacksForTests (tests only). */
+export function restoreDomainPacksForTests(
+  snapshot: Array<[string, { pack: DomainPack; checksum: string }]>,
+): void {
+  packs.clear()
+  for (const [domainId, entry] of snapshot) packs.set(domainId, entry)
+}
+
 /** Seed-catalogue summary for docs/UI (never claims completeness). */
 export function domainCatalogueSummary(): { families: number; iscedFields: number; note: string } {
   return {

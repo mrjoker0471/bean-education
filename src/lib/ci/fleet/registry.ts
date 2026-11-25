@@ -125,6 +125,22 @@ export function resetRegistryForTests(): void {
   coreRoles.clear()
 }
 
+/**
+ * Snapshot the fleet registry (tests only) — pair with restoreRegistryForTests
+ * in afterAll so a mutating test file never leaks registry state into other
+ * files in the same combined bun test process (execution order is
+ * filesystem-dependent).
+ */
+export function snapshotRegistryForTests(): Array<[string, FleetAgentSpec]> {
+  return Array.from(coreRoles.entries())
+}
+
+/** Restore a snapshot taken by snapshotRegistryForTests (tests only). */
+export function restoreRegistryForTests(snapshot: Array<[string, FleetAgentSpec]>): void {
+  coreRoles.clear()
+  for (const [agentId, spec] of snapshot) coreRoles.set(agentId, spec)
+}
+
 /** Re-run core fleet registration after a reset (tests only). */
 export function reRegisterCoreFleetForTests(): void {
   registerCoreFleet()

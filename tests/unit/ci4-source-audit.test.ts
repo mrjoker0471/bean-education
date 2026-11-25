@@ -12,7 +12,7 @@
 //   A8  quarantine vocabulary: PERMISSION_PENDING / NO_DERIVATIVES / superseded
 //   A9  every baseline seed source is fully provenance-recorded
 
-import { describe, test, expect, beforeAll } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import {
   registerSource,
   getSource,
@@ -20,6 +20,8 @@ import {
   assertSourceUsable,
   assertSourceContentUsable,
   resetSourcesForTests,
+  snapshotSourcesForTests,
+  restoreSourcesForTests,
 } from '@/lib/ci/fleet/sources'
 import {
   ensurePackSourcesRegistered,
@@ -27,6 +29,16 @@ import {
 } from '@/lib/ci/fleet/packs/sources'
 import { resetTaxonomySourcesForTests } from '@/lib/ci/fleet/taxonomy'
 import { SOURCE_LICENCE_RESTRICTION } from '@/lib/ci/fleet/constants'
+
+// Combined-run hygiene: this file clears the global source register in
+// beforeAll, registers probe sources and mutates licence records. bun executes
+// every test file in one process (order filesystem-dependent), so the mutated
+// register must be restored after the last test or later files would observe
+// this file's probes and modifications.
+const sourcesSnapshot = snapshotSourcesForTests()
+afterAll(() => {
+  restoreSourcesForTests(sourcesSnapshot)
+})
 
 describe('CI-4A source licence audit', () => {
   beforeAll(() => {
