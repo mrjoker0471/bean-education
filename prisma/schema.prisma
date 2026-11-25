@@ -2191,3 +2191,62 @@ model ExpertReviewerEvent {
   @@index([profileId, createdAt])
   @@index([eventType])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5C): expert review assignment & case management ──
+// Every expert review (domain pack or language capability) flows through a
+// server-authorised assignment: scope matching, duplicate/independence checks
+// and the admin conflict-of-interest check happen at CREATION time; recusal,
+// expiry, reassignment and completion are append-only audit events. The
+// assignment never carries the decision itself — decisions are recorded only
+// through the authoritative append-only paths (ClassroomPackReview for packs,
+// LanguageCapabilityReview for languages), and the assignment then references
+// the outcome (outcomeRef).
+model ExpertReviewAssignment {
+  id                String    @id @default(cuid())
+  // DOMAIN_PACK | LANGUAGE_CAPABILITY
+  subjectType       String
+  // domainId for packs; "tag:task:domain" composite for language capabilities
+  subjectKey        String
+  // exact pack version + checksum under review (DOMAIN_PACK)
+  subjectVersion    String?
+  subjectChecksum   String?
+  riskClass         String?   // snapshot: STANDARD | ELEVATED | HIGH_STAKES
+  // Server-resolved reviewer (profile) + assigning administrator.
+  reviewerProfileId String
+  reviewerCode      String    // snapshot for audit readability
+  assignedByAdminId String
+  // ASSIGNED | IN_PROGRESS | SUBMITTED | COMPLETED | EXPIRED | REASSIGNED | RECUSED | CANCELLED
+  status            String    @default("ASSIGNED")
+  dueAt             DateTime?
+  expiresAt         DateTime?
+  // Admin-recorded conflict-of-interest check at assignment time:
+  // PASS (admin declared none) — CONFLICT_FOUND refuses creation outright.
+  coiCheckResult    String    @default("PASS")
+  conflictNote      String?
+  // Set when the authoritative review decision is recorded (CI-5D/5E submit paths).
+  outcomeRef        String?
+  reassignmentReason String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([subjectType, subjectKey, status])
+  @@index([reviewerProfileId, status])
+  @@index([status, expiresAt])
+}
+
+// Append-only assignment audit history (every transition attributed).
+model ExpertReviewAssignmentEvent {
+  id           String   @id @default(cuid())
+  assignmentId String
+  // ASSIGNED | STARTED | SUBMITTED | COMPLETED | EXPIRED | REASSIGNED |
+  // RECUSED | CANCELLED | ADJUDICATION_REQUESTED | ADJUDICATED
+  eventType    String
+  actorKind    String   // ADMIN | REVIEWER | SYSTEM
+  actorId      String   // server-resolved Student.id (or reviewer account id)
+  rationale    String?
+  payload      String?
+  createdAt    DateTime @default(now())
+
+  @@index([assignmentId, createdAt])
+  @@index([eventType])
+}

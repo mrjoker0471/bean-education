@@ -150,3 +150,92 @@ decides).
   mandatory-to-honour.
 - Reviewer eligibility never flows from agent output or model-generated tool
   calls (no code path connects agents to reviewer administration).
+
+---
+
+## 10. CI-5C — Review assignment & case management
+
+Every expert review flows through a server-authorised `ExpertReviewAssignment`
+(additive migration `20261125130000_ci5_review_assignments`). The assignment
+carries the case, never the decision: decisions are written only through the
+authoritative append-only ledgers (`ClassroomPackReview` for packs, the CI-5E
+language review ledger for capabilities), and the assignment stores the
+`outcomeRef` afterwards.
+
+### Queue data model
+
+Each assignment records: subject type (`DOMAIN_PACK` / `LANGUAGE_CAPABILITY`),
+subject key (domainId, or `tag:task:domain` composite), exact pack version +
+checksum under review, risk-class snapshot, the reviewer (profile + reviewerCode
+snapshot), the assigning administrator (server-resolved), status, due date,
+acceptance-expiry, the admin's conflict-of-interest check, the outcome reference
+and (when applicable) the reassignment reason. An append-only
+`ExpertReviewAssignmentEvent` history records every transition.
+
+### Assignment creation gates (all server-side, at creation)
+
+1. Reviewer must be **ACTIVE** (APPROVED-but-inactive, SUSPENDED, EXPIRED,
+   REVOKED, REJECTED, PENDING — all refused).
+2. **Exact scope match**: `DOMAIN_PACK` subjects via
+   `reviewerCanReviewDomain`; language subjects via
+   `reviewerCanReviewLanguage` (tag + task + domain-language restriction).
+   A mathematics reviewer cannot take engineering; a Hindi reviewer cannot
+   take Tamil; a DOMAIN_EXPERT cannot take language-capability subjects at all.
+3. **Conflict-of-interest check is mandatory**: the assigning administrator
+   must record `NONE_DECLARED` or `CONFLICT_FOUND`; a declared conflict refuses
+   the assignment outright.
+4. **One open assignment per reviewer per subject** (duplicate guard).
+5. **Independent-review separation**: a reviewer who already recorded a
+   decision for the exact subject checksum is never re-assigned to it.
+
+### Lifecycle
+
+```
+ASSIGNED → IN_PROGRESS (reviewer starts; ownership re-verified)
+         → SUBMITTED   (decision handed to the authoritative ledger)
+         → COMPLETED   (ledger recorded the outcome; outcomeRef stored;
+                        SYSTEM-attributed event)
+ASSIGNED/IN_PROGRESS → RECUSED (reviewer; reason ≥10 chars; append-only)
+                     → EXPIRED (lazy, SYSTEM-attributed, when expiresAt passes;
+                                expired work can never be submitted)
+                     → CANCELLED (admin; reason required)
+                     → REASSIGNED (admin; reason required; the replacement is
+                       validated through the SAME gates BEFORE the original
+                       closes — a failed reassignment never leaves the subject
+                       silently unassigned)
+```
+
+### Disagreement handling (pure detection, honest resolution)
+
+`detectReviewDisagreement` flags a subject version carrying both APPROVED and
+REJECTED / CHANGES_REQUESTED / RE_REVIEW_REQUESTED decisions. Both opinions are
+preserved; scores are never averaged; the favourable decision is never silently
+selected. The recorded resolution path is an **independent adjudicator
+assignment** (a distinct qualified reviewer) — adjudication never mutates the
+decision ledgers; only new, checksum-bound decisions on a version do.
+
+### API surface
+
+| Route | Who | Purpose |
+|---|---|---|
+| `GET /api/admin/ci5/assignments` | requireAdmin | governance queue (status/subject filters) |
+| `POST /api/admin/ci5/assignments` | requireAdmin | create assignment (scope + COI + independence gates) |
+| `POST /api/admin/ci5/assignments/[id]/reassign` | requireAdmin | validated reassignment |
+| `POST /api/admin/ci5/assignments/[id]/cancel` | requireAdmin | cancel with reason |
+| `GET /api/ci5/reviewer/assignments` | signed-in reviewer | OWN assignments only |
+| `POST /api/ci5/reviewer/assignments/[id]/start` | reviewer owner | begin work |
+| `POST /api/ci5/reviewer/assignments/[id]/recuse` | reviewer owner | recuse with reason |
+
+### Tested behaviour (18 tests, isolated real DB)
+
+Golden creation with COI-pass event; scope mismatch (domain and language);
+category mismatch (DOMAIN_EXPERT cannot take language subjects); declared COI
+refusal; non-ACTIVE refusal; duplicate + decided-version guards; full lifecycle
+with cross-reviewer ownership refusal; completion ordering (premature completion
+refused); recusal (reason, ownership, permanence); lazy expiry (SYSTEM event,
+late submit refused); reassignment (validated-first ordering proven — a failed
+reassignment leaves the original ASSIGNED; scope gate re-run for the
+replacement; no-op and short-reason refusals); cancellation; disagreement
+detection (both opinions preserved, unanimous sets clean); route-level guards
+through the REAL requireAdmin/requireStudent (401/403, owner-only queue,
+scope-gated creates and reassignments).

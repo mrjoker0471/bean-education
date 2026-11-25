@@ -328,6 +328,18 @@ export async function resolveReviewerProfile(
   return profile
 }
 
+/** Resolve by profile id (admin registry picks), applying the same lazy expiry. */
+export async function resolveReviewerProfileById(
+  db: ReviewerDb,
+  profileId: string,
+  now: Date = new Date(),
+): Promise<ReviewerProfileRow | null> {
+  const profile = await db.expertReviewerProfile.findUnique({ where: { id: profileId } })
+  if (!profile) return null
+  if (isExpired(profile, now)) return expireProfile(db, profile, now)
+  return profile
+}
+
 // ─── Lifecycle operations (the only status-write paths) ──────────────────────
 
 export type ReviewerOpResult<T = undefined> =
