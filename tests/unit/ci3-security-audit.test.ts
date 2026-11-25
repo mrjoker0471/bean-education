@@ -356,7 +356,23 @@ describe('CI-3H load/recovery benchmark (L1)', () => {
       timeout: 240_000,
       encoding: 'utf8',
     })
-    const out = run.stdout + run.stderr
+    const stdout = typeof run.stdout === 'string' ? run.stdout : ''
+    const stderr = typeof run.stderr === 'string' ? run.stderr : ''
+    const out = `${stdout}\n${stderr}`
+    // Diagnostics: a failed benchmark subprocess must expose WHY it failed —
+    // captured stdout, captured stderr and the spawn error itself — instead of
+    // a bare `expected 1 to be 0`. The assertions below are unchanged.
+    const diagnostics = [
+      'CI-3H load benchmark subprocess failed — captured diagnostics:',
+      `  status: ${run.status}`,
+      `  signal: ${run.signal ?? 'none'}`,
+      `  spawn error: ${run.error ? (run.error.stack ?? String(run.error)) : 'none'}`,
+      '--- captured stdout ---',
+      stdout.trim() || '(empty)',
+      '--- captured stderr ---',
+      stderr.trim() || '(empty)',
+    ].join('\n')
+    if (run.error || run.status !== 0) throw new Error(diagnostics)
     expect(run.status).toBe(0)
     expect(out.includes('INVARIANT FAIL')).toBe(false)
     expect(out).toContain('tasks claimed+run')

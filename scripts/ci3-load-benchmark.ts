@@ -33,16 +33,22 @@ execFileSync('node_modules/.bin/prisma', ['migrate', 'deploy'], {
 const client = new PrismaClient({ datasources: { db: { url: isolatedUrl } } })
 mock.module('@/lib/db', () => ({ db: client }))
 
+// Portable source resolution: resolve BEAN's source tree relative to THIS
+// script file (scripts/ → src/), never a workstation-specific absolute path.
+// The benchmark must run in any checkout — including the CI runner, where a
+// developer workstation's directory layout does not exist.
+const SRC_ROOT = join(import.meta.dir, '..', 'src')
+
 const { claimNextFleetTask, runFleetTask, recoverExpiredFleetLeases, cancelFleetTasksForSession, fleetPoolStats } = await import(
-  '/home/z/ci3c/src/lib/ci/fleet/worker.ts'
+  join(SRC_ROOT, 'lib/ci/fleet/worker.ts')
 )
-const { registerFleetTaskExecutor } = await import('/home/z/ci3c/src/lib/ci/fleet/worker.ts')
-const { FLEET_TASK_PRIORITY, FLEET_TASK_ROLE, FLEET_AGENT_ID } = await import('/home/z/ci3c/src/lib/ci/fleet/constants.ts')
-const { FLEET_CONTRACT_VERSION, fleetTaskId } = await import('/home/z/ci3c/src/lib/ci/fleet/contracts.ts')
-const { CI_CONSENT_PURPOSE } = await import('/home/z/ci3c/src/lib/ci/constants.ts')
+const { registerFleetTaskExecutor } = await import(join(SRC_ROOT, 'lib/ci/fleet/worker.ts'))
+const { FLEET_TASK_PRIORITY, FLEET_TASK_ROLE, FLEET_AGENT_ID } = await import(join(SRC_ROOT, 'lib/ci/fleet/constants.ts'))
+const { FLEET_CONTRACT_VERSION, fleetTaskId } = await import(join(SRC_ROOT, 'lib/ci/fleet/contracts.ts'))
+const { CI_CONSENT_PURPOSE } = await import(join(SRC_ROOT, 'lib/ci/constants.ts'))
 // The dispatcher imports the seed packs so specialists resolve against the
 // deployed knowledge base — the benchmark reproduces the same deployment shape.
-await import('/home/z/ci3c/src/lib/ci/fleet/packs/index.ts')
+await import(join(SRC_ROOT, 'lib/ci/fleet/packs/index.ts'))
 
 // Deterministic executor: validates the seam contract end-to-end.
 registerFleetTaskExecutor(async (ctx) => ({
