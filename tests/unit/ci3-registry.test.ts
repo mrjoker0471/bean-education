@@ -337,7 +337,7 @@ describe('CI-3B domain packs', () => {
         expect(result.checks.map(c => c.id)).toEqual(['V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8'])
       }
     }
-    expect(listDomainPacks().length).toBe(8) // 4 CI-3B seeds + 4 CI-3E core families
+    expect(listDomainPacks().length).toBe(12) // 4 CI-3B seeds + 4 CI-3E core families + 4 CI-4C candidates
   })
 
   test('P1.2 VERIFIED is structurally refused without recorded human review', () => {
@@ -412,7 +412,7 @@ describe('CI-3B domain packs', () => {
 
   test('P1.9 seed packs are honest IN_REVIEW — dispatchable with the review flag', () => {
     const dispatchable = dispatchableDomainPacks()
-    expect(dispatchable.length).toBe(8) // 4 CI-3B seeds + 4 CI-3E core families
+    expect(dispatchable.length).toBe(12) // 4 CI-3B seeds + 4 CI-3E core families + 4 CI-4C candidates
     for (const d of dispatchable) {
       expect(d.pack.status).toBe(PACK_STATUS.IN_REVIEW)
       expect(d.underReview).toBe(true)
@@ -456,10 +456,22 @@ describe('CI-3B source & licence registry', () => {
   })
 
   test('S1.5 seed pack sources are registered with verified licences', () => {
-    for (const id of ['openstax-mathematics', 'mdn-web-docs', 'python-docs-psf', 'openstax-anatomy-physiology', 'unesco-isced-f-2013']) {
+    // CI-4A audit: the three OpenStax records were re-verified 2026-11-25 and
+    // corrected to CC-BY-NC-SA-4.0 (NonCommercial quarantine) — the licence
+    // identity is now asserted, not just a verification date. The remaining
+    // sources keep their original 2026-11-24 verification.
+    const audited: Record<string, { verifiedAt: string; spdx: string | null }> = {
+      'openstax-mathematics': { verifiedAt: '2026-11-25', spdx: 'CC-BY-NC-SA-4.0' },
+      'openstax-anatomy-physiology': { verifiedAt: '2026-11-25', spdx: 'CC-BY-NC-SA-4.0' },
+      'mdn-web-docs': { verifiedAt: '2026-11-24', spdx: 'CC-BY-SA-2.5' },
+      'python-docs-psf': { verifiedAt: '2026-11-24', spdx: 'PSF-2.0' },
+      'unesco-isced-f-2013': { verifiedAt: '2026-11-24', spdx: null },
+    }
+    for (const [id, expected] of Object.entries(audited)) {
       const src = getSource(id)
       expect(src).not.toBeNull()
-      expect(src?.licence.verifiedAt).toBe('2026-11-24')
+      expect(src?.licence.verifiedAt).toBe(expected.verifiedAt)
+      expect(src?.licence.spdx).toBe(expected.spdx)
     }
   })
 })

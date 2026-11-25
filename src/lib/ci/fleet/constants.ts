@@ -70,14 +70,34 @@ export const FLEET_POOL = {
 } as const
 export type FleetPool = (typeof FLEET_POOL)[keyof typeof FLEET_POOL]
 
-/** Domain-pack lifecycle (charter §6.4: "human reviewer and approval state"). */
+/** Domain-pack lifecycle (charter §6.4: "human reviewer and approval state").
+ *  CI-4C adds REJECTED as a distinct terminal review outcome: RETIRED means a
+ *  previously-usable pack is withdrawn; REJECTED means a human curator refused
+ *  this version — it never dispatches and only a new pack version can restart
+ *  review. */
 export const PACK_STATUS = {
   DRAFT: 'DRAFT',
   IN_REVIEW: 'IN_REVIEW',
   VERIFIED: 'VERIFIED',
+  REJECTED: 'REJECTED',
   RETIRED: 'RETIRED',
 } as const
 export type PackStatus = (typeof PACK_STATUS)[keyof typeof PACK_STATUS]
+
+/**
+ * CI-4C curator review decisions (append-only ledger rows, charter §6.4/§12).
+ * APPROVED advances the human publication gate (HIGH_STAKES requires TWO
+ * distinct reviewers); REJECTED is terminal for the reviewed version;
+ * CHANGES_REQUESTED and RE_REVIEW_REQUESTED are work states that keep the
+ * pack out of the VERIFIED gate until resolved.
+ */
+export const PACK_REVIEW_DECISION = {
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  CHANGES_REQUESTED: 'CHANGES_REQUESTED',
+  RE_REVIEW_REQUESTED: 'RE_REVIEW_REQUESTED',
+} as const
+export type PackReviewDecision = (typeof PACK_REVIEW_DECISION)[keyof typeof PACK_REVIEW_DECISION]
 
 /**
  * Charter §7.2 source hierarchy. Numeric rank 1 (best) … 6 (context only).
@@ -92,6 +112,31 @@ export const SOURCE_QUALITY_CLASS = {
   COMMUNITY_CONTEXT: 'COMMUNITY_CONTEXT', // 6 — context only, never sole authority
 } as const
 export type SourceQualityClass = (typeof SOURCE_QUALITY_CLASS)[keyof typeof SOURCE_QUALITY_CLASS]
+
+/**
+ * CI-4A licence restrictions — what the licence itself imposes on BEAN's
+ * usage. These gate the CONTENT-INGESTION path (retrieval/ingestion into
+ * prompts or knowledge records); they never affect citation-level reference
+ * use (naming a source with attribution is not reproduction).
+ *
+ * Audit basis (CI-4A, 2026-11-25): OpenStax's own distribution declares
+ * Attribution-NonCommercial-ShareAlike 4.0 International — CI-3's CC-BY-4.0
+ * record was a misclassification and is corrected; NC-licensed content cannot
+ * be ingested into a commercial operation without separate written permission.
+ */
+export const SOURCE_LICENCE_RESTRICTION = {
+  /** Ingestion forbidden while BEAN operates commercially, absent permission. */
+  NON_COMMERCIAL: 'NON_COMMERCIAL',
+  /** Adaptations of ingested content must carry the same licence + attribution. */
+  SHARE_ALIKE: 'SHARE_ALIKE',
+  /** Adaptations forbidden — citation/reference use only. */
+  NO_DERIVATIVES: 'NO_DERIVATIVES',
+  /** Metadata/reference links only — no content ingestion at all. */
+  REFERENCE_ONLY: 'REFERENCE_ONLY',
+  /** Reuse permission is being sought — quarantined until resolved. */
+  PERMISSION_PENDING: 'PERMISSION_PENDING',
+} as const
+export type SourceLicenceRestriction = (typeof SOURCE_LICENCE_RESTRICTION)[keyof typeof SOURCE_LICENCE_RESTRICTION]
 
 /** Charter §12 task statuses — model failure ≠ low confidence ≠ no evidence. */
 export const FLEET_TASK_STATUS = {
