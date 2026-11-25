@@ -2250,3 +2250,85 @@ model ExpertReviewAssignmentEvent {
   @@index([assignmentId, createdAt])
   @@index([eventType])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5E): durable language governance ─────────
+// Replaces the CI-4F process-local capabilityStore (proven non-durable in
+// CI-5A) with three separated, database-backed records. Structural rules:
+// a benchmark pass alone records at most LIMITED; only a qualified bilingual
+// reviewer (CI-5B registry, exact tag/task/domain scope) can approve a
+// MEASURED capability; approvals bind to the exact measurement + model +
+// benchmark; a new model or benchmark requires a new assessment (old bindings
+// are marked SUPERSEDED, never silently extended); revocation preserves the
+// historical approval; TRANSCRIPTION is structurally UNSUPPORTED and no path
+// can flip it.
+model LanguageBenchmarkMeasurement {
+  id                String   @id @default(cuid())
+  languageTag       String   // catalogue base tag (BCP-47 prefix)
+  task              String   // TEXT_UNDERSTANDING | TERMINOLOGY | TRANSLATION | GENERATION (never TRANSCRIPTION)
+  domain            String   @default("") // domain-specific measurement, when relevant ("" = general)
+  dialect           String   @default("") // the variant actually MEASURED, never assumed ("" = none measured)
+  modelProvider     String
+  modelVersion      String
+  benchmarkVersion  String
+  benchmarkChecksum String   // sha256 of the canonical case set (CI-5F harness standard)
+  testRef           String   // per-case reference (e.g. "ci4-lang-bench-1 (5/5 cases)")
+  passed            Boolean  // deterministic benchmark outcome
+  caseCount         Int
+  passedCount       Int
+  measuredAt        DateTime
+  createdAt         DateTime @default(now())
+
+  @@unique([languageTag, task, domain, dialect, modelProvider, modelVersion, benchmarkVersion, benchmarkChecksum])
+  @@index([languageTag, task])
+  @@index([benchmarkVersion])
+}
+
+// Append-only human bilingual review decision. Every row binds to the exact
+// measurement row it judged — an approval without a measurement cannot exist.
+model LanguageCapabilityReview {
+  id                    String   @id @default(cuid())
+  measurementId         String   // the exact measurement under review
+  languageTag           String
+  task                  String
+  domain                String   @default("") // snapshot ("" = general)
+  dialect               String   @default("") // snapshot ("" = none measured)
+  modelProvider         String   // snapshot (binding integrity)
+  modelVersion          String
+  benchmarkVersion      String
+  benchmarkChecksum     String
+  reviewerStudentId     String   // server-resolved (no FK — audit survives deletion)
+  reviewerCode          String   // reviewer-code snapshot
+  reviewerQualification String   // qualification snapshot at decision time
+  decision              String   // APPROVED | REJECTED | CHANGES_REQUESTED
+  rationale             String   // required human reasoning
+  evidence              String   // JSON checklist: meaning preservation, terminology, grammar, naturalness, script correctness, notation, code-switching, register, dialect, ambiguity, unsupported claims, safety/refusal accuracy
+  createdAt             DateTime @default(now())
+
+  @@index([languageTag, task])
+  @@index([measurementId])
+  @@index([reviewerStudentId])
+}
+
+// Effective capability status — derived, then PERSISTED so every process,
+// worker and restart reads the same truth (the CI-5A durability gap, closed).
+model LanguageCapabilityStatus {
+  id                   String   @id @default(cuid())
+  languageTag          String
+  task                 String
+  domain               String   @default("") // "" = general capability
+  dialect              String   @default("") // "" = none measured
+  modelProvider        String?
+  modelVersion         String?
+  benchmarkVersion     String?
+  status               String   // UNSUPPORTED | UNMEASURED | EXPERIMENTAL | LIMITED | IN_REVIEW | VERIFIED | REVOKED | SUPERSEDED
+  basis                String   // STRUCTURAL | DEFAULT_UNMEASURED | MEASUREMENT_ONLY | HUMAN_APPROVED | REVOKED
+  latestMeasurementId  String?
+  approvalCount        Int      @default(0)
+  contributingReviewIds String  @default("[]")
+  supersededBy         String?
+  note                 String
+  updatedAt            DateTime @updatedAt
+
+  @@unique([languageTag, task, domain, dialect, modelProvider, modelVersion, benchmarkVersion])
+  @@index([languageTag, task, status])
+}

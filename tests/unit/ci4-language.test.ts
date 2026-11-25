@@ -10,14 +10,18 @@
 //   F6  capability records carry dialect/model/version/domain/benchmark
 //       provenance and round-trip
 
-import { describe, test, expect, beforeEach } from 'bun:test'
+import { describe, test, expect, beforeAll, beforeEach } from 'bun:test'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { PrismaClient } from '@prisma/client'
 import {
   CI3_LANGUAGES,
   CI4_TERMINOLOGY_CASES,
   CI4_BENCHMARK_VERSION,
   runCi4LanguageBenchmark,
   recordCapabilityMeasurement,
-  recordHumanLanguageApproval,
   listLanguageCapabilities,
   resetLanguageCapabilitiesForTests,
   isCapabilityVerified,
@@ -25,6 +29,42 @@ import {
   TEXT_BENCHMARK_CASES,
 } from '@/lib/ci/fleet/language'
 import { setCiModelAdapterForProcess, resetCiModelAdapterForTests } from '@/lib/ci/model-adapter'
+import { persistLanguageMeasurement, recordLanguageCapabilityReview, languageGovernanceDbFromPrisma, computeBenchmarkChecksum, type LanguageGovernanceDb } from '@/lib/ci/fleet/language-governance'
+import { submitReviewerApplication, beginQualificationReview, decideReviewerQualification, activateReviewer, resolveReviewerProfile, reviewerDbFromPrisma } from '@/lib/ci/fleet/reviewers'
+
+// CI-5E: the durable governance path needs a real schema (measurements,
+// reviews, persisted status). Provision an isolated DB like the other suites.
+const dir = mkdtempSync(join(tmpdir(), 'bean-ci4f-'))
+const isolatedUrl = `file:${join(dir, 'ci4f.db')}`
+execFileSync('node_modules/.bin/prisma', ['migrate', 'deploy'], {
+  cwd: process.cwd(),
+  env: { ...process.env, DATABASE_URL: isolatedUrl },
+  stdio: 'pipe',
+  timeout: 180_000,
+})
+const client = new PrismaClient({ datasources: { db: { url: isolatedUrl } } })
+const gdb: LanguageGovernanceDb = languageGovernanceDbFromPrisma(client)
+const rdb = reviewerDbFromPrisma(client)
+
+const ALL_OK_EVIDENCE = Object.fromEntries(
+  ['meaning_preservation', 'domain_terminology', 'grammar', 'naturalness', 'script_correctness', 'mathematical_notation', 'scientific_symbols', 'code_switching', 'regional_register', 'dialect_differences', 'ambiguous_wording', 'unsupported_claims', 'safety_refusal_accuracy'].map((id) => [id, { status: 'OK', notes: 'fixture review' }]),
+) as Record<string, { status: 'OK' | 'ISSUE' | 'NOT_ASSESSED'; notes?: string }>
+
+beforeAll(async () => {
+  // a qualified bilingual reviewer fixture (synthetic; scoped to en/hi/kn text tasks)
+  const secondAdmin = { kind: 'ADMIN' as const, studentId: 'ci4f-admin2', displayName: 'Second Admin' }
+  await submitReviewerApplication(rdb, { studentId: 'ci4f-bilingual', displayName: 'Bilingual Fixture' }, { category: 'BILINGUAL_LANGUAGE', conflictOfInterest: 'none declared (fixture)' })
+  const profile = await resolveReviewerProfile(rdb, 'ci4f-bilingual')!
+  await beginQualificationReview(rdb, secondAdmin, profile.id, 'fixture bilingual review')
+  await decideReviewerQualification(rdb, secondAdmin, profile.id, {
+    decision: 'APPROVED',
+    rationale: 'fixture bilingual qualification verified for CI-5E durable path tests',
+    verificationStatus: 'REFERENCED_VERIFIED',
+    verificationNote: 'synthetic fixture — no real credentials exist',
+    scope: { approvedLanguages: [{ tag: 'en', tasks: ['TEXT_UNDERSTANDING', 'TERMINOLOGY', 'GENERATION'] }, { tag: 'hi', tasks: ['TERMINOLOGY', 'TEXT_UNDERSTANDING'] }, { tag: 'kn', tasks: ['GENERATION'] }] },
+  })
+  await activateReviewer(rdb, secondAdmin, profile.id)
+}, 120_000)
 
 beforeEach(() => {
   resetLanguageCapabilitiesForTests()
@@ -118,40 +158,98 @@ describe('CI-4F multilingual benchmark expansion', () => {
     expect(taCap.testRef).toContain('(0/1 cases)')
   })
 
-  test('F5 human bilingual approval verifies MEASURED capabilities only; TRANSCRIPTION untouchable', () => {
-    // approve an UNMEASURED capability → refused
-    const unmeasured = recordHumanLanguageApproval({ language: 'en', task: 'TEXT_UNDERSTANDING', reviewerId: 'reviewer-1', reviewerName: 'Bilingual Reviewer' })
+  test('F5 human bilingual approval verifies MEASURED capabilities ONLY through the DURABLE path; TRANSCRIPTION untouchable; unmeasured cannot be approved', async () => {
+    const reviewer = await resolveReviewerProfile(rdb, 'ci4f-bilingual')!
+
+    // approve an UNMEASURED capability → refused (no measurement row exists)
+    const unmeasured = await recordLanguageCapabilityReview(gdb, reviewer, {
+      measurementId: 'no-such-measurement',
+      decision: 'APPROVED',
+      rationale: 'attempting to approve an unmeasured capability',
+      evidence: ALL_OK_EVIDENCE,
+    })
     expect(unmeasured.ok).toBe(false)
-    if (!unmeasured.ok) expect(unmeasured.reason).toContain('UNMEASURED')
-    // measure first, then approve
-    recordCapabilityMeasurement({ language: 'en', task: 'TEXT_UNDERSTANDING', passed: true, testRef: 'ci4-lang-bench-1/x', measuredAt: '2026-11-25', modelProvider: 'a' })
-    const ok = recordHumanLanguageApproval({ language: 'en', task: 'TEXT_UNDERSTANDING', reviewerId: 'reviewer-1', reviewerName: 'Qualified Bilingual Reviewer', note: 'reference set reviewed line by line' })
+    if (!unmeasured.ok) expect(unmeasured.error).toContain('measurement not found')
+
+    // measure first (durable), then approve (durable) — VERIFIED only via this path
+    const measured = await persistLanguageMeasurement(gdb, {
+      languageTag: 'en',
+      task: 'TEXT_UNDERSTANDING',
+      passed: true,
+      testRef: 'ci4-lang-bench-1 (5/5 cases)',
+      measuredAt: new Date(),
+      modelProvider: 'fixture-provider',
+      modelVersion: 'fixture-model-1',
+      benchmarkVersion: CI4_BENCHMARK_VERSION,
+      benchmarkChecksum: computeBenchmarkChecksum([...TEXT_BENCHMARK_CASES, ...CI4_TERMINOLOGY_CASES]),
+      caseCount: 5,
+      passedCount: 5,
+    })
+    expect(measured.ok).toBe(true)
+    const measurement = (measured as { ok: true; value: { id: string } }).value
+
+    const ok = await recordLanguageCapabilityReview(gdb, reviewer, {
+      measurementId: measurement.id,
+      decision: 'APPROVED',
+      rationale: 'reference set reviewed line by line by a qualified bilingual reviewer (fixture)',
+      evidence: ALL_OK_EVIDENCE,
+    })
     expect(ok.ok).toBe(true)
-    const en = listLanguageCapabilities().find((c) => c.language === 'en' && c.task === 'TEXT_UNDERSTANDING')!
-    expect(en.status).toBe('VERIFIED')
-    expect(en.humanApproved).toBe(true)
-    expect(en.note).toContain('Qualified Bilingual Reviewer')
-    expect(isCapabilityVerified('en', 'TEXT_UNDERSTANDING')).toBe(true)
-    // TRANSCRIPTION: neither benchmarks nor humans can move it
-    const asrBench = recordCapabilityMeasurement as unknown
-    void asrBench
-    const asrHuman = recordHumanLanguageApproval({ language: 'en', task: 'TRANSCRIPTION', reviewerId: 'reviewer-1', reviewerName: 'Bilingual Reviewer' })
-    expect(asrHuman.ok).toBe(false)
-    if (!asrHuman.ok) expect(asrHuman.reason).toContain('§9.2')
-    expect(listLanguageCapabilities().find((c) => c.language === 'en' && c.task === 'TRANSCRIPTION')!.status).toBe('UNSUPPORTED')
-    // a reviewer identity is required
-    const noId = recordHumanLanguageApproval({ language: 'en', task: 'TERMINOLOGY', reviewerId: '', reviewerName: 'X' })
-    expect(noId.ok).toBe(false)
-    if (!noId.ok) expect(noId.reason).toContain('reviewer identity')
+    if (ok.ok) {
+      expect(ok.value.status.status).toBe('VERIFIED')
+      expect(ok.value.status.basis).toBe('HUMAN_APPROVED')
+      expect(ok.value.status.note).toContain('VERIFIED by qualified bilingual review')
+    }
+    // the review row is append-only with full binding provenance
+    const rows = await client.languageCapabilityReview.findMany({ where: { measurementId: measurement.id } })
+    expect(rows.length).toBe(1)
+    expect(rows[0].modelProvider).toBe('fixture-provider')
+    expect(rows[0].benchmarkVersion).toBe('ci4-lang-bench-1')
+
+    // TRANSCRIPTION: neither benchmarks nor the durable approval path can move it
+    const asrMeasurement = await persistLanguageMeasurement(gdb, {
+      languageTag: 'en',
+      task: 'TRANSCRIPTION',
+      passed: true,
+      testRef: 'cheating-benchmark',
+      measuredAt: new Date(),
+    })
+    expect(asrMeasurement.ok).toBe(false)
+    if (!asrMeasurement.ok) expect(asrMeasurement.error).toContain('§9.2')
+
+    // scope check: a reviewer scoped for en/hi/kn cannot approve an ur capability
+    const urMeasured = await persistLanguageMeasurement(gdb, {
+      languageTag: 'ur',
+      task: 'TEXT_UNDERSTANDING',
+      passed: true,
+      testRef: 'ci4-lang-bench-1 (5/5 cases)',
+      measuredAt: new Date(),
+      modelProvider: 'fixture-provider',
+      modelVersion: 'fixture-model-1',
+      benchmarkVersion: CI4_BENCHMARK_VERSION,
+      benchmarkChecksum: 'x'.repeat(64),
+      caseCount: 5,
+      passedCount: 5,
+    })
+    const urReview = await recordLanguageCapabilityReview(gdb, reviewer, {
+      measurementId: (urMeasured as { ok: true; value: { id: string } }).value.id,
+      decision: 'APPROVED',
+      rationale: 'attempting to approve outside the reviewer scope (ur not authorised)',
+      evidence: ALL_OK_EVIDENCE,
+    })
+    expect(urReview.ok).toBe(false)
+    if (!urReview.ok) expect(urReview.error).toContain('scope mismatch')
   })
 
-  test('F6 refusal behaviour stays intact for unmeasured and LIMITED capabilities', () => {
+  test('F6 refusal behaviour stays intact; the in-memory view can NEVER claim VERIFIED (CI-5E closes the self-certification hole)', () => {
     expect(capabilityRefusalReason('kn', 'GENERATION')).toContain('EXPERIMENTAL')
     recordCapabilityMeasurement({ language: 'kn', task: 'GENERATION', passed: true, testRef: 'ci4-lang-bench-1/x', measuredAt: '2026-11-25' })
     expect(capabilityRefusalReason('kn', 'GENERATION')).toContain('LIMITED')
-    recordHumanLanguageApproval({ language: 'kn', task: 'GENERATION', reviewerId: 'reviewer-2', reviewerName: 'Bilingual Reviewer Two' })
-    expect(capabilityRefusalReason('kn', 'GENERATION')).toBeNull()
     expect(capabilityRefusalReason('ur', 'TRANSCRIPTION')).toContain('UNSUPPORTED')
     expect(capabilityRefusalReason('klingon', 'TERMINOLOGY')).toContain('outside the catalogue')
+    // CI-5E: the legacy humanApproved flag is GONE — no in-memory write can
+    // mint VERIFIED; the durable governance path is the only verification route
+    expect(listLanguageCapabilities().some((c) => c.status === 'VERIFIED')).toBe(false)
+    expect(isCapabilityVerified('kn', 'GENERATION')).toBe(false)
   })
 })
