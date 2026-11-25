@@ -280,3 +280,37 @@ export async function dispatchFleetForSession(opts: {
     notes: plan.notes,
   }
 }
+
+// ─── CI-4G: safe post-class fleet auto-dispatch (feature-flagged) ─────────────
+
+/**
+ * CI-4G: automatic post-class fleet dispatch is DISABLED by default
+ * (`BEAN_CI_FLEET_AUTO_DISPATCH` must be exactly 'true'). When enabled, the
+ * lifecycle hooks (live/end + room_finished webhook) may fire-and-forget a
+ * fleet dispatch for the TERMINAL class — the dispatcher still re-checks CI
+ * consent at dispatch and the worker re-checks it at every claim, so the flag
+ * alone never bypasses consent. When disabled, the current explicit/manual
+ * dispatch behaviour is unchanged. Specialists never enter live rooms — only
+ * the single visible observer can.
+ */
+export function shouldAutoDispatchFleet(env: { BEAN_CI_FLEET_AUTO_DISPATCH?: string } = process.env as { BEAN_CI_FLEET_AUTO_DISPATCH?: string }): boolean {
+  return env.BEAN_CI_FLEET_AUTO_DISPATCH === 'true'
+}
+
+/** Fire-and-forget post-class fleet dispatch (flag-gated, error-isolated). */
+export function autoDispatchFleetForEndedSession(classSessionId: string, trigger: string): void {
+  if (!shouldAutoDispatchFleet()) return
+  void (async () => {
+    try {
+      const result = await dispatchFleetForSession({ classSessionId })
+      const detail = result.dispatched
+        ? `queued=${result.queued.length} alreadyQueued=${result.alreadyQueued.length} skipped=${result.skipped.length}`
+        : `not dispatched (${result.reason})`
+      console.log(`[ci4-auto-dispatch:${classSessionId}] ${trigger}: ${detail}`)
+    } catch (err) {
+      // Error-isolated by contract: a dispatch failure can never affect the
+      // classroom completion path or attendance.
+      console.error(`[ci4-auto-dispatch:${classSessionId}] ${trigger} failed:`, err)
+    }
+  })()
+}
