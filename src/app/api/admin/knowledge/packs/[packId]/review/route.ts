@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/teach'
 import { recordPackReview, curatorDbFromPrisma } from '@/lib/ci/fleet/curator'
+import { qualifyingApproverIdsForDomain, reviewerDbFromPrisma } from '@/lib/ci/fleet/reviewers'
 import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -44,10 +45,15 @@ export async function POST(
       evidence: typeof body.evidence === 'string' ? body.evidence : '',
     }
 
+    // CI-5D qualification evidence, computed SERVER-SIDE: only ACTIVE reviewer
+    // profiles authorised for this pack's domain may record an APPROVED
+    // decision. Work-state decisions remain available to administrators.
+    const qualified = await qualifyingApproverIdsForDomain(reviewerDbFromPrisma(db), packId)
     const result = await recordPackReview(
       curatorDbFromPrisma(db),
       { studentId: guard.student.id, displayName: guard.student.displayName ?? 'BEAN admin' },
       input,
+      { qualifiedApproverIds: qualified },
     )
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
@@ -55,6 +61,7 @@ export async function POST(
     return NextResponse.json({
       reviewId: result.reviewId,
       curated: result.curatedStatus,
+      disagreement: result.disagreement,
     })
   } catch (err) {
     console.error('[api/admin/knowledge/packs/[packId]/review POST]', err)

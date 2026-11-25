@@ -22,7 +22,7 @@ has been reverted or lost.
 
 ## 1. Ledger state (actual, read from `docs/milestone-ledger.json`)
 
-- 27 milestone entries, 27 unique IDs; `version: 1`.
+- 27 milestone entries at baseline recording time (the CI-5 record itself is appended afterwards, bringing the ledger to 28 — see `bean-classroom-intelligence-ci5`); `version: 1`.
 - `bean-classroom-intelligence-ci4`: **status COMPLETE, syncStatus IN_SYNC**,
   `finalMainSha a6c8d33665ef866e94762d5d37b0719d9280d02e`, PR #42 MERGED,
   `completionRule: SATISFIED — all units in main, verified (tree-identity proof)`.
@@ -196,7 +196,7 @@ Verified absent by inspection (no Prisma models, no lib modules, no routes):
 
 ## 8. Baseline integrity checklist (machine-checked in `tests/unit/ci5-baseline-audit.test.ts`)
 
-- [x] ledger: CI-4 COMPLETE / IN_SYNC / PR #42 / finalMainSha a6c8d336; 27 entries
+- [x] ledger: CI-4 COMPLETE / IN_SYNC / PR #42 / finalMainSha a6c8d336; all pre-CI-5 entries intact (27 + the CI-5 record = 28)
 - [x] 12 packs registered; all declared IN_REVIEW; 1 HIGH_STAKES + 1 ELEVATED
 - [x] curator gates: no approvals ⇒ not VERIFIED; distinct-approver + checksum binding intact
 - [x] TRANSCRIPTION UNSUPPORTED for all 11 catalogue languages; measurement no-op; approval refused

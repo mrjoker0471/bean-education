@@ -20,6 +20,17 @@ import { PrismaClient } from '@prisma/client'
 
 const dir = mkdtempSync(join(tmpdir(), 'bean-ci4c-'))
 const isolatedUrl = `file:${join(dir, 'ci4c.db')}`
+
+// Provision the schema (incl. the CI-5B reviewer tables the qualification gate
+// reads) exactly like the other DB-backed suites.
+import { execFileSync } from 'node:child_process'
+execFileSync('node_modules/.bin/prisma', ['migrate', 'deploy'], {
+  cwd: process.cwd(),
+  env: { ...process.env, DATABASE_URL: isolatedUrl },
+  stdio: 'pipe',
+  timeout: 180_000,
+})
+
 const client = new PrismaClient({ datasources: { db: { url: isolatedUrl } } })
 mock.module('@/lib/db', () => ({ db: client }))
 
@@ -217,14 +228,37 @@ describe('CI-4C recordPackReview + admin API', () => {
     r = await recordPackReview(fakeDb(), reviewerOne, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: '0'.repeat(64), decision: 'APPROVED', rationale: 'inspected the pack in full detail', evidence: 'inspected the pack and its sources and fixtures' })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.status).toBe(409)
-    // golden path
-    r = await recordPackReview(fakeDb(), reviewerOne, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'APPROVED', rationale: 'Scope, sources and safety boundary verified against the charter requirements.', evidence: 'Ran the fixture suite green; inspected all registered source licence records.' })
+    // golden path — CI-5D: the APPROVED decision carries server-side
+    // qualification evidence (fixture: both test admins are qualified for maths)
+    r = await recordPackReview(fakeDb(), reviewerOne, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'APPROVED', rationale: 'Scope, sources and safety boundary verified against the charter requirements.', evidence: 'Ran the fixture suite green; inspected all registered source licence records.' }, { qualifiedApproverIds: new Set([ADMIN.id, ADMIN2.id]) })
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.curatedStatus.status).toBe(PACK_STATUS.VERIFIED)
+      expect(r.disagreement.disagreement).toBe(false)
       expect(reviewState.rows.length).toBe(1)
       expect(reviewState.rows[0].reviewerStudentId).toBe(reviewerOne.studentId)
     }
+    // CI-5D: an APPROVED decision WITHOUT qualification evidence is refused —
+    // the promotion path can never bypass reviewer qualification
+    r = await recordPackReview(fakeDb(), reviewerOne, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'APPROVED', rationale: 'inspected the pack in full detail honestly', evidence: 'inspected the pack and its sources and fixtures in full' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.status).toBe(409)
+      expect(r.error).toContain('qualification')
+    }
+    // CI-5D: a reviewer NOT in the server-computed qualified set is refused —
+    // an administrator without the required reviewer qualification cannot
+    // substitute for an expert
+    r = await recordPackReview(fakeDb(), { studentId: 'unqualified-admin', displayName: 'Unqualified' }, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'APPROVED', rationale: 'inspected the pack in full detail honestly', evidence: 'inspected the pack and its sources and fixtures in full' }, { qualifiedApproverIds: new Set([ADMIN.id, ADMIN2.id]) })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.status).toBe(403)
+      expect(r.error).toContain('cannot substitute for an expert')
+    }
+    // work-state decisions remain available without qualification evidence
+    // (they can only hold a pack back, never promote it)
+    r = await recordPackReview(fakeDb(), reviewerOne, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'CHANGES_REQUESTED', rationale: 'inspected the pack in full detail honestly', evidence: 'inspected the pack and its sources and fixtures in full' })
+    expect(r.ok).toBe(true)
     // an unknown decision vocabulary is refused
     r = await recordPackReview(fakeDb(), reviewerOne, { packId: 'mathematics-statistics', packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'AUTO_VERIFY', rationale: 'inspected the pack in full detail', evidence: 'inspected the pack and its sources and fixtures' })
     expect(r.ok).toBe(false)
@@ -273,6 +307,22 @@ describe('CI-4C recordPackReview + admin API', () => {
     expect(reviewState.rows.length).toBe(0)
 
     authState.student = ADMIN
+    // CI-5D: the route computes qualification SERVER-SIDE from the reviewer
+    // registry — make the admin a qualified maths reviewer in the isolated DB
+    // so the golden approval can be recorded (the forged-id attempt below is
+    // unaffected: identity still comes from the session).
+    await client.expertReviewerProfile.create({
+      data: {
+        studentId: ADMIN.id,
+        reviewerCode: 'BR-curator-test',
+        category: 'DOMAIN_EXPERT',
+        status: 'ACTIVE',
+        approvedDomains: JSON.stringify(['mathematics-statistics']),
+        approvedLanguages: '[]',
+        verificationStatus: 'REFERENCED_VERIFIED',
+        conflictOfInterest: 'none declared (CI-5D route-test fixture)',
+      },
+    })
     const okRes = await reviewRoute.POST(jsonRequest({ packVersion: maths.pack.packVersion, packChecksum: checksum, decision: 'APPROVED', rationale: 'Scope, sources and safety boundary verified against the charter requirements.', evidence: 'Ran the fixture suite green; inspected all registered source licence records.', reviewerStudentId: 'forged-id' }), { params: Promise.resolve({ packId: 'mathematics-statistics' }) })
     expect(okRes.status).toBe(200)
     const okBody = (await okRes.json()) as { reviewId: string; curated: { status: string } }

@@ -40,9 +40,13 @@ describe('CI5 baseline: milestone ledger', () => {
     milestones: { id: string; status: string; syncStatus?: string; finalMainSha?: string | null; pr?: { number: number | null; state: string } | null; commits?: string[] }[]
   }
 
-  test('ledger has 27 milestone entries with unique ids', () => {
-    expect(ledger.milestones.length).toBe(27)
-    expect(new Set(ledger.milestones.map((m) => m.id)).size).toBe(27)
+  test('ledger has 28 milestone entries with unique ids (27 pre-CI-5 + the CI-5 record)', () => {
+    expect(ledger.milestones.length).toBe(28)
+    expect(new Set(ledger.milestones.map((m) => m.id)).size).toBe(28)
+    const ci5 = ledger.milestones.find((m) => m.id === 'bean-classroom-intelligence-ci5')
+    expect(ci5).toBeDefined()
+    expect(ci5!.baseMainSha).toBe('7ccf355986c0cab738cb705e11b87f97c25a5c32')
+    expect(['PUSHED', 'COMPLETE']).toContain(ci5!.status)
   })
 
   test('CI-4 remains COMPLETE / IN_SYNC referencing merged PR #42 at a6c8d336', () => {

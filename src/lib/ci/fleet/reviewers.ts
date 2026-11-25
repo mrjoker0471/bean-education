@@ -654,3 +654,32 @@ export async function listReviewerProfiles(
 export async function listReviewerEvents(db: ReviewerDb, profileId: string): Promise<ReviewerEventRow[]> {
   return db.expertReviewerEvent.findMany({ where: { profileId }, orderBy: { createdAt: 'asc' as const } })
 }
+
+/**
+ * Server-computed set of BEAN account ids that hold an ACTIVE reviewer profile
+ * authorised for `domainId`. This is the qualification evidence the pack
+ * approval path requires: an APPROVED decision may only be recorded when the
+ * reviewer's account id is in this set (CI-5D — a general administrator without
+ * the required reviewer qualification cannot substitute for an expert).
+ */
+export async function qualifyingApproverIdsForDomain(db: ReviewerDb, domainId: string, now: Date = new Date()): Promise<Set<string>> {
+  const active = await listReviewerProfiles(db, { status: 'ACTIVE' }, now)
+  const qualified = new Set<string>()
+  for (const profile of active) {
+    if (reviewerCanReviewDomain(profile, domainId)) qualified.add(profile.studentId)
+  }
+  return qualified
+}
+
+/**
+ * Same for language capabilities: account ids holding an ACTIVE bilingual
+ * profile authorised for the exact tag/task/domain scope.
+ */
+export async function qualifyingApproverIdsForLanguage(db: ReviewerDb, tag: string, task: Ci3LanguageTask, domain: string | null, now: Date = new Date()): Promise<Set<string>> {
+  const active = await listReviewerProfiles(db, { status: 'ACTIVE' }, now)
+  const qualified = new Set<string>()
+  for (const profile of active) {
+    if (reviewerCanReviewLanguage(profile, tag, task, domain)) qualified.add(profile.studentId)
+  }
+  return qualified
+}
