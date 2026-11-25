@@ -2332,3 +2332,81 @@ model LanguageCapabilityStatus {
   @@unique([languageTag, task, domain, dialect, modelProvider, modelVersion, benchmarkVersion])
   @@index([languageTag, task, status])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5F): expert-labelled benchmark programme ──
+// Independent datasets with expert reference labels, strict split separation
+// (DEVELOPMENT / CALIBRATION / VALIDATION / BLIND_HOLDOUT — holdout labels are
+// restricted to prevent leakage), honest measured metrics with sample sizes,
+// and hard no-self-certification: a benchmark run never mutates pack reviews,
+// language capability status or any other governance ledger.
+model ExpertBenchmarkDataset {
+  id          String   @id @default(cuid())
+  slug        String
+  name        String
+  // SUBJECT_CORRECTNESS | EXPLANATION_QUALITY | REASONING | SOURCE_FIDELITY |
+  // CITATION_ACCURACY | SYLLABUS_ALIGNMENT | LESSON_SUMMARY_QUALITY |
+  // TEACHING_EVALUATION | REFUSAL_ACCURACY | UNCERTAINTY_HANDLING |
+  // HANDOFF_QUALITY | MULTILINGUAL_QUALITY
+  taskKind    String
+  split       String   // DEVELOPMENT | CALIBRATION | VALIDATION | BLIND_HOLDOUT
+  version     String
+  checksum    String   // sha256 of the canonical case set
+  licence     String   // BEAN-AUTHORED-ORIGINAL or a recorded compatible licence
+  domain      String   @default("") // domain-scoped dataset ("" = cross-domain)
+  languageTag String   @default("") // language-scoped dataset ("" = language-agnostic)
+  casesJson   String   // BEAN-authored case array
+  createdBy   String   // server-resolved actor
+  createdAt   DateTime @default(now())
+
+  @@unique([slug, version])
+  @@index([taskKind, split])
+}
+
+// Expert reference labels (append-only per reviewer). An expert reference may
+// record multiple acceptable answers and explicit prohibited conclusions —
+// false certainty is never imposed where legitimate professional disagreement
+// exists (two labels for one case are both preserved, never averaged).
+model ExpertBenchmarkCaseLabel {
+  id                String   @id @default(cuid())
+  datasetId         String
+  datasetVersion    String
+  caseKey           String
+  reviewerProfileId String
+  reviewerCode      String
+  expectedResults   String   // JSON: expected result + accepted alternatives
+  prohibitedConclusions String @default("[]")
+  supportingSources String   @default("[]")
+  confidence        String   // HIGH | MEDIUM | LOW
+  ambiguityNote     String?
+  rubricVersion     String
+  createdAt         DateTime @default(now())
+
+  @@unique([datasetId, datasetVersion, caseKey, reviewerProfileId])
+  @@index([datasetId, caseKey])
+}
+
+// One measured harness run of an agent kind against one dataset version.
+// ran=false (no adapter / no executable path) is recorded honestly — metrics
+// are never fabricated. Every run stores its sample sizes and method.
+model ExpertBenchmarkRun {
+  id               String   @id @default(cuid())
+  datasetId        String
+  datasetVersion   String
+  datasetChecksum  String
+  // LEARNER | TEACHER_JUDGE | SUBJECT_SPECIALIST | LANGUAGE_SPECIALIST |
+  // EVIDENCE_AUDITOR | SAFETY_GUARDIAN | EVALUATION_ORCHESTRATOR |
+  // TEACHER_COACH | REVISION_COACH
+  agentKind        String
+  agentDomain      String   @default("")
+  modelProvider    String
+  modelVersion     String
+  metricsJson      String   // computed metrics + sample sizes + method
+  ran              Boolean
+  runReason        String
+  expertLabelCount Int      @default(0)
+  runBy            String
+  createdAt        DateTime @default(now())
+
+  @@index([datasetId, agentKind])
+  @@index([agentKind, createdAt])
+}
