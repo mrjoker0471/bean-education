@@ -918,7 +918,8 @@
         "1bbb4855dbaab0426e555513440370930d5e248b",
         "45369608717cb957ed5870a27946e43a4aa245b2",
         "5a787b703c8a14542554eeb9a0159e95f239d0e3",
-        "88f2e351dc3865b9b91bcef36aeb1d6095463a84"
+        "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
+        "de09e40e0f5d6f882a4e7649ab007a12775e59ef"
       ],
       "units": [
         {
@@ -962,10 +963,17 @@
           "remoteVerifiedSha": "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
           "verifiedAt": "2026-11-25T05:35:00Z",
           "summary": "Multilingual quality: corrected the CI-3 honesty ladder — CI-3F flipped a measured machine pass straight to VERIFIED (violating 'a model never certifies itself'); the corrected ladder is EXPERIMENTAL → benchmark (deterministic) → LIMITED (provenance recorded) → recordHumanLanguageApproval (server-resolved reviewer identity; refuses UNMEASURED capabilities; reviewer attribution appended) → VERIFIED. LanguageCapabilityRecord extended back-compatibly (dialect/modelProvider/modelVersion/domain/benchmarkVersion/humanApproved). Benchmark expansion: 10 new BEAN-authored cases — in-script terminology preservation for all 11 catalogue languages + mathematical-notation preservation (x² + 2x + 1 = 0 inside Devanagari); runCi4LanguageBenchmark runs both sets per language, records with provenance, ran=false without adapter. TRANSCRIPTION structurally UNSUPPORTED — immovable by benchmarks AND human approvals (tested). CI-3 L1.3/L1.4 updated to the stricter rule (no assertion weakened). CI4-LANGUAGE-RESULTS.md states the honest current state: zero VERIFIED language capabilities BY DESIGN (no production measurement, no human bilingual review yet); dialects recorded as variationNotes, not separately benchmarked; translation stays NEEDS_HUMAN_REVIEW; speech decision preserved unchanged. Tests ci4-language 6 (F1–F6). Suite 1532/0; tsc clean; lint clean; pushed+verified 88f2e35."
+        },
+        {
+          "id": "CI-4G",
+          "commitSha": "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
+          "remoteVerifiedSha": "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
+          "verifiedAt": "2026-11-25T06:15:00Z",
+          "summary": "Classroom operation: (1) teacher observer controls UI (observer-controls.tsx) on the REAL CI-3D owner API — honest status/connectivity/reconnect/failure states incl. media-access provenance and transcription-disabled rendering; typed API refusals first-class. (2) Student disclosure (observer-disclosure.tsx in classroom-shell) for EVERYONE when the observer is present — bean-observer: identity prefix shared with the webhook attendance exclusion so disclosure and no-fake-attendance cannot drift; explicit 'no audio or video is being recorded'. (3) Safe post-class fleet dispatch: BEAN_CI_FLEET_AUTO_DISPATCH must be exactly 'true' (default OFF; tested 'TRUE'/'1' refuse); live/end + room_finished fire-and-forget for TERMINAL classes; flag alone NEVER bypasses consent (dispatcher re-check at dispatch + worker re-check at claim — tested flag-on+no-consent=0 rows); repeat dispatch idempotent via taskKey. (4) Capacity benchmark (scripts/ci4-capacity-benchmark.ts, isolated real SQLite, deterministic executor, REAL bounded pool): 20 classrooms x 7 tasks (140) — 4 workers 160 tasks/s (6.26 ms/task), 8: 208 (4.81), 16: 259 (3.86), +62% with diminishing gains consistent with single-writer SQLite; invariants 140/140 COMPLETED 0 FAILED; honest limits documented (machinery-only numbers, no horizontal-scale claims, machinery time != simultaneous classrooms). OBSERVER-AND-DISPATCH.md. Tests ci4-classroom-operation 3 (G1–G3). Suite 1535/0; tsc clean; lint clean; prisma valid; pushed+verified de09e40."
         }
       ],
-      "remoteFeatureSha": "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
-      "pushVerifiedAt": "2026-11-25T05:35:00Z",
+      "remoteFeatureSha": "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
+      "pushVerifiedAt": "2026-11-25T06:15:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -975,9 +983,9 @@
       "finalMainSha": null,
       "syncStatus": "PENDING",
       "status": "IN_PROGRESS",
-      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-RETRIEVAL.md; docs/BEAN-CLASSROOM-INTELLIGENCE-SPECIALIST-BEHAVIOUR.md; docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-LANGUAGE-RESULTS.md",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-RETRIEVAL.md; docs/BEAN-CLASSROOM-INTELLIGENCE-SPECIALIST-BEHAVIOUR.md; docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-LANGUAGE-RESULTS.md; docs/BEAN-CLASSROOM-INTELLIGENCE-OBSERVER-AND-DISPATCH.md",
       "ciNote": "",
-      "updatedAt": "2026-11-25T05:35:00Z"
+      "updatedAt": "2026-11-25T06:15:00Z"
     }
   ],
   "branchReconciliation": {
