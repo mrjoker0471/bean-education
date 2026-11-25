@@ -10,6 +10,7 @@
 // rules change; persisted outputs record the version that validated them.
 
 import { z } from 'zod'
+import { getDomainPack } from './domain-packs'
 import { CI_EVIDENCE_KIND } from '../constants'
 import {
   FLEET_TASK_STATUS,
@@ -21,7 +22,14 @@ import {
   FLEET_MAX_UNKNOWN_ITEMS,
 } from './constants'
 
-export const FLEET_CONTRACT_VERSION = '1.0.0'
+/**
+ * CI-4E bumps the contract to 1.1.0: the envelope gains an OPTIONAL
+ * `handoffs` array of STRUCTURED cross-domain handoff records (charter §16.1
+ * + CI-4 mission §8). A handoff record is a REPORT, never a dispatch order —
+ * only server-side planning (dispatcher/planHandoffFollowUps) may create
+ * queue tasks, so a model output can never spawn specialist work by itself.
+ */
+export const FLEET_CONTRACT_VERSION = '1.1.0'
 
 /** Same authorised evidence-kind vocabulary as the CI-1 schemas (local copy so
  * the CI-1 module surface is untouched). */
@@ -69,6 +77,33 @@ export const fleetFindingSchema = z.object({
 }).strict()
 export type FleetFinding = z.infer<typeof fleetFindingSchema>
 
+/** CI-4E structured handoff record (charter §16.1 contract fields). */
+/** CI-4E: max structured handoff records per task output (bounded). */
+export const FLEET_MAX_HANDOFFS_PER_OUTPUT = 3
+
+export const fleetHandoffSchema = z.object({
+  /** Stable id for the handoff (traceable in audit trails). */
+  handoffId: z.string().min(3).max(120),
+  /** Source domain pack id that emitted the handoff. */
+  sourceDomainId: z.string().min(3).max(80),
+  /** Target domain pack id — must be a DECLARED related domain (C7). */
+  targetDomainId: z.string().min(3).max(80),
+  /** The specific question being handed over (bounded). */
+  question: z.string().min(10).max(600),
+  /** Evidence kinds the receiver may rely on (subset of the charter kinds). */
+  permittedEvidenceKinds: z.array(fleetEvidenceKindEnum).max(FLEET_MAX_EVIDENCE_REFS_PER_FINDING).default([]),
+  /** The output contract version the receiver must answer under. */
+  outputContractVersion: z.string().min(3).max(40),
+  /** Budget bounds for the receiving task (honest defaults, server-clamped). */
+  budget: z.object({
+    maxAttempts: z.number().int().min(1).max(3).default(2),
+    timeoutMs: z.number().int().min(5_000).max(120_000).default(60_000),
+  }).default({ maxAttempts: 2, timeoutMs: 60_000 }),
+  /** Return status of the handoff record itself. */
+  returnStatus: z.enum(['RECORDED', 'DISPATCHED', 'REFUSED', 'ANSWERED', 'TIMEOUT', 'REFUSED_TARGET_UNAVAILABLE']).default('RECORDED'),
+}).strict()
+export type FleetHandoff = z.infer<typeof fleetHandoffSchema>
+
 /**
  * The charter §12 envelope. `status` distinguishes model failure (FAILED),
  * low confidence (limitations + confidence) and insufficient evidence
@@ -89,6 +124,8 @@ export const fleetTaskOutputSchema = z.object({
   unknowns: z.array(z.string().min(3).max(300)).max(FLEET_MAX_UNKNOWN_ITEMS).default([]),
   conflicts: z.array(z.string().min(3).max(300)).max(FLEET_MAX_UNKNOWN_ITEMS).default([]),
   riskFlags: z.array(z.string().min(3).max(120)).max(FLEET_MAX_UNKNOWN_ITEMS).default([]),
+  /** CI-4E structured handoffs (see fleetHandoffSchema; bounded). */
+  handoffs: z.array(fleetHandoffSchema).max(FLEET_MAX_HANDOFFS_PER_OUTPUT).default([]),
   /** Safety guardian / auditor escalations reach humans through this flag. */
   requiresHumanReview: z.boolean().default(false),
 }).strict()
@@ -168,6 +205,28 @@ export function validateFleetTaskOutput(input: unknown): FleetContractResult {
   // C6 — source-ref well-formedness (registry existence at merge time).
   const malformedSourceRef = output.findings.flatMap(f => f.sourceRefs).find(ref => !/^[a-z0-9][a-z0-9._:-]*$/i.test(ref))
   checks.push({ id: 'C6', passed: malformedSourceRef === undefined, detail: malformedSourceRef === undefined ? 'source-ref format ok' : `malformed sourceRef: ${malformedSourceRef}` })
+
+  // C7 — CI-4E handoff integrity: every structured handoff's target must be a
+  // DECLARED related domain of the emitting pack (checked against the live
+  // pack registry when the pack resolves; handoffs from pack-less outputs are
+  // refused outright — a handoff without a source pack is meaningless). The
+  // RECEIVER's own gates apply again at planning time (planHandoffFollowUps).
+  let handoffOk = true
+  let handoffDetail = 'no handoffs recorded'
+  if (output.handoffs.length > 0) {
+    const srcPack = output.domainPackId ? getDomainPack(output.domainPackId) : null
+    if (!srcPack) {
+      handoffOk = false
+      handoffDetail = 'handoffs recorded without a resolvable source pack — refused'
+    } else {
+      const badTarget = output.handoffs.find(h => !srcPack.pack.relatedSubjectDomainIds.includes(h.targetDomainId))
+      handoffOk = badTarget === undefined
+      handoffDetail = handoffOk
+        ? `${output.handoffs.length} handoff(s) target declared related domains only`
+        : `handoff to "${badTarget!.targetDomainId}" is not a declared related domain of "${srcPack.pack.domainId}"`
+    }
+  }
+  checks.push({ id: 'C7', passed: handoffOk, detail: handoffDetail })
 
   const failed = checks.filter(c => !c.passed)
   if (failed.length > 0) {
