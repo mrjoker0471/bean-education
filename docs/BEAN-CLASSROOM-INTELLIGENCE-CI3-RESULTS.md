@@ -29,9 +29,17 @@ SHA verified via `git ls-remote` and recorded in `docs/milestone-ledger.json`).
 - `bun x tsc --noEmit`: clean.
 - `bun run lint`: clean.
 - CI (GitHub Actions) runs lint + tsc + `bun test --isolate` + the production
-  build on every push; the PR for this branch must pass all of them (local
-  sandbox does not run `next build` — the production build is evidenced by CI,
-  not claimed here).
+  build on every push. The first CI runs of the CI-3H tip failed exactly one
+  test (L1.1): the load benchmark resolved fleet modules through
+  workstation-specific absolute paths. Fix commit eb27d2e made the benchmark
+  checkout-portable and surfaced the latent production-build failure too
+  (@livekit/rtc-node's native NAPI bindings cannot be placed in ESM chunks by
+  Turbopack → `serverExternalPackages`). The production build is now evidenced
+  BOTH locally (full `bun run build` at eb27d2e) and by CI: branch run
+  45524463110 SUCCESS and post-merge main run 45525195806 SUCCESS (PR #39,
+  merge commit c93cbd5). An earlier note here claimed the local sandbox does
+  not run `next build`; that described a stale environment and is corrected by
+  this evidence.
 
 ## 3. Load/recovery benchmark (charter §19 CI-3H)
 
@@ -127,5 +135,8 @@ untouched; the auth-milestone test suites pass unchanged.
    the owner with the next milestone.
 5. The Omnilingual ASR candidate was evaluated and REJECTED for now (licence
    re-check required + §9.2 consent fit unsatisfied); no ASR dependency added.
-6. Production build evidence comes from GitHub CI on the PR (the local sandbox
-   does not run `next build`).
+6. Production build evidence: originally deferred to CI on the PR; after the
+   CI-3H CI close-out (fix commit eb27d2e) the build is verified both locally
+   (full `bun run build` in the sandbox checkout) and in CI — branch run
+   45524463110 and post-merge main run 45525195806, both SUCCESS (PR #39,
+   merge c93cbd5).

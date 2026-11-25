@@ -820,7 +820,8 @@
         "8ddb16307df9a2ee93ec86f98a7f0b0e1e922ab4",
         "4141379c70989aee2cc093dbc405e8c192e4055f",
         "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
-        "0e6629d6cf14131222fddde8db6ea1194ae3c68d"
+        "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
+        "eb27d2e2df18b962d804ad0d7d7f400e6f8c3462"
       ],
       "units": [
         {
@@ -877,23 +878,34 @@
           "commitSha": "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
           "remoteVerifiedSha": "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
           "verifiedAt": "2026-11-24T13:10:00Z",
-          "summary": "Evaluation, safety and production verification: full domain fixture set (8 deterministic fixtures incl. §14 health refusal + unregistered-source demotion); load/recovery benchmark (50 sessions / 350 tasks isolated real DB: dispatch 758 tasks/s, CAS drain 245 tasks/s at 4.1 ms/task, lease recovery 50 rows in 29 ms, cancellation 19 ms, terminal invariant 350/350 with 0 FAILED + honest enrichment backpressure skips; exercised as a CI test); RBAC + privacy audit suite (observer route 401/404/409/503/200 matrix through REAL handlers incl. owner golden path, identity-free sweep over every persisted fleet+observer output with the evidence envelope's allowed-fields contract); authenticated browser verification (real dev server + real sign-in + REAL pipeline and REAL fleet run — all 7 tasks COMPLETED against the real provider; fleet counts surfaced via the ownership-scoped API; observer API matrix from the browser; 0px overflow at 390/320; footer discipline; 6 screenshots + transcript); results doc with the §20 acceptance-criteria evidence map and honest limitations. CAUGHT AND FIXED a production-breaking regression during verification: the auth milestone's age-declaration gate blocked EVERY password sign-in (gate ran on the sign-in panel which renders no radios) — gates now signup-only, all signup protections intact, auth suites green; observer route hardened (POST bounded status wait instead of awaiting the run's lifetime; DELETE 409 on already-terminal observer). Suite 1482/0 (CI-3 added 104 tests over the CI-2 baseline), tsc clean, lint clean. Production build is evidenced by GitHub CI on the PR (local sandbox does not run next build — stated honestly in the results doc)."
+          "summary": "Evaluation, safety and production verification: full domain fixture set (8 deterministic fixtures incl. §14 health refusal + unregistered-source demotion); load/recovery benchmark (50 sessions / 350 tasks isolated real DB: dispatch 758 tasks/s, CAS drain 245 tasks/s at 4.1 ms/task, lease recovery 50 rows in 29 ms, cancellation 19 ms, terminal invariant 350/350 with 0 FAILED + honest enrichment backpressure skips; exercised as a CI test); RBAC + privacy audit suite (observer route 401/404/409/503/200 matrix through REAL handlers incl. owner golden path, identity-free sweep over every persisted fleet+observer output with the evidence envelope's allowed-fields contract); authenticated browser verification (real dev server + real sign-in + REAL pipeline and REAL fleet run — all 7 tasks COMPLETED against the real provider; fleet counts surfaced via the ownership-scoped API; observer API matrix from the browser; 0px overflow at 390/320; footer discipline; 6 screenshots + transcript); results doc with the §20 acceptance-criteria evidence map and honest limitations. CAUGHT AND FIXED a production-breaking regression during verification: the auth milestone's age-declaration gate blocked EVERY password sign-in (gate ran on the sign-in panel which renders no radios) — gates now signup-only, all signup protections intact, auth suites green; observer route hardened (POST bounded status wait instead of awaiting the run's lifetime; DELETE 409 on already-terminal observer). Suite 1482/0 (CI-3 added 104 tests over the CI-2 baseline), tsc clean, lint clean. Production build is evidenced by GitHub CI on the PR (local sandbox does not run next build — stated honestly in the results doc). CI close-out (2026-11-25): the first CI runs of the CI-3H tip failed exactly one test — L1.1 — because the load benchmark resolved fleet modules through workstation-specific absolute paths. Fix commit eb27d2e: import.meta.dir-portable source resolution (no machine-specific path remains), L1.1 subprocess failure now reports captured stdout/stderr/status/signal/spawn-error (the four benchmark assertions unchanged), and @livekit/rtc-node added to serverExternalPackages (Turbopack cannot place its native NAPI bindings — the latent Production-build failure that CI would have hit next). Branch run 45524463110 SUCCESS; owner merged PR #39 → main c93cbd5; main run 45525195806 SUCCESS. Correction: the local sandbox CAN run next build — verified at eb27d2e and in both CI runs; the unit's earlier 'local sandbox does not run next build' note described a stale environment, and the build had in fact never been exercised before eb27d2e."
         }
       ],
-      "remoteFeatureSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
-      "pushVerifiedAt": "2026-11-24T15:13:03Z",
+      "remoteFeatureSha": "eb27d2e2df18b962d804ad0d7d7f400e6f8c3462",
+      "pushVerifiedAt": "2026-11-25T01:12:30Z",
       "pr": {
-        "number": null,
-        "state": "NONE",
-        "url": null
+        "number": 39,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/39"
       },
-      "ci": [],
-      "finalMainSha": null,
-      "syncStatus": "AHEAD_ONLY",
-      "status": "IN_PROGRESS",
-      "evidence": "",
-      "ciNote": "",
-      "updatedAt": "2026-11-24T15:13:03Z"
+      "ci": [
+        {
+          "runId": "45524463110",
+          "conclusion": "SUCCESS",
+          "subject": "push build on feature branch at fix commit eb27d2e (all 13 steps incl. Tests + Production build)"
+        },
+        {
+          "runId": "45525195806",
+          "conclusion": "SUCCESS",
+          "subject": "main run after PR #39 merge (c93cbd5)"
+        }
+      ],
+      "finalMainSha": "c93cbd5a195d360a4bc63dee6ce9299533217778",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI3-RESULTS.md",
+      "ciNote": "CI-3H + ledger commit ab814ae reached main via owner PR #38 (d64df69), but its CI run (45460947690) failed exactly one test — CI-3H L1.1 — and the main run 45348155949 failed the same way: the load benchmark imported fleet modules through workstation-specific absolute paths that exist only on a developer worktree. Fix commit eb27d2e: (1) all six benchmark dynamic imports now resolve from the script's own location (checkout-portable), (2) L1.1 diagnostics expose captured stdout/stderr/ status/signal/spawn-error on failure (assertions unchanged), (3) @livekit/rtc-node added to serverExternalPackages — Turbopack cannot place its native NAPI bindings, so the Production build step would have failed next. Pushed + ls-remote verified eb27d2e; branch run 45524463110 SUCCESS; owner opened and merged PR #39 → main c93cbd5; main run 45525195806 SUCCESS (Lint, TypeScript, Tests, Production build all green). Local verification at eb27d2e additionally ran the full stack in-sandbox: benchmark direct (350 tasks, terminal invariants 350/350, 0 FAILED), suite 1482/0, lint, tsc, prisma validate, production build — correcting the earlier claim that the local sandbox cannot run next build. Ledger-close docs ride chore/ci3-ledger-merge-record (owner PR pending).",
+      "updatedAt": "2026-11-25T01:26:00Z"
     }
   ],
   "branchReconciliation": {
