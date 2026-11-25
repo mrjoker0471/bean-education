@@ -2119,3 +2119,75 @@ model ClassroomDisputeEvent {
 
   @@index([disputeId, createdAt])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5B): expert reviewer identity & qualification ──
+// A qualified human reviewer is NOT a role on the Student account and NOT the
+// same thing as a BEAN administrator. Reviewer eligibility is a separate,
+// admin-approved, server-controlled record with explicit DOMAIN and/or
+// BILINGUAL scopes. No audience selection, teacher status or institution
+// membership ever confers reviewer privileges, and no client payload can set
+// scopes or qualifications (the API resolves identity server-side; only the
+// admin action route writes scopes).
+//
+// Qualification verification records a MINIMAL verification result
+// (UNVERIFIED / DOCUMENT_REVIEWED / REFERENCED_VERIFIED + note) — original
+// identity documents are never stored. Government identity numbers, personal
+// secrets and excessive personal data are deliberately not collected.
+model ExpertReviewerProfile {
+  id                     String    @id @default(cuid())
+  // Server-resolved BEAN account (one profile per account). No FK on purpose:
+  // the audit trail must survive account deletion (matches ClassroomPackReview).
+  studentId              String    @unique
+  // Stable, non-personal reviewer code used in audit rows and UIs.
+  reviewerCode           String    @unique
+  // DOMAIN_EXPERT | BILINGUAL_LANGUAGE
+  category               String
+  // APPLICATION_PENDING | QUALIFICATION_REVIEW | APPROVED | ACTIVE |
+  // SUSPENDED | EXPIRED | REVOKED | REJECTED  (strict transition table in
+  // src/lib/ci/fleet/reviewers.ts; lazy EXPIRED when expiresAt passes).
+  status                 String    @default("APPLICATION_PENDING")
+  // Server-controlled scopes (JSON): approvedDomains: string[] of known
+  // domainIds; approvedLanguages: [{ tag, tasks[], domains?[] }] — TRANSCRIPTION
+  // is refused at write time (structural §9.2 rule).
+  approvedDomains        String    @default("[]")
+  approvedLanguages      String    @default("[]")
+  qualificationCategory  String?   // e.g. "PhD Mathematics", "Bilingual Tamil–English educator"
+  professionalExperience String?
+  // UNVERIFIED | DOCUMENT_REVIEWED | REFERENCED_VERIFIED (minimal result only)
+  verificationStatus     String    @default("UNVERIFIED")
+  verificationNote       String?
+  issuingBody            String?   // institution / professional body, when applicable
+  scopeNote              String?
+  expiresAt              DateTime? // qualification renewal date, where applicable
+  // Reviewer-supplied conflict-of-interest declaration (explicit, even if
+  // "none declared"); admin-reviewed at qualification review time.
+  conflictOfInterest     String
+  suspendedReason        String?
+  revokedReason          String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([status])
+  @@index([category, status])
+}
+
+// Append-only reviewer lifecycle history. Every transition names a real,
+// server-resolved actor (ADMIN decisions, REVIEWER applications, SYSTEM lazy
+// expiry) — no status change is ever unattributed.
+model ExpertReviewerEvent {
+  id        String   @id @default(cuid())
+  profileId String
+  // APPLICATION_SUBMITTED | QUALIFICATION_REVIEW_STARTED | APPROVED | ACTIVATED |
+  // SUSPENDED | REINSTATED | EXPIRED | REVOKED | REJECTED | SCOPE_UPDATED |
+  // COI_DECLARED
+  eventType String
+  // ADMIN | REVIEWER | SYSTEM
+  actorKind String
+  actorId   String   // server-resolved Student.id (never body-supplied)
+  rationale String?
+  payload   String?  // JSON snapshot (e.g. the approved scope at decision time)
+  createdAt DateTime @default(now())
+
+  @@index([profileId, createdAt])
+  @@index([eventType])
+}
