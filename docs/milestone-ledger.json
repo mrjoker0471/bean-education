@@ -962,6 +962,38 @@
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-RETRIEVAL.md",
       "ciNote": "",
       "updatedAt": "2026-11-25T04:10:00Z"
+    },
+    {
+      "id": "bean-auth-age-legal-consent-ux",
+      "title": "Authentication age clarity + legal consent alignment: teacher signup presents ONE explicit adult-account-eligibility confirmation (BEAN account eligibility, not a teaching qualification; no DOB / numeric age / under-18 option in the teacher presentation) mapped onto the unchanged server-validated ageDeclaration contract; student/institution two-option safeguarding declaration preserved; signup-only gating preserved (password + Google sign-in stay declaration-free, Google signup keeps every eligibility check); reusable LegalConsentRow with two aligned full-width rows, sibling links and honest /api/legal/config version metadata",
+      "branch": "feat/bean-auth-age-legal-consent-ux",
+      "baseMainSha": "9e932eee174aa0f2f4f44eecc1a6a74c93b54382",
+      "commits": [
+        "1da7371056bed1ac59882d6715cc98fd2dfd30df"
+      ],
+      "units": [
+        {
+          "id": "AUTH-AGE-CONSENT",
+          "commitSha": "1da7371056bed1ac59882d6715cc98fd2dfd30df",
+          "remoteVerifiedSha": "1da7371056bed1ac59882d6715cc98fd2dfd30df",
+          "verifiedAt": "2026-11-25T05:05:00Z",
+          "summary": "Teacher age clarity + consent alignment (docs/AUTH-AGE-CLARITY-CONSENT-RESULTS.md): auth-view LegalAcceptanceFields now audience-aware — TEACHER renders the single checkbox 'I confirm that I am 18 or older and eligible to create a BEAN Teacher account.' with the honest not-a-teaching-qualification note, no under-18 radio, no DOB, no numeric age (teach application schema still collects no DOB); STUDENT/INSTITUTION keep the original two-option declaration + child-safeguarding explanation; audience switch resets the declaration. Gates: signup requires the explicit confirmation (fail-closed, input preserved on refusal), under-18 fail-safe first for EVERY audience, payload carries only the declaration the user made; server contract untouched (z.enum ageDeclaration, 403 guardian_verification_unavailable, server-set ageBand, stale_legal_version, role refusal, STUDENT-only registration). New src/components/bean/legal-consent-row.tsx: grid-cols-[auto_minmax(0,1fr)] fixed checkbox column + flexible min-w-0 text column, checkbox aligned to the first line, equal padding rows on one divide-y surface, links are Label SIBLINGS (never nested — a link click cannot toggle the checkbox or submit), target=_blank rel=noreferrer to the existing #/terms and #/privacy routes, metadata line derived from /api/legal/config (Draft · Version X; Effective <configured date> · Version X only when the owner configured one; honest 'Version not published yet' fallback; zero hardcoded versions/dates; drafts never shown as approved). tests/unit/auth-age-eligibility-consent.test.ts 28 tests (route-level register + google/complete matrix incl. teacher/student/institution × explicit/missing/UNDER_18 + source guards for signup-only gating, link isolation, no-DOB, metadata honesty). Suite 1549/0 (--isolate, isolated DB), lint clean, tsc clean, prisma validate + migrate deploy (all migrations on a fresh DB) clean, production build exit 0. Browser-verified on a real dev server: teacher signup golden path (real account created -> /#/onboarding; DB record signupIntent TEACHER, ageBand ADULT_18_PLUS server-set, role STUDENT, TERMS+PRIVACY versioned acceptances), refusal without the confirmation with input preserved, password sign-in panel shows only email+password and a real sign-in succeeds (CI-3 regression intact), student radios intact, Terms/Privacy links open the existing routes in a new tab without touching checkbox state, NO horizontal overflow at 1440/768/390/320, screenshots in docs/screenshots/auth-consent/ (1440/768/390/320 + full-page 1440/320 + student). Honest limits: Google OAuth round-trip not browser-verifiable (no credentials in sandbox — button honestly disabled; covered by route tests)."
+        }
+      ],
+      "remoteFeatureSha": "1da7371056bed1ac59882d6715cc98fd2dfd30df",
+      "pushVerifiedAt": "2026-11-25T05:05:00Z",
+      "pr": {
+        "number": null,
+        "state": "AWAITING_OWNER",
+        "url": null
+      },
+      "ci": [],
+      "finalMainSha": null,
+      "syncStatus": "PENDING",
+      "status": "PUSHED",
+      "evidence": "docs/AUTH-AGE-CLARITY-CONSENT-RESULTS.md",
+      "ciNote": "Implementation commit 1da7371 pushed + verified via git ls-remote (local HEAD == remote tip). Follow-up PR to main = manual owner action (repo policy: PRs are opened by the owner; no PR-creation credential in the sandbox). CI runs on the new branch are verified from the GitHub UI / API by the owner; PR will carry exactly this one implementation commit + the ledger commit over baseline 9e932ee.",
+      "updatedAt": "2026-11-25T05:05:00Z"
     }
   ],
   "branchReconciliation": {
