@@ -243,3 +243,43 @@ follows the owner's normal review + merge, exactly as CI-3/CI-4 did).
 | In review | all 12 domain packs (declared IN_REVIEW) |
 | Unsupported | TRANSCRIPTION for all 11 languages (structural, §9.2) |
 | Deferred | real expert recruitment, real model measurement, real report audits, adapter model-version exposure |
+
+## 14. Final-integration verification (CI-5F–H publication round)
+
+Re-verification of the integrated branch immediately before the CI-5F–H PR
+(main `346cf86` merged into the feature branch; tree identical to the
+CI-5H-verified tip `e3995a4`, so product code is byte-identical to the
+round verified above):
+
+- **Reconciliation**: ordinary `git merge origin/main` into
+  `feat/bean-classroom-intelligence-ci5`; result content-identical to
+  `e3995a4` (main's only delta was the two PR #45/#46 merge commits); branch
+  0 commits behind main; CI-5F–H commits preserved untouched.
+- **Combined-run test hygiene** (sandbox-only failure class, no product
+  change): global registry resets and an oauth module mock leaked across
+  test files under bun's concurrent same-process execution. Fixed with
+  snapshot/restore test-support helpers (sources/registry/domain-packs) used
+  by the three mutating test files, lazy oauth-mock registration + restore,
+  and a query-string real-module binding in `oauth-google.test.ts`. Full
+  suite 1677/0 across 118 files, twice consecutively.
+- **Acceptance battery repeated on the integrated branch**: lint clean,
+  tsc clean, `prisma validate` pass, all 24 migrations green on a fresh DB,
+  production build exit 0.
+- **Authenticated browser walkthrough of the integrated build (production
+  standalone server, disposable seeded DB — screenshots in
+  `docs/screenshots/ci5-verify/`)**: reviewer fixture account applied,
+  was qualified and activated through the real admin routes, received a
+  STANDARD pack assignment through the real assignment API (admin COI check
+  recorded) and submitted a rubric-backed APPROVED for
+  `mathematics-statistics` v1.0.0 **through the reviewer UI**; the append-only
+  ledger recorded the decision bound to the exact checksum and the pack
+  curated VERIFIED with 1 distinct qualified approval (verified via the live
+  admin API). Admin governance panel exercised across all five tabs
+  (reviewers/assignments/language/benchmarks/report audits) with honest
+  empty states for benchmarks and audits; the durable language grid shows
+  TRANSCRIPTION structurally UNSUPPORTED for every language (§9.2);
+  0 px horizontal overflow at 1440/768/390; sticky footer verified; zero
+  console/page errors; an admin account visiting the reviewer workspace sees
+  the honest no-profile state. All fixture accounts and decisions are
+  clearly-labelled walkthrough data in the disposable DB — production state
+  is unchanged and no real approval is claimed.
