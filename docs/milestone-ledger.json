@@ -917,7 +917,8 @@
         "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
         "1bbb4855dbaab0426e555513440370930d5e248b",
         "45369608717cb957ed5870a27946e43a4aa245b2",
-        "5a787b703c8a14542554eeb9a0159e95f239d0e3"
+        "5a787b703c8a14542554eeb9a0159e95f239d0e3",
+        "88f2e351dc3865b9b91bcef36aeb1d6095463a84"
       ],
       "units": [
         {
@@ -954,10 +955,17 @@
           "remoteVerifiedSha": "5a787b703c8a14542554eeb9a0159e95f239d0e3",
           "verifiedAt": "2026-11-25T04:55:00Z",
           "summary": "Specialist intelligence upgrade (existing agents, no duplication): subject specialists now retrieval-grounded (CI-4D envelope in the prompt; catalogue-tag language resolution — 'English'→'en'; out-of-catalogue = no filter, never a wrong filter; retrieval failure degrades to an explicit unknown, never blocks). Grounding extension: cited source must be registered AND pack-declared OR retrieved; fabricated refs still demote. Contract 1.1.0: optional structured handoffs[] (handoffId, source/target, question, permittedEvidenceKinds, outputContractVersion, budget, returnStatus) + NEW C7 (targets must be declared related domains; pack-less handoffs refused; bound 3). planHandoffFollowUps: server-side PROPOSALS only (machine AND curator gates on the target; per-class domain cap; receiver answers under its own pack scope — model output can never dispatch work). runPackBenchmark: deterministic fixture evidence recorded, 'human review still required for VERIFIED' label, status never flips, empty refs record honestly. CHECKSUM INTEGRITY FIX (found by CI-4E): the CI-3 canonical pack form dropped ALL nested content from the checksum (replacer-array allowlist of top-level keys) — canonical form now sorts keys at every level so the CI-4C review binding covers the full pack. Docs: SPECIALIST-BEHAVIOUR.md (responsibilities, professional boundaries table, handoff walkthrough, honest not-built list). Tests ci4-specialists 5 (E1–E6 through the real worker/claim path). Suite 1526/0; tsc clean; lint clean; pushed+verified 5a787b7."
+        },
+        {
+          "id": "CI-4F",
+          "commitSha": "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
+          "remoteVerifiedSha": "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
+          "verifiedAt": "2026-11-25T05:35:00Z",
+          "summary": "Multilingual quality: corrected the CI-3 honesty ladder — CI-3F flipped a measured machine pass straight to VERIFIED (violating 'a model never certifies itself'); the corrected ladder is EXPERIMENTAL → benchmark (deterministic) → LIMITED (provenance recorded) → recordHumanLanguageApproval (server-resolved reviewer identity; refuses UNMEASURED capabilities; reviewer attribution appended) → VERIFIED. LanguageCapabilityRecord extended back-compatibly (dialect/modelProvider/modelVersion/domain/benchmarkVersion/humanApproved). Benchmark expansion: 10 new BEAN-authored cases — in-script terminology preservation for all 11 catalogue languages + mathematical-notation preservation (x² + 2x + 1 = 0 inside Devanagari); runCi4LanguageBenchmark runs both sets per language, records with provenance, ran=false without adapter. TRANSCRIPTION structurally UNSUPPORTED — immovable by benchmarks AND human approvals (tested). CI-3 L1.3/L1.4 updated to the stricter rule (no assertion weakened). CI4-LANGUAGE-RESULTS.md states the honest current state: zero VERIFIED language capabilities BY DESIGN (no production measurement, no human bilingual review yet); dialects recorded as variationNotes, not separately benchmarked; translation stays NEEDS_HUMAN_REVIEW; speech decision preserved unchanged. Tests ci4-language 6 (F1–F6). Suite 1532/0; tsc clean; lint clean; pushed+verified 88f2e35."
         }
       ],
-      "remoteFeatureSha": "5a787b703c8a14542554eeb9a0159e95f239d0e3",
-      "pushVerifiedAt": "2026-11-25T04:55:00Z",
+      "remoteFeatureSha": "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
+      "pushVerifiedAt": "2026-11-25T05:35:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -967,9 +975,9 @@
       "finalMainSha": null,
       "syncStatus": "PENDING",
       "status": "IN_PROGRESS",
-      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-RETRIEVAL.md; docs/BEAN-CLASSROOM-INTELLIGENCE-SPECIALIST-BEHAVIOUR.md",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-RETRIEVAL.md; docs/BEAN-CLASSROOM-INTELLIGENCE-SPECIALIST-BEHAVIOUR.md; docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-LANGUAGE-RESULTS.md",
       "ciNote": "",
-      "updatedAt": "2026-11-25T04:55:00Z"
+      "updatedAt": "2026-11-25T05:35:00Z"
     }
   ],
   "branchReconciliation": {
