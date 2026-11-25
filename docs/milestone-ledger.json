@@ -1157,25 +1157,36 @@
         {
           "id": "CI-5H",
           "commitSha": "321f5c81d7ca1f3fbe29f144fafd401e3f433be5",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "e3995a424de6c7087c485b6efe22e7605ba6f73b",
+          "verifiedAt": "2026-11-25T16:10:00Z",
           "summary": "Production readiness (docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-RESULTS.md): ExpertReviewRenewalDemand (additive migration 20261125170000) — re-review lifecycle with 8 charter triggers (PACK_CHANGED/SOURCE_REVOKED/LICENCE_CHANGED/BENCHMARK_UPDATED/MODEL_CHANGED/QUALIFICATION_EXPIRED/SAFETY_POLICY_CHANGED/MATERIAL_ERROR) mapped by evaluateReReviewTriggers (pure, tested complete), duplicate OPEN demands refused, reasoned admin resolution, approvals NEVER erased. Model-context capability resolution: the runtime language gate passes the current adapter as model context — a VERIFIED binding for one model is NEVER silently treated as valid for another (registry view unchanged; tested v1-VERIFIED vs v2-LIMITED vs supersession). Audit-history export route covering every CI-5 ledger. PRODUCTION BUG FIXED: the browser walkthrough exposed an empty pack registry on the real server (only tests imported packs/index) — packs/registry.ts bootstrap now imported by curator + reviewers (verified live: /api/admin/knowledge/packs returns 12 packs). Reliability tests (10): duplicate/concurrent assignment guards, duplicate submissions, duplicate renewal demands, stale checksums, suspension mid-assignment, revocation terminality, lazy expiry, regression protection (model-version isolation + pack checksum binding re-proven), restart durability across every CI-5 ledger, user-deletion interaction (audit rows survive by design), audit export completeness. Full acceptance: 1677/0 suite across 118 files, lint clean, tsc clean, prisma valid, ALL migrations green on a fresh DB, production build exit 0. Real-browser walkthrough: admin governance workspace + reviewer workspace with screenshots at 1440/768/390/320 (no 320px horizontal overflow, verified programmatically); golden-path rubric submission through the real route on the disposable dev DB — pack VERIFIED with 1 distinct qualified approval (BR-walkthrough fixture, clearly labelled); production packs remain IN_REVIEW. Honest final state per CI5-RESULTS.md §17: no real experts, no real approvals, no real measurements — the governance, durability, binding and auditability that make them possible are implemented and tested."
         }
       ],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "f92cf11d79d658f55c6798fcf537b9e16aea7634",
+      "pushVerifiedAt": "2026-11-25T16:05:00Z",
       "pr": {
-        "number": null,
-        "state": "AWAITING_OWNER",
-        "url": null
+        "number": 47,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/47"
       },
-      "ci": [],
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "PUSHED",
-      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-BASELINE.md",
-      "ciNote": "CI-5 opened from verified main 7ccf355 (PR #44 merged). CI-5A committed 64ca6ad; push + ls-remote verification recorded immediately after push. Remaining units CI-5B–H follow the per-unit commit+push+verify policy; CI-5 is marked COMPLETE only after all units are in main and verified there.",
-      "updatedAt": "2026-11-25T06:05:00Z"
+      "ci": [
+        {
+          "runId": "45650830609",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on feature tip f92cf11 (feat/bean-classroom-intelligence-ci5) — quality job 13/13 steps green; verified live via the GitHub API (not assumed)"
+        },
+        {
+          "runId": "45651168401",
+          "conclusion": "SUCCESS",
+          "subject": "pull_request run for PR #47 on head f92cf11 — quality job 13/13 steps green; verified live via the GitHub API (not assumed)"
+        }
+      ],
+      "finalMainSha": "56397a0ca21155a279df093ec640a630dcd83b7f",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-RESULTS.md",
+      "ciNote": "CI-5 COMPLETE: all eight units are in main. Integration path — owner PR #45 (merge d6ab755, CI-5A–B), owner PR #46 (merge 346cf86, CI-5C–E), owner PR #47 (merge 56397a0 = finalMainSha, carrying CI-5F f6742f5 + CI-5G 42a90ad + CI-5H 321f5c8 plus the final-integration reconciliation: ordinary git merge fbbe3fd of origin/main 346cf86 into the feature branch with docs/milestone-ledger.json reconciled per milestone ID and every existing record preserved, the combined-run harness fix be314a1, and the integrated-branch walkthrough evidence f92cf11). Push verification: normal non-force fast-forward e3995a4..f92cf11; remote tip verified via git ls-remote over BOTH transports (SSH deploy key via ssh.github.com:443 and anonymous HTTPS) == f92cf11; all nine branch commits proven ancestors of final main 56397a0 by git merge-base --is-ancestor; diff equivalence proven: 346cf86..56397a0 = 56 files, +4504/−44, identical to the branch diff vs 346cf86. CI verified live via the GitHub API (not assumed): push run 45650830609 SUCCESS and pull_request run 45651168401 SUCCESS, both on f92cf11 (quality job 13/13 steps: ESLint, TypeScript, full Bun suite, production build on an isolated throwaway DB). PR provenance: the sandbox holds only a git-protocol deploy key (POST /repos/mrjoker0471/bean-education/pulls returns 401 Requires authentication — attempted and documented), so PR #47 was opened and merged by the owner (mrjoker0471) at 2026-11-25T16:07Z; no merge was performed by the agent. Honest final state per CI5-RESULTS.md §17: production domain packs remain IN_REVIEW, language capabilities remain unmeasured/LIMITED, benchmark metrics remain honest zero-measurement — no real expert approvals or real measurements are claimed; the governance, durability, binding and auditability machinery that makes genuine expert validation possible is implemented and tested, with every synthetic fixture clearly labelled. Evidence: the eight charter docs CI5-BASELINE / CI5-REVIEWER-GOVERNANCE / CI5-LANGUAGE-GOVERNANCE / CI5-DOMAIN-VALIDATION / CI5-BENCHMARK-RESULTS / CI5-CLASSROOM-PILOT / CI5-REVIEWER-UX / CI5-RESULTS.",
+      "updatedAt": "2026-11-25T16:25:00Z"
     }
   ],
   "branchReconciliation": {
