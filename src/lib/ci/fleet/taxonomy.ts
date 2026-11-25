@@ -225,7 +225,7 @@ export function professionCatalogue(): { importState: typeof PROFESSION_IMPORT_S
     importState: PROFESSION_IMPORT_STATE,
     nodes: [],
     note:
-      'ESCO (free access ≠ automatic licence) and O*NET 31.0 (CC BY 4.0 with attribution/exceptions) imports are pending per-source licence verification and a controlled ingestion run. The node structure above is ready; no occupation content is claimed.',
+      'This CI-3B structure is superseded for profession data by the CI-4B world-taxonomy layer (src/lib/ci/fleet/world-taxonomy.ts): curated O*NET occupation mappings are imported there (METADATA_SEED_IMPORTED) while ESCO stays at its licence gate pending licence verification and NCO/NSQF remain no-import/citation-only. No occupation content is claimed here.',
   }
 }
 
