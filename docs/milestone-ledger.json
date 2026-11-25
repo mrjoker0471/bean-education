@@ -919,7 +919,8 @@
         "45369608717cb957ed5870a27946e43a4aa245b2",
         "5a787b703c8a14542554eeb9a0159e95f239d0e3",
         "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
-        "de09e40e0f5d6f882a4e7649ab007a12775e59ef"
+        "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
+        "9b155f3897be82f6bfdfd803154560fdeaacc4d7"
       ],
       "units": [
         {
@@ -970,22 +971,35 @@
           "remoteVerifiedSha": "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
           "verifiedAt": "2026-11-25T06:15:00Z",
           "summary": "Classroom operation: (1) teacher observer controls UI (observer-controls.tsx) on the REAL CI-3D owner API — honest status/connectivity/reconnect/failure states incl. media-access provenance and transcription-disabled rendering; typed API refusals first-class. (2) Student disclosure (observer-disclosure.tsx in classroom-shell) for EVERYONE when the observer is present — bean-observer: identity prefix shared with the webhook attendance exclusion so disclosure and no-fake-attendance cannot drift; explicit 'no audio or video is being recorded'. (3) Safe post-class fleet dispatch: BEAN_CI_FLEET_AUTO_DISPATCH must be exactly 'true' (default OFF; tested 'TRUE'/'1' refuse); live/end + room_finished fire-and-forget for TERMINAL classes; flag alone NEVER bypasses consent (dispatcher re-check at dispatch + worker re-check at claim — tested flag-on+no-consent=0 rows); repeat dispatch idempotent via taskKey. (4) Capacity benchmark (scripts/ci4-capacity-benchmark.ts, isolated real SQLite, deterministic executor, REAL bounded pool): 20 classrooms x 7 tasks (140) — 4 workers 160 tasks/s (6.26 ms/task), 8: 208 (4.81), 16: 259 (3.86), +62% with diminishing gains consistent with single-writer SQLite; invariants 140/140 COMPLETED 0 FAILED; honest limits documented (machinery-only numbers, no horizontal-scale claims, machinery time != simultaneous classrooms). OBSERVER-AND-DISPATCH.md. Tests ci4-classroom-operation 3 (G1–G3). Suite 1535/0; tsc clean; lint clean; prisma valid; pushed+verified de09e40."
+        },
+        {
+          "id": "CI-4H",
+          "commitSha": "9b155f3897be82f6bfdfd803154560fdeaacc4d7",
+          "remoteVerifiedSha": "9b155f3897be82f6bfdfd803154560fdeaacc4d7",
+          "verifiedAt": "2026-11-25T06:55:00Z",
+          "summary": "Final verification: production build exit 0 (standalone); full suite 1535/0 across 109 files (baseline 1482 → CI-4 added 53; no assertion weakened — count/fact updates documented per unit); tsc clean; lint clean; prisma valid; both CI-4 migrations green via migrate deploy on fresh DBs; coverage docs gained CI-4 addenda (12/36 packs; zero VERIFIED languages BY DESIGN; transcription structural). CI4-RESULTS.md records the complete evidence map (every unit SHA + ls-remote verification, licence-audit headline, capability classification: IMPLEMENTED+TESTED / HUMAN-VERIFIED none-yet / VERIFIED BY BENCHMARK / EXPERIMENTAL / IN_REVIEW / UNSUPPORTED / DEFERRED incl. the explicitly deferred authenticated browser walkthrough with reason). GitHub Actions quality job on the final tip: SUCCESS (run 45542087661, branch push — all steps incl. Tests + Production build). Zero new runtime dependencies (package.json unchanged from d86dfcc). Pushed+verified 9b155f3."
         }
       ],
-      "remoteFeatureSha": "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
-      "pushVerifiedAt": "2026-11-25T06:15:00Z",
+      "remoteFeatureSha": "9b155f3897be82f6bfdfd803154560fdeaacc4d7",
+      "pushVerifiedAt": "2026-11-25T06:55:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
         "url": null
       },
-      "ci": [],
+      "ci": [
+        {
+          "runId": "45542087661",
+          "conclusion": "SUCCESS",
+          "subject": "push build on feature branch at CI-4H tip 9b155f3 (full quality gate incl. Tests + Production build)"
+        }
+      ],
       "finalMainSha": null,
       "syncStatus": "PENDING",
-      "status": "IN_PROGRESS",
-      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-RETRIEVAL.md; docs/BEAN-CLASSROOM-INTELLIGENCE-SPECIALIST-BEHAVIOUR.md; docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-LANGUAGE-RESULTS.md; docs/BEAN-CLASSROOM-INTELLIGENCE-OBSERVER-AND-DISPATCH.md",
-      "ciNote": "",
-      "updatedAt": "2026-11-25T06:15:00Z"
+      "status": "PUSHED",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-RESULTS.md",
+      "ciNote": "CI-4 units A→H each pushed + ls-remote verified individually (15 commits total: 8 unit commits + 8 ledger commits minus shared tips). Final tip 9b155f3 CI run 45542087661 SUCCESS. Status PUSHED — awaiting the owner-authorised PR to main (repo policy: PRs are opened by the owner; merge only when authorised). PR will carry all eight CI-4 units over baseline d86dfcc.",
+      "updatedAt": "2026-11-25T06:55:00Z"
     }
   ],
   "branchReconciliation": {
