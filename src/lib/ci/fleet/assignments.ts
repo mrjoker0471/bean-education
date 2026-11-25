@@ -151,7 +151,7 @@ export async function listAssignments(db: AssignmentDb, filter: { status?: strin
 // ─── Assignment creation (the only entry point; server-authorised) ────────────
 
 export const createAssignmentInputSchema = z.object({
-  subjectType: z.enum(['DOMAIN_PACK', 'LANGUAGE_CAPABILITY']),
+  subjectType: z.enum(['DOMAIN_PACK', 'LANGUAGE_CAPABILITY', 'CLASSROOM_REPORT']),
   /** DOMAIN_PACK: the domainId. LANGUAGE_CAPABILITY: "tag:task[:domain]". */
   subjectKey: z.string().min(3).max(160),
   subjectVersion: z.string().min(1).max(40).optional(),
@@ -206,6 +206,16 @@ export async function createAssignment(
   if (data.subjectType === 'DOMAIN_PACK') {
     if (!reviewerCanReviewDomain(reviewerProfile, data.subjectKey)) {
       return { ok: false, status: 403, error: `reviewer ${reviewerProfile.reviewerCode} is not authorised for domain "${data.subjectKey}" — scope mismatch` }
+    }
+  } else if (data.subjectType === 'CLASSROOM_REPORT') {
+    // Report audits are assigned by administrators to ACTIVE reviewers holding
+    // an approved scope of EITHER kind (the report-audit itself is privacy-
+    // masked and not domain-bound); the assignment carries the authorisation.
+    const scope = reviewerProfile.category === 'DOMAIN_EXPERT'
+      ? JSON.parse(reviewerProfile.approvedDomains) as string[]
+      : JSON.parse(reviewerProfile.approvedLanguages) as unknown[]
+    if (scope.length === 0) {
+      return { ok: false, status: 403, error: `reviewer ${reviewerProfile.reviewerCode} holds no approved scope — report audits require an authorised reviewer` }
     }
   } else {
     const parts = data.subjectKey.split(':')

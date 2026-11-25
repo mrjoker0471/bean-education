@@ -2410,3 +2410,33 @@ model ExpertBenchmarkRun {
   @@index([datasetId, agentKind])
   @@index([agentKind, createdAt])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5G): classroom-report audit pilot ────────
+// A privacy-masked expert audit of the EXISTING classroom evaluation reports.
+// The reviewer sees only the masked evidence view (no student names, emails,
+// private messages, individual academic histories or unrelated profile data),
+// records supported / unsupported / ambiguous findings, and the Evidence
+// Auditor's findings stay preserved — corrections are NEW review rows, never
+// edits. Teacher disputes flow through the existing Trust workflow.
+model ClassroomReportAuditReview {
+  id             String   @id @default(cuid())
+  reportId       String   // ClassroomEvaluationReport.id
+  reportVersion  Int      // exact report version audited
+  reportChecksum String   // sha256 of the audited reportJson (binds the review)
+  reviewerStudentId String // server-resolved (no FK — audit survives deletion)
+  reviewerCode   String
+  assignmentId   String?  // the CI-5C assignment that carried the case
+  // SUPPORTED | PARTIALLY_SUPPORTED | NOT_SUPPORTED | CORRECTIONS_RECORDED
+  verdict        String
+  supportedFindings   String @default("[]") // JSON
+  unsupportedFindings String @default("[]") // JSON (claims the report makes without evidence)
+  ambiguousFindings   String @default("[]") // JSON
+  unobservableMarkers String @default("[]") // JSON (dimensions with no transcripts — honestly unobservable)
+  evidenceAuditorFindingsPreserved Boolean @default(true)
+  rationale      String
+  maskingNote    String   // what was masked and why
+  createdAt      DateTime @default(now())
+
+  @@index([reportId, reportVersion])
+  @@index([reviewerStudentId])
+}

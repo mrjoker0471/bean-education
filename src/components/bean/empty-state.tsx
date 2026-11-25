@@ -1,16 +1,17 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import type { LucideIcon } from 'lucide-react'
+import { Inbox, type LucideIcon } from 'lucide-react'
 
 export function EmptyState({
-  icon: Icon,
+  icon: Icon = Inbox,
   title,
   description,
   actionLabel,
   onAction,
 }: {
-  icon: LucideIcon
+  /** Optional — a neutral default keeps empty states consistent when no domain icon fits. */
+  icon?: LucideIcon
   title: string
   description: string
   actionLabel?: string

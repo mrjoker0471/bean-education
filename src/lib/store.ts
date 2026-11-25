@@ -40,6 +40,9 @@ export type Route =
   | { view: 'classroom'; classId: string }
   // Phase 6 — BEAN Trust & Quality (additive)
   | { view: 'admin-trust' }
+  // CI-5 — expert reviewer governance (additive)
+  | { view: 'admin-ci5-reviewers' }
+  | { view: 'reviewer-workspace' }
   | { view: 'my-reports' }
   | { view: 'trust-policy' }
   // Public experience, authentication & legal foundation (additive)
@@ -163,7 +166,11 @@ export function parseHash(hash: string): Route {
       if (parts[1] === 'trust') return { view: 'admin-trust' }
       if (parts[1] === 'organizations') return { view: 'admin-organizations' }
       if (parts[1] === 'career') return { view: 'admin-career' }
+      if (parts[1] === 'ci5-reviewers') return { view: 'admin-ci5-reviewers' }
       return { view: 'not-found' }
+    // CI-5 — expert reviewer governance
+    case 'reviewer':
+      return { view: 'reviewer-workspace' }
     case 'my-reports':
       return { view: 'my-reports' }
     case 'trust-policy':
@@ -283,6 +290,8 @@ export function routeToHash(route: Route): string {
     case 'classroom': return `#/classroom/${encodeURIComponent(route.classId)}`
     // Phase 6 — BEAN Trust & Quality
     case 'admin-trust': return '#/admin/trust'
+    case 'admin-ci5-reviewers': return '#/admin/ci5-reviewers'
+    case 'reviewer-workspace': return '#/reviewer'
     case 'my-reports': return '#/my-reports'
     case 'trust-policy': return '#/trust-policy'
     // Public experience, authentication & legal foundation
