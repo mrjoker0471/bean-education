@@ -1134,16 +1134,19 @@ export async function runLanguageSpecialist(ctx: FleetTaskExecutionContext): Pro
   if (tag === null) {
     unknowns.push(`declared language "${declared}" is outside the language capability catalogue — capability unmeasured`)
   } else {
-    // CI-5E: the effective capability comes from the DURABLE governance store
+    // CI-5E/5H: the effective capability comes from the DURABLE governance store
     // when it is reachable (persisted measurements/approvals/revocations
-    // survive restarts and apply to every worker); when the durable store is
-    // unavailable the honest catalogue default view is used — it can never
-    // claim VERIFIED.
+    // survive restarts and apply to every worker), with the CURRENT adapter's
+    // provider as the model context — a VERIFIED binding for an older model is
+    // never silently treated as valid for a different one. When the durable
+    // store is unavailable the honest catalogue default view is used — it can
+    // never claim VERIFIED.
+    const currentAdapter = getCiModelAdapter()
     for (const task of ['TEXT_UNDERSTANDING', 'TRANSLATION', 'GENERATION'] as const) {
       let refusal: string | null
       try {
         const { capabilityRefusalReasonDurable, languageGovernanceDbFromPrisma } = await import('./language-governance')
-        refusal = await capabilityRefusalReasonDurable(languageGovernanceDbFromPrisma(db), tag, task)
+        refusal = await capabilityRefusalReasonDurable(languageGovernanceDbFromPrisma(db), tag, task, { modelProvider: currentAdapter?.id })
       } catch {
         refusal = capabilityRefusalReason(tag, task)
       }

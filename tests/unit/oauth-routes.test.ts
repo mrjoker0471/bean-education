@@ -8,10 +8,14 @@
 //   • complete enforces the same legal acceptance as normal registration
 //   • OAuth can never change a role; duplicate subjects are refused
 
-import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test'
 import { completeAuthMock } from '../helpers/auth-mock'
 import type { NextRequest } from 'next/server'
 import { resetRateLimits } from '@/lib/rate-limit'
+// Real module namespace, bound BEFORE the mock registration below (static
+// imports evaluate first). Used by the afterAll restore so later test files
+// in the same combined bun process get the genuine crypto implementation.
+import * as realOauthGoogle from '@/lib/oauth-google'
 
 const state = {
   envConfigured: false as boolean,
@@ -145,14 +149,38 @@ mock.module('@/lib/auth', () => completeAuthMock({
     return { token: 'token-1', expiresAt: new Date(Date.now() + 86_400_000) }
   },
 }))
-mock.module('@/lib/oauth-google', () => googleMock)
+// The Google protocol mock MUST be registered lazily (in beforeAll), not at
+// module scope: bun pre-registers every test file's modules before running
+// tests, so a module-scope mock.module here would poison the static import of
+// the real @/lib/oauth-google in oauth-google.test.ts (and any other file),
+// regardless of execution order — the fake would replace genuine crypto for
+// the whole combined run. Registering in beforeAll keeps the mock strictly
+// scoped to this file's own test execution; the routes under test are also
+// imported here so they capture the mock.
+let OAUTH_STATE_COOKIE = ''
+let OAUTH_VERIFIER_COOKIE = ''
+let OAUTH_NONCE_COOKIE = ''
+let statusRoute: typeof import('@/app/api/auth/google/status/route')
+let startRoute: typeof import('@/app/api/auth/google/start/route')
+let callbackRoute: typeof import('@/app/api/auth/google/callback/route')
+let linkRoute: typeof import('@/app/api/auth/google/link/route')
+let completeRoute: typeof import('@/app/api/auth/google/complete/route')
 
-const { OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE, OAUTH_NONCE_COOKIE } = await import('@/app/api/auth/google/start/route')
-const statusRoute = await import('@/app/api/auth/google/status/route')
-const startRoute = await import('@/app/api/auth/google/start/route')
-const callbackRoute = await import('@/app/api/auth/google/callback/route')
-const linkRoute = await import('@/app/api/auth/google/link/route')
-const completeRoute = await import('@/app/api/auth/google/complete/route')
+beforeAll(async () => {
+  mock.module('@/lib/oauth-google', () => googleMock)
+  ;({ OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE, OAUTH_NONCE_COOKIE } = await import('@/app/api/auth/google/start/route'))
+  statusRoute = await import('@/app/api/auth/google/status/route')
+  startRoute = await import('@/app/api/auth/google/start/route')
+  callbackRoute = await import('@/app/api/auth/google/callback/route')
+  linkRoute = await import('@/app/api/auth/google/link/route')
+  completeRoute = await import('@/app/api/auth/google/complete/route')
+})
+
+// Defensive: restore the genuine module after this file's tests so any later
+// runtime importer in the same combined process resolves the real crypto.
+afterAll(() => {
+  mock.module('@/lib/oauth-google', () => realOauthGoogle)
+})
 
 const CURRENT_TERMS = '2026-11-23-draft.1'
 const CURRENT_PRIVACY = '2026-11-23-draft.1'

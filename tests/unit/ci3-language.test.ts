@@ -517,8 +517,10 @@ describe('CI-3F language specialist runtime (R1)', () => {
       expect(cs!.observation).toContain('Tamil')
       expect(cs!.observation).toContain('Latin')
       expect(out.requiresHumanReview).toBe(true)
-      // capability honesty unknowns recorded
-      expect(out.unknowns.some((u) => u.includes('EXPERIMENTAL') || u.includes('NEEDS_HUMAN_REVIEW'))).toBe(true)
+      // capability honesty unknowns recorded (CI-5E: the durable refusal for an
+      // unmeasured capability under the current model reads LIMITED-at-best with
+      // the honest not-verified note — same intent, durable vocabulary)
+      expect(out.unknowns.some((u) => u.includes('EXPERIMENTAL') || u.includes('NEEDS_HUMAN_REVIEW') || u.includes('LIMITED') || u.includes('not verified'))).toBe(true)
     } finally {
       resetCiModelAdapterForTests()
       await cleanupTeacher(seeded.teacherId)

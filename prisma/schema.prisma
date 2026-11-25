@@ -2332,3 +2332,136 @@ model LanguageCapabilityStatus {
   @@unique([languageTag, task, domain, dialect, modelProvider, modelVersion, benchmarkVersion])
   @@index([languageTag, task, status])
 }
+
+// ─── BEAN Classroom Intelligence (CI-5F): expert-labelled benchmark programme ──
+// Independent datasets with expert reference labels, strict split separation
+// (DEVELOPMENT / CALIBRATION / VALIDATION / BLIND_HOLDOUT — holdout labels are
+// restricted to prevent leakage), honest measured metrics with sample sizes,
+// and hard no-self-certification: a benchmark run never mutates pack reviews,
+// language capability status or any other governance ledger.
+model ExpertBenchmarkDataset {
+  id          String   @id @default(cuid())
+  slug        String
+  name        String
+  // SUBJECT_CORRECTNESS | EXPLANATION_QUALITY | REASONING | SOURCE_FIDELITY |
+  // CITATION_ACCURACY | SYLLABUS_ALIGNMENT | LESSON_SUMMARY_QUALITY |
+  // TEACHING_EVALUATION | REFUSAL_ACCURACY | UNCERTAINTY_HANDLING |
+  // HANDOFF_QUALITY | MULTILINGUAL_QUALITY
+  taskKind    String
+  split       String   // DEVELOPMENT | CALIBRATION | VALIDATION | BLIND_HOLDOUT
+  version     String
+  checksum    String   // sha256 of the canonical case set
+  licence     String   // BEAN-AUTHORED-ORIGINAL or a recorded compatible licence
+  domain      String   @default("") // domain-scoped dataset ("" = cross-domain)
+  languageTag String   @default("") // language-scoped dataset ("" = language-agnostic)
+  casesJson   String   // BEAN-authored case array
+  createdBy   String   // server-resolved actor
+  createdAt   DateTime @default(now())
+
+  @@unique([slug, version])
+  @@index([taskKind, split])
+}
+
+// Expert reference labels (append-only per reviewer). An expert reference may
+// record multiple acceptable answers and explicit prohibited conclusions —
+// false certainty is never imposed where legitimate professional disagreement
+// exists (two labels for one case are both preserved, never averaged).
+model ExpertBenchmarkCaseLabel {
+  id                String   @id @default(cuid())
+  datasetId         String
+  datasetVersion    String
+  caseKey           String
+  reviewerProfileId String
+  reviewerCode      String
+  expectedResults   String   // JSON: expected result + accepted alternatives
+  prohibitedConclusions String @default("[]")
+  supportingSources String   @default("[]")
+  confidence        String   // HIGH | MEDIUM | LOW
+  ambiguityNote     String?
+  rubricVersion     String
+  createdAt         DateTime @default(now())
+
+  @@unique([datasetId, datasetVersion, caseKey, reviewerProfileId])
+  @@index([datasetId, caseKey])
+}
+
+// One measured harness run of an agent kind against one dataset version.
+// ran=false (no adapter / no executable path) is recorded honestly — metrics
+// are never fabricated. Every run stores its sample sizes and method.
+model ExpertBenchmarkRun {
+  id               String   @id @default(cuid())
+  datasetId        String
+  datasetVersion   String
+  datasetChecksum  String
+  // LEARNER | TEACHER_JUDGE | SUBJECT_SPECIALIST | LANGUAGE_SPECIALIST |
+  // EVIDENCE_AUDITOR | SAFETY_GUARDIAN | EVALUATION_ORCHESTRATOR |
+  // TEACHER_COACH | REVISION_COACH
+  agentKind        String
+  agentDomain      String   @default("")
+  modelProvider    String
+  modelVersion     String
+  metricsJson      String   // computed metrics + sample sizes + method
+  ran              Boolean
+  runReason        String
+  expertLabelCount Int      @default(0)
+  runBy            String
+  createdAt        DateTime @default(now())
+
+  @@index([datasetId, agentKind])
+  @@index([agentKind, createdAt])
+}
+
+// ─── BEAN Classroom Intelligence (CI-5G): classroom-report audit pilot ────────
+// A privacy-masked expert audit of the EXISTING classroom evaluation reports.
+// The reviewer sees only the masked evidence view (no student names, emails,
+// private messages, individual academic histories or unrelated profile data),
+// records supported / unsupported / ambiguous findings, and the Evidence
+// Auditor's findings stay preserved — corrections are NEW review rows, never
+// edits. Teacher disputes flow through the existing Trust workflow.
+model ClassroomReportAuditReview {
+  id             String   @id @default(cuid())
+  reportId       String   // ClassroomEvaluationReport.id
+  reportVersion  Int      // exact report version audited
+  reportChecksum String   // sha256 of the audited reportJson (binds the review)
+  reviewerStudentId String // server-resolved (no FK — audit survives deletion)
+  reviewerCode   String
+  assignmentId   String?  // the CI-5C assignment that carried the case
+  // SUPPORTED | PARTIALLY_SUPPORTED | NOT_SUPPORTED | CORRECTIONS_RECORDED
+  verdict        String
+  supportedFindings   String @default("[]") // JSON
+  unsupportedFindings String @default("[]") // JSON (claims the report makes without evidence)
+  ambiguousFindings   String @default("[]") // JSON
+  unobservableMarkers String @default("[]") // JSON (dimensions with no transcripts — honestly unobservable)
+  evidenceAuditorFindingsPreserved Boolean @default(true)
+  rationale      String
+  maskingNote    String   // what was masked and why
+  createdAt      DateTime @default(now())
+
+  @@index([reportId, reportVersion])
+  @@index([reviewerStudentId])
+}
+
+// ─── BEAN Classroom Intelligence (CI-5H): re-review lifecycle ─────────────────
+// Expert validation is not permanent by assumption. When a trigger fires (pack
+// change, source revocation, licence change, benchmark update, material model
+// change, qualification expiry, safety-policy change, confirmed material
+// error), a renewal DEMAND is recorded. Previous approvals are never erased —
+// the demand marks the current status appropriately and the resolution is a
+// new, reasoned, admin-authorised event.
+model ExpertReviewRenewalDemand {
+  id          String    @id @default(cuid())
+  subjectType String    // DOMAIN_PACK | LANGUAGE_CAPABILITY | CLASSROOM_REPORT
+  subjectKey  String    // domainId | "tag:task:domain" | report id
+  trigger     String    // PACK_CHANGED | SOURCE_REVOKED | LICENCE_CHANGED | BENCHMARK_UPDATED | MODEL_CHANGED | QUALIFICATION_EXPIRED | SAFETY_POLICY_CHANGED | MATERIAL_ERROR
+  detail      String
+  demandedBy  String    // server-resolved actor
+  status      String    @default("OPEN") // OPEN | RESOLVED
+  resolution  String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([subjectType, subjectKey, status])
+  @@index([trigger, status])
+}

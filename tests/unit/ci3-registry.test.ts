@@ -13,7 +13,7 @@
 //   T1  taxonomy — deterministic subject→domain resolution with matchedOn
 //       evidence, honest no-match, caps; profession import gate stays honest
 
-import { describe, test, expect, beforeEach } from 'bun:test'
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test'
 
 import {
   FLEET_AGENT_ID,
@@ -33,6 +33,8 @@ import {
   resolveAgentId,
   resetRegistryForTests,
   reRegisterCoreFleetForTests,
+  snapshotRegistryForTests,
+  restoreRegistryForTests,
 } from '@/lib/ci/fleet/registry'
 import {
   validateFleetTaskOutput,
@@ -46,6 +48,8 @@ import {
   listDomainPacks,
   dispatchableDomainPacks,
   resetDomainPacksForTests,
+  snapshotDomainPacksForTests,
+  restoreDomainPacksForTests,
   domainCatalogueSummary,
 } from '@/lib/ci/fleet/domain-packs'
 import {
@@ -53,6 +57,8 @@ import {
   getSource,
   assertSourceUsable,
   resetSourcesForTests,
+  snapshotSourcesForTests,
+  restoreSourcesForTests,
   sourceRecordSchema,
 } from '@/lib/ci/fleet/sources'
 import {
@@ -146,6 +152,20 @@ function seedPack(domainId: string): Record<string, unknown> {
   if (!found) throw new Error(`seed pack missing: ${domainId}`)
   return structuredClone(found.pack)
 }
+
+// Combined-run hygiene: this file resets and re-registers the fleet registry,
+// source register and pack store around every test. bun executes every test
+// file in one process (order filesystem-dependent), so the module-load state
+// is snapshotted here and restored after the last test — this file's own
+// behaviour is unchanged, but later files always observe the shipped state.
+const fleetRegistrySnapshot = snapshotRegistryForTests()
+const sourcesSnapshot = snapshotSourcesForTests()
+const domainPacksSnapshot = snapshotDomainPacksForTests()
+afterAll(() => {
+  restoreRegistryForTests(fleetRegistrySnapshot)
+  restoreSourcesForTests(sourcesSnapshot)
+  restoreDomainPacksForTests(domainPacksSnapshot)
+})
 
 beforeEach(() => {
   // Full fleet state reset + re-seed (module once-flags included).

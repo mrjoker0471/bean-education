@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { CI3_LANGUAGE_TASKS, languageByTag, type Ci3LanguageTask } from './language'
 import { listDomainPacks } from './domain-packs'
+import './packs/registry'
 
 // ─── Vocabularies ─────────────────────────────────────────────────────────────
 

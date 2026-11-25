@@ -9,14 +9,21 @@
 
 import { describe, it, expect } from 'bun:test'
 import { createHash, createPublicKey, createSign, generateKeyPairSync } from 'node:crypto'
-import {
-  buildGoogleAuthUrl,
-  createPkcePair,
-  isValidRedirectUri,
-  verifyGoogleIdToken,
-  GoogleOAuthError,
-  type Jwk,
-} from '@/lib/oauth-google'
+import type { Jwk } from '@/lib/oauth-google'
+
+// Combined-run hygiene: bun executes test files concurrently in one process,
+// so a plain import of '@/lib/oauth-google' can resolve to ANOTHER file's
+// protocol mock (oauth-routes.test.ts) depending on scheduling — the fake
+// replaces genuine crypto and every test here becomes meaningless. This file
+// verifies the REAL implementation, so it loads a dedicated module instance
+// via a query-string specifier: mock.module registrations are keyed by
+// specifier, and no file ever mocks the query form, which makes this binding
+// independent of file order and timing. The type surface stays on the plain
+// specifier (type-only imports are erased at runtime and never hit the mock
+// registry).
+const oauthGoogleModuleUrl = '../../src/lib/oauth-google?combined-run=real'
+const oauthGoogle = (await import(oauthGoogleModuleUrl)) as unknown as typeof import('@/lib/oauth-google')
+const { buildGoogleAuthUrl, createPkcePair, isValidRedirectUri, verifyGoogleIdToken, GoogleOAuthError } = oauthGoogle
 
 // Test RSA keypair — signing and JWKS both derive from the same key, so the
 // signature verifies exactly like Google's real flow.

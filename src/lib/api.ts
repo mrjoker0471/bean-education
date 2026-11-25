@@ -186,6 +186,23 @@ export function learnerTimezone(): string | undefined {
 }
 
 export const api = {
+  /** Generic JSON GET — used by the CI-5 governance surfaces for real backend data. */
+  get: <T,>(url: string) => jsonFetch<T>(url),
+
+  /** Generic JSON POST — server-authorised actions; errors surface as thrown Errors with the server message. */
+  post: async <T,>(url: string, body: unknown): Promise<T> => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok) {
+      throw new Error(typeof data.error === 'string' ? data.error : `request failed (${res.status})`)
+    }
+    return data as T
+  },
+
   catalog: () => jsonFetch<CatalogResponse>('/api/catalog'),
 
   exams: (opts: { search?: string; category?: string; state?: string; featured?: boolean } = {}) => {

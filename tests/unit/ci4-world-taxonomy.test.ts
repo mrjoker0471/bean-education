@@ -11,7 +11,7 @@
 //   B9  NSQF/qualification non-claim recorded at source level
 //   B10 domain query API round-trips (occupation ↔ domain)
 
-import { describe, test, expect, beforeAll } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import {
   ensureWorldTaxonomySourcesRegistered,
   resetWorldTaxonomySourcesForTests,
@@ -26,9 +26,19 @@ import {
   WORLD_IMPORT_STATE,
   type OccupationMappingRecord,
 } from '@/lib/ci/fleet/world-taxonomy'
-import { getSource, listSources, resetSourcesForTests } from '@/lib/ci/fleet/sources'
+import { getSource, listSources, resetSourcesForTests, snapshotSourcesForTests, restoreSourcesForTests } from '@/lib/ci/fleet/sources'
 import { resetPackSourcesForTests } from '@/lib/ci/fleet/packs/sources'
 import { resetTaxonomySourcesForTests } from '@/lib/ci/fleet/taxonomy'
+
+// Combined-run hygiene: this file clears the global source register in
+// beforeAll and re-registers ONLY the world-taxonomy sources. bun executes
+// every test file in one process (order filesystem-dependent), so without a
+// restore every file executed after this one would see the pack sources
+// missing. Snapshot before the first mutation, restore after the last test.
+const sourcesSnapshot = snapshotSourcesForTests()
+afterAll(() => {
+  restoreSourcesForTests(sourcesSnapshot)
+})
 
 describe('CI-4B world taxonomy', () => {
   beforeAll(() => {
