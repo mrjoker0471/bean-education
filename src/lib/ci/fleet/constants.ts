@@ -93,6 +93,31 @@ export const SOURCE_QUALITY_CLASS = {
 } as const
 export type SourceQualityClass = (typeof SOURCE_QUALITY_CLASS)[keyof typeof SOURCE_QUALITY_CLASS]
 
+/**
+ * CI-4A licence restrictions — what the licence itself imposes on BEAN's
+ * usage. These gate the CONTENT-INGESTION path (retrieval/ingestion into
+ * prompts or knowledge records); they never affect citation-level reference
+ * use (naming a source with attribution is not reproduction).
+ *
+ * Audit basis (CI-4A, 2026-11-25): OpenStax's own distribution declares
+ * Attribution-NonCommercial-ShareAlike 4.0 International — CI-3's CC-BY-4.0
+ * record was a misclassification and is corrected; NC-licensed content cannot
+ * be ingested into a commercial operation without separate written permission.
+ */
+export const SOURCE_LICENCE_RESTRICTION = {
+  /** Ingestion forbidden while BEAN operates commercially, absent permission. */
+  NON_COMMERCIAL: 'NON_COMMERCIAL',
+  /** Adaptations of ingested content must carry the same licence + attribution. */
+  SHARE_ALIKE: 'SHARE_ALIKE',
+  /** Adaptations forbidden — citation/reference use only. */
+  NO_DERIVATIVES: 'NO_DERIVATIVES',
+  /** Metadata/reference links only — no content ingestion at all. */
+  REFERENCE_ONLY: 'REFERENCE_ONLY',
+  /** Reuse permission is being sought — quarantined until resolved. */
+  PERMISSION_PENDING: 'PERMISSION_PENDING',
+} as const
+export type SourceLicenceRestriction = (typeof SOURCE_LICENCE_RESTRICTION)[keyof typeof SOURCE_LICENCE_RESTRICTION]
+
 /** Charter §12 task statuses — model failure ≠ low confidence ≠ no evidence. */
 export const FLEET_TASK_STATUS = {
   COMPLETED: 'COMPLETED',

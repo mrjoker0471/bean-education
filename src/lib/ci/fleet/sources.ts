@@ -10,7 +10,7 @@
 // incomplete, retired or superseded.
 
 import { z } from 'zod'
-import { SOURCE_QUALITY_CLASS, type SourceQualityClass } from './constants'
+import { SOURCE_QUALITY_CLASS, SOURCE_LICENCE_RESTRICTION, type SourceQualityClass, type SourceLicenceRestriction } from './constants'
 
 export const sourceLicenceSchema = z.object({
   /** SPDX identifier when one exists (e.g. CC-BY-4.0, Apache-2.0, ODbL). */
@@ -22,6 +22,12 @@ export const sourceLicenceSchema = z.object({
   statement: z.string().min(10).max(2000),
   /** ISO-8601 date the licence terms were actually checked. */
   verifiedAt: z.string().min(4).max(64),
+  /**
+   * CI-4A: machine-readable restrictions the licence imposes. Empty = none
+   * recorded beyond attribution. These gate the CONTENT-INGESTION path only;
+   * citation-level reference use is never affected by them.
+   */
+  restrictions: z.array(z.enum(Object.values(SOURCE_LICENCE_RESTRICTION) as [SourceLicenceRestriction, ...SourceLicenceRestriction[]])).max(8).default([]),
 })
 export type SourceLicence = z.infer<typeof sourceLicenceSchema>
 
@@ -100,6 +106,61 @@ export function assertSourceUsable(sourceId: string): { usable: boolean; reason:
     return { usable: true, reason: 'community-context: allowed as context only, never sole authority (charter §7.2)' }
   }
   return { usable: true, reason: 'ok' }
+}
+
+/** CI-4A: why content ingestion is refused, as machine-checkable obligations. */
+export interface ContentUsabilityResult {
+  usable: boolean
+  /** Obligations that MUST accompany any permitted ingestion (ShareAlike…). */
+  obligations: string[]
+  /** Honest refusal reason when usable=false; absent/null when usable. */
+  reason?: string
+}
+
+/**
+ * CI-4A content-ingestion gate. Distinct from `assertSourceUsable` (which
+ * governs citation/reference use): this gate governs ingesting a source's
+ * CONTENT — retrieval chunks, prompt material, knowledge records, anything
+ * that reproduces or adapts source text.
+ *
+ * BEAN operates commercially (premium subscriptions, teacher payouts), so the
+ * default assumes a commercial operation; a caller may only opt out with an
+ * explicit, auditable flag (e.g. a non-commercial research export).
+ *
+ * Refusal reasons are recorded verbatim in retrieval audit trails — the
+ * quarantine is a documented fact, not a heuristic.
+ */
+export function assertSourceContentUsable(
+  sourceId: string,
+  context: { commercialOperation?: boolean } = {},
+): ContentUsabilityResult {
+  const commercial = context.commercialOperation ?? true
+  const citation = assertSourceUsable(sourceId)
+  if (!citation.usable) return { usable: false, obligations: [], reason: citation.reason }
+  const record = byId.get(sourceId)! // citation gate found it
+  const restrictions = record.licence.restrictions ?? []
+  if (restrictions.includes(SOURCE_LICENCE_RESTRICTION.PERMISSION_PENDING)) {
+    return { usable: false, obligations: [], reason: `content quarantined: reuse permission pending for ${sourceId}` }
+  }
+  if (restrictions.includes(SOURCE_LICENCE_RESTRICTION.REFERENCE_ONLY)) {
+    return { usable: false, obligations: [], reason: `content ingestion forbidden: ${sourceId} is reference/metadata-only` }
+  }
+  if (commercial && restrictions.includes(SOURCE_LICENCE_RESTRICTION.NON_COMMERCIAL)) {
+    return {
+      usable: false,
+      obligations: [],
+      reason: `content ingestion forbidden: ${sourceId} is NonCommercial-licensed and BEAN operates commercially — separate written permission required (citation/reference use remains permitted)`,
+    }
+  }
+  if (restrictions.includes(SOURCE_LICENCE_RESTRICTION.NO_DERIVATIVES)) {
+    return { usable: false, obligations: [], reason: `content ingestion forbidden: ${sourceId} licence forbids derivative works` }
+  }
+  const obligations: string[] = []
+  if (restrictions.includes(SOURCE_LICENCE_RESTRICTION.SHARE_ALIKE)) {
+    obligations.push(`SHARE_ALIKE: adaptations of ingested ${sourceId} content must carry the same licence and attribution`)
+  }
+  obligations.push(`attribution: ${record.attribution}`)
+  return { usable: true, obligations }
 }
 
 /** Reset the registry (tests only). */

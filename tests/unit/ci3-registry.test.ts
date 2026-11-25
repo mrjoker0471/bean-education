@@ -456,10 +456,22 @@ describe('CI-3B source & licence registry', () => {
   })
 
   test('S1.5 seed pack sources are registered with verified licences', () => {
-    for (const id of ['openstax-mathematics', 'mdn-web-docs', 'python-docs-psf', 'openstax-anatomy-physiology', 'unesco-isced-f-2013']) {
+    // CI-4A audit: the three OpenStax records were re-verified 2026-11-25 and
+    // corrected to CC-BY-NC-SA-4.0 (NonCommercial quarantine) — the licence
+    // identity is now asserted, not just a verification date. The remaining
+    // sources keep their original 2026-11-24 verification.
+    const audited: Record<string, { verifiedAt: string; spdx: string | null }> = {
+      'openstax-mathematics': { verifiedAt: '2026-11-25', spdx: 'CC-BY-NC-SA-4.0' },
+      'openstax-anatomy-physiology': { verifiedAt: '2026-11-25', spdx: 'CC-BY-NC-SA-4.0' },
+      'mdn-web-docs': { verifiedAt: '2026-11-24', spdx: 'CC-BY-SA-2.5' },
+      'python-docs-psf': { verifiedAt: '2026-11-24', spdx: 'PSF-2.0' },
+      'unesco-isced-f-2013': { verifiedAt: '2026-11-24', spdx: null },
+    }
+    for (const [id, expected] of Object.entries(audited)) {
       const src = getSource(id)
       expect(src).not.toBeNull()
-      expect(src?.licence.verifiedAt).toBe('2026-11-24')
+      expect(src?.licence.verifiedAt).toBe(expected.verifiedAt)
+      expect(src?.licence.spdx).toBe(expected.spdx)
     }
   })
 })
