@@ -2045,6 +2045,33 @@ model ClassroomObserverSession {
   @@index([classSessionId, status])
 }
 
+// BEAN Classroom Intelligence (CI-4C): append-only domain-pack review ledger
+// (charter §6.4 human publication gate + §12 governance). One row per recorded
+// human curator decision. The reviewer is an authenticated ADMIN session
+// (server-resolved identity — never client-supplied); a benchmark script, CI
+// workflow or agent has no session and therefore no path here. packChecksum
+// binds every decision to the EXACT pack content the reviewer inspected, so a
+// decision can never silently apply to a changed version. No FK on the
+// reviewer id on purpose: governance history survives account deletion
+// (reviewerName is a snapshot for the same reason).
+model ClassroomPackReview {
+  id                String   @id @default(cuid())
+  packId            String   // BEAN domain id (e.g. mathematics-statistics)
+  packVersion       String   // pack semantic version under review
+  packChecksum      String   // sha256 of the canonical pack JSON at review time
+  riskClass         String   // snapshot: STANDARD | ELEVATED | HIGH_STAKES
+  decision          String   // APPROVED | REJECTED | CHANGES_REQUESTED | RE_REVIEW_REQUESTED
+  reviewerStudentId String   // server-resolved ADMIN identity (no FK — audit survives account deletion)
+  reviewerName      String   // display-name snapshot at decision time
+  rationale         String   // required human reasoning (min length enforced server-side)
+  evidence          String   // required: what the reviewer actually inspected
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([packId, packVersion])
+  @@index([reviewerStudentId])
+}
+
 // Append-only dispute history (matches ComplaintEvent/AppealEvent discipline).
 model ClassroomDisputeEvent {
   id        String   @id @default(cuid())

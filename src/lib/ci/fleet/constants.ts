@@ -70,14 +70,34 @@ export const FLEET_POOL = {
 } as const
 export type FleetPool = (typeof FLEET_POOL)[keyof typeof FLEET_POOL]
 
-/** Domain-pack lifecycle (charter §6.4: "human reviewer and approval state"). */
+/** Domain-pack lifecycle (charter §6.4: "human reviewer and approval state").
+ *  CI-4C adds REJECTED as a distinct terminal review outcome: RETIRED means a
+ *  previously-usable pack is withdrawn; REJECTED means a human curator refused
+ *  this version — it never dispatches and only a new pack version can restart
+ *  review. */
 export const PACK_STATUS = {
   DRAFT: 'DRAFT',
   IN_REVIEW: 'IN_REVIEW',
   VERIFIED: 'VERIFIED',
+  REJECTED: 'REJECTED',
   RETIRED: 'RETIRED',
 } as const
 export type PackStatus = (typeof PACK_STATUS)[keyof typeof PACK_STATUS]
+
+/**
+ * CI-4C curator review decisions (append-only ledger rows, charter §6.4/§12).
+ * APPROVED advances the human publication gate (HIGH_STAKES requires TWO
+ * distinct reviewers); REJECTED is terminal for the reviewed version;
+ * CHANGES_REQUESTED and RE_REVIEW_REQUESTED are work states that keep the
+ * pack out of the VERIFIED gate until resolved.
+ */
+export const PACK_REVIEW_DECISION = {
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  CHANGES_REQUESTED: 'CHANGES_REQUESTED',
+  RE_REVIEW_REQUESTED: 'RE_REVIEW_REQUESTED',
+} as const
+export type PackReviewDecision = (typeof PACK_REVIEW_DECISION)[keyof typeof PACK_REVIEW_DECISION]
 
 /**
  * Charter §7.2 source hierarchy. Numeric rank 1 (best) … 6 (context only).

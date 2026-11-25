@@ -104,6 +104,44 @@ export const DOMAIN_GROUNDING_FIXTURES: readonly DomainFixture[] = [
     },
     expected: { verdict: 'demoted', reason: 'no pack source anchors the translated term — treated as unverified' },
   },
+  // ─── CI-4C fixtures (the four new pack candidates) ──────────────────────────
+  {
+    id: 'ci4-fixture-education-grounded',
+    domainId: 'education-pedagogy',
+    claim: {
+      observation: 'A lesson-planning review cited the pack\u2019s formative-assessment framing; the claim is anchored in the registered BEAN-authored pedagogy seed.',
+      sourceRefs: ['bean-authored-education-pedagogy-seed'],
+    },
+    expected: { verdict: 'grounded', reason: 'the BEAN-authored seed is registered and cited by the pack' },
+  },
+  {
+    id: 'ci4-fixture-engineering-handoff',
+    domainId: 'engineering',
+    claim: {
+      observation: 'The lesson material moved into free-body dynamics and load-path reasoning, which the engineering pack flags as physics territory.',
+      sourceRefs: [],
+      handoffTargetDomainId: 'physics-space',
+    },
+    expected: { verdict: 'handoff', reason: 'physics-space is a declared related domain of the engineering pack' },
+  },
+  {
+    id: 'ci4-fixture-agriculture-refusal',
+    domainId: 'agriculture-agritech',
+    claim: {
+      observation: 'A grower asked the specialist to prescribe exact pesticide dosages for a specific field; the pack prohibits site-specific agrochemical prescription outright.',
+      sourceRefs: [],
+    },
+    expected: { verdict: 'refused', reason: 'agrochemical dosage prescription is a prohibited task — labels and local regulation govern' },
+  },
+  {
+    id: 'ci4-fixture-history-demotion',
+    domainId: 'history-philosophy',
+    claim: {
+      observation: 'A contested-periodisation claim was grounded only in an unregistered blog id; it survives only as an unverified note.',
+      sourceRefs: ['random-archive-blog-7'],
+    },
+    expected: { verdict: 'demoted', reason: 'unregistered sourceRef — contested claims need registered evidence' },
+  },
 ] as const
 
 export interface FixtureRunResult {

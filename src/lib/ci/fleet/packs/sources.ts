@@ -206,6 +206,34 @@ export function ensurePackSourcesRegistered(): void {
     attribution: 'Reference: CEFR Companion Volume, Council of Europe (coe.int).',
   })
 
+  // CI-4C: BEAN-authored domain seed sources for the new pack candidates —
+  // registered under the SAME once-flag as the CI-3 pack sources so registry
+  // resets (tests) always restore a complete, consistent seed set.
+  for (const s of CI4_BEAN_AUTHORED_SOURCES) {
+    registerSource({
+      sourceId: s.sourceId,
+      title: s.title,
+      canonicalRef: `bean:ci4:source:${s.sourceId}`,
+      publisher: 'BEAN Education',
+      authors: [],
+      publishedAt: '2026-11-25',
+      jurisdiction: null,
+      version: '1.0.0',
+      superseded: false,
+      qualityClass: SOURCE_QUALITY_CLASS.ASSESSED_SECONDARY,
+      licence: {
+        spdx: null,
+        statement:
+          'BEAN-authored seed content (original concept-level glossary and competency structure). Jurisdiction/domain-specific authoritative datasets (standards bodies, curriculum boards, textbooks) require per-source licence verification before any import — none imported in CI-4C. Content ingestion follows the CI-4A gate when such sources are registered later.',
+        verifiedAt: AUDIT_VERIFIED_AT,
+        restrictions: [],
+      },
+      permittedUse:
+        'Concept-level glossary and competency anchoring authored by BEAN; not an authoritative external source — authoritative claims need a registered external source.',
+      attribution: 'BEAN Education original content.',
+    })
+  }
+
   registered = true
 }
 
@@ -213,3 +241,17 @@ export function ensurePackSourcesRegistered(): void {
 export function resetPackSourcesForTests(): void {
   registered = false
 }
+
+// ─── CI-4C: BEAN-authored domain seed sources for the new pack candidates ────
+// Same discipline as the CI-3B finance seed: the packs' explanatory concepts
+// are BEAN-authored originals; no external dataset is imported yet. Each new
+// domain gets its own registered seed record so provenance stays explicit and
+// the licence gate (assertSourceUsable / assertSourceContentUsable) applies.
+
+export const CI4_BEAN_AUTHORED_SOURCES: { sourceId: string; title: string; domain: string }[] = [
+  { sourceId: 'bean-authored-education-pedagogy-seed', title: 'BEAN-authored education & pedagogy competency seed (no external dataset imported yet)', domain: 'education-pedagogy' },
+  { sourceId: 'bean-authored-engineering-seed', title: 'BEAN-authored engineering fundamentals competency seed (no external dataset imported yet)', domain: 'engineering' },
+  { sourceId: 'bean-authored-agriculture-agritech-seed', title: 'BEAN-authored agriculture & agritech competency seed (no external dataset imported yet)', domain: 'agriculture-agritech' },
+  { sourceId: 'bean-authored-history-culture-seed', title: 'BEAN-authored history, culture & humanities competency seed (no external dataset imported yet)', domain: 'history-philosophy' },
+]
+
