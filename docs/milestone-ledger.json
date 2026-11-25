@@ -1088,6 +1088,38 @@
       "evidence": "docs/AUTH-AGE-CLARITY-CONSENT-RESULTS.md",
       "ciNote": "AUTH-AGE-CONSENT COMPLETE: implementation commit 1da7371 merged into main via owner PR #43 (merge commit d02d5ee = live origin/main; commit proven an ancestor of main by git merge-base). Feature CI run 45550606192 SUCCESS and main CI run 45550624182 SUCCESS (run IDs owner-verified from the GitHub UI; sandbox GitHub API rate-limited and gh CLI unavailable, so recorded from verified evidence — not assumed). Implementation summary, tests, screenshots and the original feature commit are unchanged from the pushed record; only the merge-state fields were corrected. main tree at d02d5ee contains the auth feature files (auth-view.tsx, legal-consent-row.tsx, route tests, results doc + screenshots) via the PR #43 merge.",
       "updatedAt": "2026-11-25T05:12:00Z"
+    },
+    {
+      "id": "bean-classroom-intelligence-ci5",
+      "title": "BEAN Classroom Intelligence CI-5 — human expert validation & real-world intelligence: qualified reviewer identity/qualification (domain + bilingual scopes), review assignment & case management with independence/recusal/adjudication, rubric-backed domain-pack validation on the existing append-only ClassroomPackReview authority, DURABLE language measurement+approval governance (replacing the process-local capabilityStore proven in CI-5A), expert-labelled benchmark programme with splits/metrics/no-self-certification, privacy-preserving classroom-report audit pilot, reviewer+admin governance UI, re-review lifecycle & production readiness (charter docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-BASELINE.md + CI-5 mission brief)",
+      "branch": "feat/bean-classroom-intelligence-ci5",
+      "baseMainSha": "7ccf355986c0cab738cb705e11b87f97c25a5c32",
+      "commits": [
+        "64ca6adc24f11ec52bf44f3bec59ef7fa7376125"
+      ],
+      "units": [
+        {
+          "id": "CI-5A",
+          "commitSha": "64ca6adc24f11ec52bf44f3bec59ef7fa7376125",
+          "remoteVerifiedSha": "pending-push",
+          "verifiedAt": null,
+          "summary": "Baseline + durability audit (docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-BASELINE.md): origin/main verified 7ccf355 (ls-remote == checkout == PR #44 merge); full suite 1563/0 across 110 files (--isolate, isolated SQLite); ALL migrations apply clean on a fresh DB. CI-4 integrity re-verified IN SOURCE: ledger CI-4 COMPLETE/IN_SYNC (PR #42, a6c8d33, SATISFIED), 27/27 unique entries; 12 packs all declared IN_REVIEW (1 HIGH_STAKES health, 1 ELEVATED finance, 10 STANDARD); curator VERIFIED remains derived-only from checksum-bound distinct human approvals via requireAdmin-only append path; TRANSCRIPTION structurally UNSUPPORTED (z.literal(false) observer guard + no-op measurement + refused approval); fleet auto-dispatch default-off (exact 'true' only). CRITICAL DISCOVERY (language.ts): capabilityStore is a module-level in-memory array — measurements/approvals lost on restart/deploy/instance change/concurrent workers/DB restore; recordHumanLanguageApproval has ZERO production call sites (rg-proven); recordCapabilityMeasurement mints VERIFIED from a caller-supplied humanApproved flag with no reviewer/qualification/binding (self-certification hole). CI-5E contract set: DB-backed measurement/review/status/qualification/history separation with the exact binding + structural rules. Tests tests/unit/ci5-baseline-audit.test.ts 18 (ledger integrity, packs, curator binding, transcription gates incl. attack attempts, dispatch flag, behavioural restart-loss proof, self-certification-hole proof, source guards). Honest limits: no real human reviewers in the sandbox — all CI-5 workflow exercises use clearly-labelled synthetic fixtures; packs stay IN_REVIEW, language capabilities stay LIMITED/unmeasured until genuine qualified review."
+        }
+      ],
+      "remoteFeatureSha": null,
+      "pushVerifiedAt": null,
+      "pr": {
+        "number": null,
+        "state": "AWAITING_OWNER",
+        "url": null
+      },
+      "ci": [],
+      "finalMainSha": null,
+      "syncStatus": "PENDING",
+      "status": "PUSHED",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-BASELINE.md",
+      "ciNote": "CI-5 opened from verified main 7ccf355 (PR #44 merged). CI-5A committed 64ca6ad; push + ls-remote verification recorded immediately after push. Remaining units CI-5B–H follow the per-unit commit+push+verify policy; CI-5 is marked COMPLETE only after all units are in main and verified there.",
+      "updatedAt": "2026-11-25T06:05:00Z"
     }
   ],
   "branchReconciliation": {
