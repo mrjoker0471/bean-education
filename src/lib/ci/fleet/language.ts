@@ -233,10 +233,17 @@ export function defaultLanguageCapabilities(): LanguageCapabilityRecord[] {
 const capabilityStore: LanguageCapabilityRecord[] = defaultLanguageCapabilities()
 
 /**
- * Record a measured benchmark result for one language+task. CI-4F honesty:
- * a measured MACHINE pass records LIMITED — VERIFIED additionally requires a
- * recorded human bilingual-reviewer approval (a model never grades itself
- * into a capability claim). TRANSCRIPTION remains structurally unflippable.
+ * Record a measured benchmark result for one language+task in the DEFAULT
+ * (process-local) capability view.
+ *
+ * CI-5E honesty correction: a measured MACHINE pass records LIMITED — full
+ * stop. The CI-4F `humanApproved` flag (which let any caller mint VERIFIED
+ * with no reviewer, no qualification and no durable record) is REMOVED: the
+ * only path to VERIFIED is the durable governance module
+ * (`language-governance.ts` → LanguageCapabilityReview + persisted
+ * LanguageCapabilityStatus), where a qualified, scoped, ACTIVE bilingual
+ * reviewer binds an approval to an exact measurement, model and benchmark.
+ * TRANSCRIPTION remains structurally unflippable.
  */
 export function recordCapabilityMeasurement(rec: {
   language: string
@@ -250,7 +257,6 @@ export function recordCapabilityMeasurement(rec: {
   modelVersion?: string | null
   domain?: string | null
   benchmarkVersion?: string | null
-  humanApproved?: boolean
 }): void {
   if (rec.task === 'TRANSCRIPTION') {
     // The §9.2 gate cannot be flipped by a benchmark. Ever.
@@ -260,7 +266,7 @@ export function recordCapabilityMeasurement(rec: {
   if (idx === -1) return
   capabilityStore[idx] = {
     ...capabilityStore[idx],
-    status: rec.passed ? (rec.humanApproved ? 'VERIFIED' : 'LIMITED') : 'LIMITED',
+    status: 'LIMITED',
     testRef: rec.testRef,
     measuredAt: rec.measuredAt,
     note: rec.note ?? capabilityStore[idx].note,
@@ -269,45 +275,23 @@ export function recordCapabilityMeasurement(rec: {
     modelVersion: rec.modelVersion ?? capabilityStore[idx].modelVersion ?? null,
     domain: rec.domain ?? capabilityStore[idx].domain ?? null,
     benchmarkVersion: rec.benchmarkVersion ?? capabilityStore[idx].benchmarkVersion ?? null,
-    humanApproved: rec.humanApproved ?? false,
+    humanApproved: false,
   }
 }
 
 /**
- * CI-4F curator path: a qualified bilingual human reviewer approves a
- * measured capability. Requires an existing MEASURED record (a reviewer can
- * only approve what a benchmark actually measured) and a reviewer identity;
- * TRANSCRIPTION can never be touched (the §9.2 gate is structural).
+ * CI-4F's in-memory human-approval function was REMOVED in CI-5E.
+ *
+ * Why: it mutated a process-local array with a reviewerId that was never
+ * validated against any qualification, scope or assignment — and the result
+ * vanished on restart (the CI-5A durability audit). VERIFIED language
+ * capabilities now exist ONLY through the durable governance path
+ * (`recordLanguageCapabilityReview` in language-governance.ts), which binds a
+ * qualified, scoped, ACTIVE bilingual reviewer's decision to an EXACT
+ * persisted measurement (provider + model version + benchmark version +
+ * dataset checksum) and persists the effective status so every worker and
+ * restart reads the same truth.
  */
-export function recordHumanLanguageApproval(rec: {
-  language: string
-  task: Ci3LanguageTask
-  reviewerId: string
-  reviewerName: string
-  note?: string
-}): { ok: true } | { ok: false; reason: string } {
-  if (rec.task === 'TRANSCRIPTION') {
-    return { ok: false, reason: 'TRANSCRIPTION is structurally UNSUPPORTED (charter §9.2 consent/legal gate) — no human approval can change it' }
-  }
-  if (!rec.reviewerId || rec.reviewerId.trim().length < 3) {
-    return { ok: false, reason: 'human approval requires a server-resolved reviewer identity' }
-  }
-  const idx = capabilityStore.findIndex((c) => c.language === rec.language && c.task === rec.task)
-  if (idx === -1) {
-    return { ok: false, reason: `no capability record for ${rec.language}/${rec.task}` }
-  }
-  const current = capabilityStore[idx]
-  if (current.status === 'EXPERIMENTAL' || current.status === 'UNSUPPORTED' || current.status === 'NEEDS_HUMAN_REVIEW') {
-    return { ok: false, reason: `cannot approve an UNMEASURED capability: ${rec.language}/${rec.task} is ${current.status} — run the benchmark first` }
-  }
-  capabilityStore[idx] = {
-    ...current,
-    status: 'VERIFIED',
-    humanApproved: true,
-    note: `${rec.note ?? current.note} — human bilingual review: ${rec.reviewerName} (${rec.reviewerId})`,
-  }
-  return { ok: true }
-}
 
 export function listLanguageCapabilities(): LanguageCapabilityRecord[] {
   return capabilityStore.map((c) => ({ ...c }))
@@ -522,6 +506,7 @@ export async function runTextBenchmarkHarness(): Promise<TextBenchmarkResult> {
 export interface LanguageBenchmarkSummary {
   ran: boolean
   reason: string
+  adapterId: string | null
   benchmarkVersion: string
   perLanguage: {
     language: string
@@ -546,6 +531,7 @@ export async function runCi4LanguageBenchmark(): Promise<LanguageBenchmarkSummar
     return {
       ran: false,
       reason: 'no model adapter available in this deployment — capabilities stay unmeasured (honest)',
+      adapterId: null,
       benchmarkVersion: CI4_BENCHMARK_VERSION,
       perLanguage: [],
     }
@@ -593,7 +579,6 @@ export async function runCi4LanguageBenchmark(): Promise<LanguageBenchmarkSummar
         modelProvider: adapter.id,
         modelVersion: 'unversioned-adapter',
         benchmarkVersion: CI4_BENCHMARK_VERSION,
-        humanApproved: false,
       })
       recorded = true
       statusAfter = capabilityStore.find((c) => c.language === language && c.task === task)?.status ?? null
@@ -604,6 +589,7 @@ export async function runCi4LanguageBenchmark(): Promise<LanguageBenchmarkSummar
   return {
     ran: true,
     reason: `measured against adapter "${adapter.id}" — LIMITED states only; VERIFIED requires human bilingual review`,
+    adapterId: adapter.id,
     benchmarkVersion: CI4_BENCHMARK_VERSION,
     perLanguage,
   }

@@ -1134,8 +1134,19 @@ export async function runLanguageSpecialist(ctx: FleetTaskExecutionContext): Pro
   if (tag === null) {
     unknowns.push(`declared language "${declared}" is outside the language capability catalogue — capability unmeasured`)
   } else {
+    // CI-5E: the effective capability comes from the DURABLE governance store
+    // when it is reachable (persisted measurements/approvals/revocations
+    // survive restarts and apply to every worker); when the durable store is
+    // unavailable the honest catalogue default view is used — it can never
+    // claim VERIFIED.
     for (const task of ['TEXT_UNDERSTANDING', 'TRANSLATION', 'GENERATION'] as const) {
-      const refusal = capabilityRefusalReason(tag, task)
+      let refusal: string | null
+      try {
+        const { capabilityRefusalReasonDurable, languageGovernanceDbFromPrisma } = await import('./language-governance')
+        refusal = await capabilityRefusalReasonDurable(languageGovernanceDbFromPrisma(db), tag, task)
+      } catch {
+        refusal = capabilityRefusalReason(tag, task)
+      }
       if (refusal) unknowns.push(refusal.slice(0, 300))
     }
   }

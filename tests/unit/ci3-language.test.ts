@@ -43,12 +43,18 @@ const {
   defaultLanguageCapabilities,
   listLanguageCapabilities,
   recordCapabilityMeasurement,
-  recordHumanLanguageApproval,
   resetLanguageCapabilitiesForTests,
   capabilityRefusalReason,
   runTextBenchmarkHarness,
   TEXT_BENCHMARK_CASES,
 } = await import('@/lib/ci/fleet/language')
+const { persistLanguageMeasurement, recordLanguageCapabilityReview, capabilityRefusalReasonDurable, languageGovernanceDbFromPrisma } = await import('@/lib/ci/fleet/language-governance')
+const { submitReviewerApplication, beginQualificationReview, decideReviewerQualification, activateReviewer, resolveReviewerProfile, reviewerDbFromPrisma } = await import('@/lib/ci/fleet/reviewers')
+const govDb = languageGovernanceDbFromPrisma(client)
+const reviewersDb = reviewerDbFromPrisma(client)
+const ALL_OK_LANGUAGE_EVIDENCE = Object.fromEntries(
+  ['meaning_preservation', 'domain_terminology', 'grammar', 'naturalness', 'script_correctness', 'mathematical_notation', 'scientific_symbols', 'code_switching', 'regional_register', 'dialect_differences', 'ambiguous_wording', 'unsupported_claims', 'safety_refusal_accuracy'].map((id) => [id, { status: 'OK', notes: 'fixture review' }]),
+) as Record<string, { status: 'OK' | 'ISSUE' | 'NOT_ASSESSED'; notes?: string }>
 const { dispatchFleetForSession } = await import('@/lib/ci/fleet/dispatcher')
 const {
   claimNextFleetTask,
@@ -68,6 +74,26 @@ beforeAll(() => {
   })
   registerFleetRuntime()
 })
+
+// Qualified bilingual reviewer fixture (synthetic; ta/te text tasks) — created
+// AFTER the migrate deploy above provisions the CI-5B/5E tables.
+beforeAll(async () => {
+  await client.expertReviewerProfile.create({
+    data: {
+      studentId: 'ci3f-bilingual',
+      reviewerCode: 'BR-ci3f-bilingual',
+      category: 'BILINGUAL_LANGUAGE',
+      status: 'ACTIVE',
+      approvedDomains: '[]',
+      approvedLanguages: JSON.stringify([
+        { tag: 'ta', tasks: ['TEXT_UNDERSTANDING', 'TERMINOLOGY'] },
+        { tag: 'te', tasks: ['TEXT_UNDERSTANDING'] },
+      ]),
+      verificationStatus: 'REFERENCED_VERIFIED',
+      conflictOfInterest: 'none declared (ci3-language fixture)',
+    },
+  })
+}, 120_000)
 
 afterAll(async () => {
   resetCiModelAdapterForTests()
@@ -194,11 +220,12 @@ describe('CI-3F language capability registry (L1)', () => {
     }
   })
 
-  test('L1.3 a measured benchmark records LIMITED (machine evidence); only a human bilingual review VERIFIES — and TRANSCRIPTION can NEVER flip (§9.2 gate is structural)', () => {
+  test('L1.3 a measured benchmark records LIMITED (machine evidence); only the DURABLE qualified bilingual path VERIFIES — and TRANSCRIPTION can NEVER flip (§9.2 gate is structural)', async () => {
     // CI-4F correction: CI-3 let a machine pass flip VERIFIED directly, which
     // violates the charter rule that a model never certifies its own
-    // capability. The measured gate now stops at LIMITED until a human
-    // bilingual reviewer approves the measured result.
+    // capability. CI-5E: the measured gate stops at LIMITED in the in-memory
+    // default view AND the legacy caller-supplied humanApproved flag is gone;
+    // VERIFIED exists only through the durable governance path.
     resetLanguageCapabilitiesForTests()
     recordCapabilityMeasurement({ language: 'ta', task: 'TEXT_UNDERSTANDING', passed: true, testRef: 'ci4-lang-bench-1/ci3-bench-ta-comprehension', measuredAt: '2026-11-25', modelProvider: 'fake-adapter' })
     const caps = listLanguageCapabilities()
@@ -206,19 +233,45 @@ describe('CI-3F language capability registry (L1)', () => {
     expect(taText?.status).toBe('LIMITED')
     expect(taText?.humanApproved).toBe(false)
     expect(taText?.modelProvider).toBe('fake-adapter')
-    // the human curator path verifies the MEASURED capability
-    const approval = recordHumanLanguageApproval({ language: 'ta', task: 'TEXT_UNDERSTANDING', reviewerId: 'admin-bilingual', reviewerName: 'Bilingual Reviewer' })
+    // the durable human curator path verifies the MEASURED capability
+    const measured = await persistLanguageMeasurement(govDb, {
+      languageTag: 'ta',
+      task: 'TEXT_UNDERSTANDING',
+      passed: true,
+      testRef: 'ci4-lang-bench-1/ci3-bench-ta-comprehension',
+      measuredAt: new Date(),
+      modelProvider: 'fake-adapter',
+      modelVersion: 'fixture-model-1',
+      benchmarkVersion: 'ci4-lang-bench-1',
+      benchmarkChecksum: 'a'.repeat(64),
+      caseCount: 1,
+      passedCount: 1,
+    })
+    expect(measured.ok).toBe(true)
+    const reviewer = await resolveReviewerProfile(reviewersDb, 'ci3f-bilingual')!
+    const approval = await recordLanguageCapabilityReview(govDb, reviewer, {
+      measurementId: (measured as { ok: true; value: { id: string } }).value.id,
+      decision: 'APPROVED',
+      rationale: 'fixture bilingual review of the measured Tamil text-understanding capability',
+      evidence: ALL_OK_LANGUAGE_EVIDENCE,
+    })
     expect(approval.ok).toBe(true)
-    expect(listLanguageCapabilities().find((c) => c.language === 'ta' && c.task === 'TEXT_UNDERSTANDING')?.status).toBe('VERIFIED')
-    // the forbidden flip — no benchmark AND no human can move TRANSCRIPTION
+    if (approval.ok) expect(approval.value.status.status).toBe('VERIFIED')
+    // the forbidden flip — no benchmark AND no durable path can move TRANSCRIPTION
     recordCapabilityMeasurement({ language: 'ta', task: 'TRANSCRIPTION', passed: true, testRef: 'cheating-benchmark', measuredAt: '2026-11-24' })
-    const forbiddenApproval = recordHumanLanguageApproval({ language: 'ta', task: 'TRANSCRIPTION', reviewerId: 'admin-bilingual', reviewerName: 'Bilingual Reviewer' })
-    expect(forbiddenApproval.ok).toBe(false)
+    const forbiddenMeasurement = await persistLanguageMeasurement(govDb, {
+      languageTag: 'ta',
+      task: 'TRANSCRIPTION',
+      passed: true,
+      testRef: 'cheating-benchmark',
+      measuredAt: new Date(),
+    })
+    expect(forbiddenMeasurement.ok).toBe(false)
     const taAsr = listLanguageCapabilities().find((c) => c.language === 'ta' && c.task === 'TRANSCRIPTION')
     expect(taAsr?.status).toBe('UNSUPPORTED')
   })
 
-  test('L1.4 unverified capabilities refuse honestly instead of being used silently', () => {
+  test('L1.4 unverified capabilities refuse honestly instead of being used silently; VERIFIED via the durable path clears the refusal', async () => {
     resetLanguageCapabilitiesForTests()
     expect(capabilityRefusalReason('te', 'TEXT_UNDERSTANDING')).toContain('EXPERIMENTAL')
     expect(capabilityRefusalReason('te', 'TRANSCRIPTION')).toContain('UNSUPPORTED')
@@ -227,8 +280,30 @@ describe('CI-3F language capability registry (L1)', () => {
     // CI-4F: a machine-measured pass is LIMITED — it still refuses until a
     // human bilingual review approves it (a model never certifies itself).
     expect(capabilityRefusalReason('te', 'TEXT_UNDERSTANDING')).toContain('LIMITED')
-    recordHumanLanguageApproval({ language: 'te', task: 'TEXT_UNDERSTANDING', reviewerId: 'admin-bilingual', reviewerName: 'Bilingual Reviewer' })
-    expect(capabilityRefusalReason('te', 'TEXT_UNDERSTANDING')).toBeNull()
+    // durable path: measure + scoped bilingual approval clears the refusal
+    const measured = await persistLanguageMeasurement(govDb, {
+      languageTag: 'te',
+      task: 'TEXT_UNDERSTANDING',
+      passed: true,
+      testRef: 'bench',
+      measuredAt: new Date(),
+      modelProvider: 'fake-adapter',
+      modelVersion: 'fixture-model-1',
+      benchmarkVersion: 'ci4-lang-bench-1',
+      benchmarkChecksum: 'b'.repeat(64),
+      caseCount: 1,
+      passedCount: 1,
+    })
+    const reviewer = await resolveReviewerProfile(reviewersDb, 'ci3f-bilingual')!
+    const approval = await recordLanguageCapabilityReview(govDb, reviewer, {
+      measurementId: (measured as { ok: true; value: { id: string } }).value.id,
+      decision: 'APPROVED',
+      rationale: 'fixture bilingual approval clearing the Telugu text-understanding refusal',
+      evidence: ALL_OK_LANGUAGE_EVIDENCE,
+    })
+    expect(approval.ok).toBe(true)
+    const durableRefusal = await capabilityRefusalReasonDurable(govDb, 'te', 'TEXT_UNDERSTANDING')
+    expect(durableRefusal).toBeNull()
   })
 })
 

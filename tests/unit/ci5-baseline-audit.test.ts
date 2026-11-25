@@ -19,7 +19,6 @@ import { join } from 'node:path'
 import {
   defaultLanguageCapabilities,
   recordCapabilityMeasurement,
-  recordHumanLanguageApproval,
   listLanguageCapabilities,
   resetLanguageCapabilitiesForTests,
 } from '../../src/lib/ci/fleet/language'
@@ -40,9 +39,13 @@ describe('CI5 baseline: milestone ledger', () => {
     milestones: { id: string; status: string; syncStatus?: string; finalMainSha?: string | null; pr?: { number: number | null; state: string } | null; commits?: string[] }[]
   }
 
-  test('ledger has 27 milestone entries with unique ids', () => {
-    expect(ledger.milestones.length).toBe(27)
-    expect(new Set(ledger.milestones.map((m) => m.id)).size).toBe(27)
+  test('ledger has 28 milestone entries with unique ids (27 pre-CI-5 + the CI-5 record)', () => {
+    expect(ledger.milestones.length).toBe(28)
+    expect(new Set(ledger.milestones.map((m) => m.id)).size).toBe(28)
+    const ci5 = ledger.milestones.find((m) => m.id === 'bean-classroom-intelligence-ci5')
+    expect(ci5).toBeDefined()
+    expect(ci5!.baseMainSha).toBe('7ccf355986c0cab738cb705e11b87f97c25a5c32')
+    expect(['PUSHED', 'COMPLETE']).toContain(ci5!.status)
   })
 
   test('CI-4 remains COMPLETE / IN_SYNC referencing merged PR #42 at a6c8d336', () => {
@@ -139,12 +142,20 @@ describe('CI5 baseline: transcription restriction', () => {
     expect(rec?.status).toBe('UNSUPPORTED')
   })
 
-  test('a human approval on TRANSCRIPTION is refused with the §9.2 reason', () => {
+  test('a durable human approval on TRANSCRIPTION is refused with the §9.2 reason', async () => {
     resetLanguageCapabilitiesForTests()
-    const res = recordHumanLanguageApproval({ language: 'ta', task: 'TRANSCRIPTION', reviewerId: 'reviewer-1', reviewerName: 'Reviewer One' })
-    expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.reason).toContain('structurally UNSUPPORTED')
-    expect(listLanguageCapabilities().find((c) => c.language === 'ta' && c.task === 'TRANSCRIPTION')?.status).toBe('UNSUPPORTED')
+    const { persistLanguageMeasurement, languageGovernanceDbFromPrisma } = await import('../../src/lib/ci/fleet/language-governance')
+    // the durable measurement path refuses TRANSCRIPTION outright
+    const measurement = await persistLanguageMeasurement(languageGovernanceDbFromPrisma({}), {
+      language: 'ta',
+      languageTag: 'ta',
+      task: 'TRANSCRIPTION',
+      passed: true,
+      testRef: 'attack-benchmark',
+      measuredAt: '2026-01-01',
+    } as never)
+    expect(measurement.ok).toBe(false)
+    if (!measurement.ok) expect(measurement.error).toContain('structurally UNSUPPORTED')
   })
 
   test('observer source guard: transcriptionEnabled is a literal false (structured-only)', () => {
@@ -167,12 +178,11 @@ describe('CI5 baseline: fleet dispatch default-off', () => {
   })
 })
 
-// ─── 5. CRITICAL: language approval durability gap (proven, not assumed) ─────
+// ─── 5. CRITICAL: language approval durability — gap CLOSED in CI-5E ────────
 
-describe('CI5 baseline: language durability audit (the CI-5E target)', () => {
-  test('an approval lives ONLY in module memory: reset (restart simulation) erases it', () => {
+describe('CI5 baseline: language durability audit (CI-5E closed the gap)', () => {
+  test('the in-memory default view can NEVER reach VERIFIED — no write path mints it', () => {
     resetLanguageCapabilitiesForTests()
-    // measure first (unmeasured capabilities cannot be approved)
     recordCapabilityMeasurement({
       language: 'en',
       task: 'TEXT_UNDERSTANDING',
@@ -180,54 +190,52 @@ describe('CI5 baseline: language durability audit (the CI-5E target)', () => {
       testRef: 'baseline-proof-bench',
       measuredAt: '2026-01-01',
     })
-    const approval = recordHumanLanguageApproval({ language: 'en', task: 'TEXT_UNDERSTANDING', reviewerId: 'reviewer-1', reviewerName: 'Reviewer One' })
-    expect(approval.ok).toBe(true)
-    expect(listLanguageCapabilities().find((c) => c.language === 'en' && c.task === 'TEXT_UNDERSTANDING')?.status).toBe('VERIFIED')
-
-    // Simulate a process restart: a DB-backed store would survive this; the
-    // process-local store does not. This is the CI-4 gap, proven.
-    resetLanguageCapabilitiesForTests()
-    expect(listLanguageCapabilities().find((c) => c.language === 'en' && c.task === 'TEXT_UNDERSTANDING')?.status).toBe('EXPERIMENTAL')
+    // CI-4F's self-certification hole (humanApproved flag → VERIFIED) is gone:
+    // the measurement records LIMITED and nothing else
+    const rec = listLanguageCapabilities().find((c) => c.language === 'en' && c.task === 'TEXT_UNDERSTANDING')
+    expect(rec?.status).toBe('LIMITED')
+    expect(rec?.humanApproved).toBe(false)
+    expect(listLanguageCapabilities().some((c) => c.status === 'VERIFIED')).toBe(false)
   })
 
-  test('SELF-CERTIFICATION HOLE: a caller passing humanApproved mints VERIFIED with no reviewer (CI-5E closes this)', () => {
-    resetLanguageCapabilitiesForTests()
-    recordCapabilityMeasurement({
-      language: 'hi',
-      task: 'TERMINOLOGY',
-      passed: true,
-      testRef: 'hole-proof-bench',
-      measuredAt: '2026-01-01',
-      humanApproved: true, // no reviewer identity, no qualification, no record
-    })
-    expect(listLanguageCapabilities().find((c) => c.language === 'hi' && c.task === 'TERMINOLOGY')?.status).toBe('VERIFIED')
-  })
-
-  test('source guard: language.ts has NO database import (store is process-local)', () => {
+  test('the legacy in-memory approval function is REMOVED — VERIFIED exists only through the durable governance path', () => {
+    const languageModule = recordCapabilityMeasurement as unknown as Record<string, unknown>
+    void languageModule
     const src = readFileSync(join(REPO, 'src/lib/ci/fleet/language.ts'), 'utf8')
-    expect(src).not.toMatch(/from '@\/lib\/db'|from '\.\.\/\.\.\/lib\/db'|prisma/i)
+    expect(src).not.toContain('recordHumanLanguageApproval')
+    expect(src).toContain('only path to VERIFIED is the durable governance module')
+    // the durable module owns the approval path with scope + binding checks
+    const govSrc = readFileSync(join(REPO, 'src/lib/ci/fleet/language-governance.ts'), 'utf8')
+    expect(govSrc).toContain('export async function recordLanguageCapabilityReview')
+    expect(govSrc).toContain('reviewerCanReviewLanguage')
+  })
+
+  test('source guard: language.ts still has NO database import (default view stays pure)', () => {
+    const src = readFileSync(join(REPO, 'src/lib/ci/fleet/language.ts'), 'utf8')
+    expect(src).not.toMatch(/from '@\/lib\/db'|from '\.\.\/\.\.\/lib\/db'/)
     expect(src).toMatch(/const capabilityStore: LanguageCapabilityRecord\[\]/)
   })
 
-  test('source guard: recordHumanLanguageApproval has no production call site', () => {
-    const { execSync } = require('node:child_process') as typeof import('node:child_process')
-    let hits = ''
-    try {
-      hits = execSync(
-        `rg -l "recordHumanLanguageApproval" src --glob '!**/language.ts' || true`,
-        { cwd: REPO, encoding: 'utf8' },
-      ).trim()
-    } catch {
-      hits = ''
-    }
-    expect(hits).toBe('')
+  test('source guard: the durable governance module enforces scope + measurement binding + §9.2', () => {
+    const govSrc = readFileSync(join(REPO, 'src/lib/ci/fleet/language-governance.ts'), 'utf8')
+    expect(govSrc).toContain("task === 'TRANSCRIPTION'")
+    expect(govSrc).toContain("measurement not found — an UNMEASURED capability cannot be reviewed or approved")
+    expect(govSrc).toContain('reviewerCanReviewLanguage(reviewer, measurement.languageTag')
+    expect(govSrc).toContain("SUPERSEDED")
   })
 
-  test('a reviewer approval on an UNMEASURED capability is refused (rule survives into CI-5E)', () => {
+  test('TRANSCRIPTION remains structurally unreachable in the in-memory view (measurement no-op + UNSUPPORTED)', () => {
     resetLanguageCapabilitiesForTests()
-    const res = recordHumanLanguageApproval({ language: 'bn', task: 'GENERATION', reviewerId: 'reviewer-1', reviewerName: 'Reviewer One' })
-    expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.reason).toContain('UNMEASURED')
+    recordCapabilityMeasurement({
+      language: 'en',
+      task: 'TRANSCRIPTION',
+      passed: true,
+      testRef: 'attack-benchmark',
+      measuredAt: '2026-01-01',
+    })
+    const rec = listLanguageCapabilities().find((c) => c.language === 'en' && c.task === 'TRANSCRIPTION')
+    expect(rec?.status).toBe('UNSUPPORTED')
+    expect(listLanguageCapabilities().filter((c) => c.task === 'TRANSCRIPTION').every((c) => c.status === 'UNSUPPORTED')).toBe(true)
   })
 })
 

@@ -22,6 +22,7 @@ import { z } from 'zod'
 import { PACK_STATUS, PACK_REVIEW_DECISION, type PackStatus, type PackReviewDecision } from './constants'
 import { getDomainPack, listDomainPacks, computePackChecksum, dispatchableDomainPacks, type DomainPack } from './domain-packs'
 import { ensurePackSourcesRegistered } from './packs/sources'
+import { detectReviewDisagreement } from './assignments'
 
 // ─── Decision input ───────────────────────────────────────────────────────────
 
@@ -161,13 +162,32 @@ export function resolveCuratedStatus(
 // ─── Recording a decision (the only write path; DB append-only) ──────────────
 
 export type RecordReviewResult =
-  | { ok: true; reviewId: string; curatedStatus: CuratedStatusResult }
+  | { ok: true; reviewId: string; curatedStatus: CuratedStatusResult; disagreement: { disagreement: boolean; detail: string; approvals: string[]; objections: { decision: string; reviewerStudentId: string }[] } }
   | { ok: false; status: number; error: string }
 
+export interface PackReviewOptions {
+  /**
+   * Server-computed set of account ids holding an ACTIVE reviewer profile
+   * authorised for the pack's domain (CI-5D). An APPROVED decision can only be
+   * recorded when this evidence is present AND the reviewer is in the set —
+   * a general administrator without the required reviewer qualification cannot
+   * substitute for an expert. Work-state decisions (REJECTED /
+   * CHANGES_REQUESTED / RE_REVIEW_REQUESTED) remain available to
+   * administrators: they are conservative signals that can only hold a pack
+   * back, never promote it.
+   */
+  qualifiedApproverIds?: ReadonlySet<string>
+}
+
 /**
- * Validate + append a curator decision. Called by the admin API route AFTER
- * requireAdmin() resolved the reviewer identity server-side. The reviewer
- * identity in `reviewer` NEVER comes from the request body.
+ * Validate + append a curator decision. Called by the admin/expert API routes
+ * AFTER the session guard resolved the reviewer identity server-side. The
+ * reviewer identity in `reviewer` NEVER comes from the request body.
+ *
+ * CI-5D qualification rule: an APPROVED decision requires the server-computed
+ * `qualifiedApproverIds` evidence and the reviewer's membership in it. The
+ * option cannot be omitted for approvals — the promotion path can never bypass
+ * reviewer qualification.
  *
  * PrismaClient is injected (the module is used from route handlers where the
  * shared `db` client is imported; tests pass an isolated client).
@@ -176,6 +196,7 @@ export async function recordPackReview(
   db: CuratorDb,
   reviewer: ReviewerIdentity,
   input: unknown,
+  options: PackReviewOptions = {},
 ): Promise<RecordReviewResult> {
   ensurePackSourcesRegistered()
   const parsed = packReviewInputSchema.safeParse(input)
@@ -187,6 +208,16 @@ export async function recordPackReview(
   const entry = getDomainPack(data.packId)
   if (!entry) {
     return { ok: false, status: 404, error: `unknown pack: ${data.packId}` }
+  }
+  // CI-5D: the promotion path (APPROVED) requires reviewer-qualification
+  // evidence computed server-side for THIS pack's domain.
+  if (data.decision === PACK_REVIEW_DECISION.APPROVED) {
+    if (!options.qualifiedApproverIds) {
+      return { ok: false, status: 409, error: 'APPROVED requires the server-side reviewer-qualification check (CI-5D) — the approval path cannot record a promotion without qualification evidence' }
+    }
+    if (!options.qualifiedApproverIds.has(reviewer.studentId)) {
+      return { ok: false, status: 403, error: `reviewer is not a qualified, ACTIVE reviewer for domain "${entry.pack.domainId}" — an administrator without the required reviewer qualification cannot substitute for an expert` }
+    }
   }
   // The decision must bind to the pack content AS IT EXISTS NOW — a decision
   // recorded against a stale checksum would be meaningless (and could be a
@@ -212,7 +243,9 @@ export async function recordPackReview(
     },
   })
   const reviews = await listPackReviews(db, data.packId)
-  return { ok: true, reviewId: created.id, curatedStatus: resolveCuratedStatus(entry.pack, reviews) }
+  const bound = reviews.filter((r) => r.packId === entry.pack.domainId && r.packVersion === entry.pack.packVersion && r.packChecksum === computePackChecksum(entry.pack))
+  const disagreement = detectReviewDisagreement(bound)
+  return { ok: true, reviewId: created.id, curatedStatus: resolveCuratedStatus(entry.pack, reviews), disagreement }
 }
 
 /** Append-only read: every recorded decision for one pack (oldest first). */
