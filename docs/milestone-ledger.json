@@ -913,7 +913,8 @@
       "branch": "feat/bean-classroom-intelligence-ci4",
       "baseMainSha": "d86dfcc339317b41720884ca5b3c37b5152256f5",
       "commits": [
-        "367b8ffd09ccb43a1963c2485ebc3434e012abb0"
+        "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
+        "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278"
       ],
       "units": [
         {
@@ -922,10 +923,17 @@
           "remoteVerifiedSha": "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
           "verifiedAt": "2026-11-25T02:05:00Z",
           "summary": "Baseline + source audit: origin/main verified d86dfcc (PR #40 = CI-3 ledger close-out; CI-3 fully merged); all 12 charter claims verified in source (36 ISCED-F families, 8 packs IN_REVIEW, 11 languages honest states incl. structural TRANSCRIPTION=UNSUPPORTED, 19-role registry, bounded queue with CAS/lease/backpressure, one consent-gated observer via API only, dispatchFleetForSession has zero production call sites, profession catalogue at LICENCE_GATE_PENDING, no retrieval layer). HEADLINE: CI-3's OpenStax records claimed CC-BY-4.0 — AUDIT CORRECTION to CC-BY-NC-SA-4.0 with primary evidence (github.com/openstax/university-physics LICENSE fetched raw: 'Attribution-NonCommercial-ShareAlike 4.0 International'); NC content cannot be ingested into BEAN's commercial operation. Machine-checkable licence-restriction vocabulary added (NON_COMMERCIAL/SHARE_ALIKE/NO_DERIVATIVES/REFERENCE_ONLY/PERMISSION_PENDING) + assertSourceContentUsable() ingestion gate (distinct from the citation gate — citations stay permitted, ingestion of NC sources refused with verbatim audit reasons; ShareAlike usable WITH obligations; schema back-compatible). NCERT/CEFR REFERENCE_ONLY formalised; MDN ShareAlike obligation recorded. New docs: CI4-BASELINE.md (12-claim evidence map) + SOURCE-LICENSE-AUDIT.md (per-source records incl. live-verified O*NET CC BY 4.0 + trademark, ESCO acknowledgement plan, NCO reuse UNVERIFIED -> no import (dge.gov.in unreachable), NSQF non-claim policy, Wikidata CC0). tests/unit/ci4-source-audit.test.ts 9 tests; CI-3 S1.5 tightened to assert licence identity. Suite 1491/0 (1482+9), tsc clean, lint clean; pushed+verified 367b8ff."
+        },
+        {
+          "id": "CI-4B",
+          "commitSha": "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
+          "remoteVerifiedSha": "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
+          "verifiedAt": "2026-11-25T02:40:00Z",
+          "summary": "World taxonomy adapters (world-taxonomy.ts): 5 new registered sources with CI-4A restriction flags — onet-web-database (CC BY 4.0 verified LIVE 2026-11-25 incl. O*NET trademark notice), esco-classification (REFERENCE_ONLY, EC acknowledgement string exported, import LICENCE_GATE_PENDING — no identifier asserted from memory), india-nco-2015 (REFERENCE_ONLY+PERMISSION_PENDING — dge.gov.in unreachable at audit, zero content/codes), india-nsqf (REFERENCE_ONLY, enforced non-claim: BEAN assessment never an NSQF qualification/government certification), ilo-isco-08 (structural facts only). Curated O*NET seed: 12 occupation mappings, every identifier+label live-verified (title-match at onetonline.org, verificationRef per record), 11 of 36 families covered, crosswalk confidence vocabulary EXACT/CLOSE/PARTIAL/MANUAL_REVIEW, adaptedBy BEAN, jurisdiction per record, verbatim identifier preservation (NN-NNNN.NN asserted). Machine-checkable per-source import states; mapping validator wired into the CI-4A gate (quarantined sources cannot gain mappings; unknown domains refused); fail-fast registration. Docs: WORLD-TAXONOMY.md (per-source positions, seed table, integrity rules, honest gaps). tests ci4-world-taxonomy 10 (B1–B10); suite 1501/0; tsc clean; lint clean; pushed+verified cdb1b2a."
         }
       ],
-      "remoteFeatureSha": "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
-      "pushVerifiedAt": "2026-11-25T02:05:00Z",
+      "remoteFeatureSha": "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
+      "pushVerifiedAt": "2026-11-25T02:40:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -935,9 +943,9 @@
       "finalMainSha": null,
       "syncStatus": "PENDING",
       "status": "IN_PROGRESS",
-      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md",
       "ciNote": "",
-      "updatedAt": "2026-11-25T02:05:00Z"
+      "updatedAt": "2026-11-25T02:40:00Z"
     }
   ],
   "branchReconciliation": {
