@@ -2072,6 +2072,40 @@ model ClassroomPackReview {
   @@index([reviewerStudentId])
 }
 
+// BEAN Classroom Intelligence (CI-4D): source-grounded knowledge chunk store.
+// One row per ingested knowledge record. chunkKey = sha256(sourceId|locator|
+// content) makes ingestion idempotent. Every chunk carries full provenance
+// (source, locator, version, ingestion time, licence obligations recorded
+// VERBATIM from the CI-4A gate) so any citation is auditable. revoked marks
+// source withdrawal/revocation — revoked chunks are excluded from retrieval
+// and never deleted (the audit trail survives). injectionScan records the
+// deterministic prompt-injection verdict at ingestion time.
+model ClassroomKnowledgeChunk {
+  id              String   @id @default(cuid())
+  chunkKey        String   @unique
+  sourceId        String   // content-author source registry id
+  packDomainId    String   // BEAN domain family the chunk belongs to
+  title           String
+  content         String   // BEAN-authored or licence-permitted text (bounded server-side)
+  locator         String   // stable page/section/paragraph reference
+  language        String   // BCP-47 tag
+  jurisdiction    String?
+  sourceVersion   String   // source version at ingestion time
+  citesSourceIds  String   @default("[]") // JSON: citation-anchor source registry ids
+  obligationsJson String   @default("[]") // JSON: CI-4A gate obligations recorded verbatim
+  injectionScan   String   @default("PASS") // PASS | REFUSED_INJECTION
+  revoked         Boolean  @default(false)
+  revokedReason   String?
+  ingestedBy      String   // "system" or the curator/owner id that ran ingestion
+  ingestedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([packDomainId, revoked])
+  @@index([sourceId, revoked])
+  @@index([language])
+}
+
 // Append-only dispute history (matches ComplaintEvent/AppealEvent discipline).
 model ClassroomDisputeEvent {
   id        String   @id @default(cuid())

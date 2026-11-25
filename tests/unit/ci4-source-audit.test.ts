@@ -161,9 +161,10 @@ describe('CI-4A source licence audit', () => {
   test('A9 every baseline source record is fully provenance-recorded', () => {
     // The audit probes from A7/A8 share this file-scoped registry — scope the
     // assertion to the seed records: 9 CI-3 baseline sources (8 pack + 1
-    // taxonomy) + 4 CI-4C BEAN-authored domain seeds.
+    // taxonomy) + 5 CI-4 BEAN-authored seeds (4 domain seeds + the knowledge
+    // corpus record).
     const all = listSources().filter((r) => !r.sourceId.startsWith('ci4-audit'))
-    expect(all.length).toBe(13)
+    expect(all.length).toBe(14)
     for (const rec of all) {
       expect(rec.title.length).toBeGreaterThan(3)
       expect(rec.canonicalRef.length).toBeGreaterThan(4)

@@ -249,6 +249,7 @@ export function resetPackSourcesForTests(): void {
 // the licence gate (assertSourceUsable / assertSourceContentUsable) applies.
 
 export const CI4_BEAN_AUTHORED_SOURCES: { sourceId: string; title: string; domain: string }[] = [
+  { sourceId: 'bean-authored-knowledge-corpus', title: 'BEAN-authored knowledge corpus seed — glossary definitions authored by BEAN across all packs (no external dataset imported)', domain: 'all-packs' },
   { sourceId: 'bean-authored-education-pedagogy-seed', title: 'BEAN-authored education & pedagogy competency seed (no external dataset imported yet)', domain: 'education-pedagogy' },
   { sourceId: 'bean-authored-engineering-seed', title: 'BEAN-authored engineering fundamentals competency seed (no external dataset imported yet)', domain: 'engineering' },
   { sourceId: 'bean-authored-agriculture-agritech-seed', title: 'BEAN-authored agriculture & agritech competency seed (no external dataset imported yet)', domain: 'agriculture-agritech' },
