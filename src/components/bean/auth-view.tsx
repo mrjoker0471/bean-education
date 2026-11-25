@@ -30,6 +30,7 @@ import { useEffect, useState } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { LegalConsentRow } from '@/components/bean/legal-consent-row'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -119,8 +120,20 @@ async function postAuth(endpoint: string, body: Record<string, unknown>): Promis
   return student
 }
 
-/** Legal acceptance block shared by password signup and Google signup. */
+/** Legal acceptance block shared by password signup and Google signup.
+ *  Audience-aware eligibility presentation:
+ *  • TEACHER — ONE compact adult-eligibility confirmation checkbox. This is
+ *    BEAN's account-level eligibility requirement, NOT a teaching
+ *    qualification. No date of birth, no numeric age, no under-18 option in
+ *    the teacher presentation (the under-18 fail-safe stays on the server).
+ *  • STUDENT / INSTITUTION — the original two-option age declaration with the
+ *    child-safeguarding explanation (behaviour preserved unchanged).
+ *  Both presentations map onto the SAME server-validated registration
+ *  contract (ageDeclaration: 'ADULT_18_PLUS', set ONLY by an explicit user
+ *  action) — the backend under-18 guard and the Terms/Privacy acceptance
+ *  requirements are untouched. */
 function LegalAcceptanceFields(props: {
+  audience: Audience
   legalCfg: LegalConfigDTO | null
   acceptTerms: boolean
   ackPrivacy: boolean
@@ -129,78 +142,103 @@ function LegalAcceptanceFields(props: {
   onAckPrivacy: (v: boolean) => void
   onAgeBand: (v: 'ADULT_18_PLUS' | 'UNDER_18' | null) => void
 }) {
-  const draft = props.legalCfg?.versionsAreDraft ?? true
+  const teacher = props.audience === 'TEACHER'
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-elevated/40 p-3">
-      <fieldset className="space-y-2">
-        <legend className="text-xs font-medium text-foreground">Age declaration</legend>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          BEAN supports school-level learners. To keep children&apos;s data safe, accounts for users under 18 need
-          guardian verification that is not available yet.
-        </p>
-        <div className="flex flex-col gap-1.5">
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="radio"
-              name="bean-age"
+    <div className="space-y-3">
+      {teacher ? (
+        <fieldset className="space-y-2 rounded-lg border border-hairline bg-elevated/40 p-3 sm:p-4">
+          <legend className="text-xs font-medium text-foreground">Age &amp; eligibility confirmation</legend>
+          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2">
+            <Checkbox
+              id="bean-teacher-adult"
               checked={props.ageBand === 'ADULT_18_PLUS'}
-              onChange={() => props.onAgeBand('ADULT_18_PLUS')}
-              disabled={false}
-              aria-label="I am 18 or older"
+              onCheckedChange={v => props.onAgeBand(v === true ? 'ADULT_18_PLUS' : null)}
+              aria-describedby="bean-teacher-adult-note"
+              className="mt-1 h-4 w-4"
             />
-            I am 18 or older
-          </label>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="radio"
-              name="bean-age"
-              checked={props.ageBand === 'UNDER_18'}
-              onChange={() => props.onAgeBand('UNDER_18')}
-              aria-label="I am under 18"
-            />
-            I am under 18
-          </label>
-        </div>
-        {props.ageBand === 'UNDER_18' && (
-          <p className="rounded-md border border-gold/30 bg-gold/10 p-2 text-xs leading-relaxed text-gold" role="note">
-            Guardian-verified accounts are not available yet, so we cannot create an account for you right now —
-            nothing you type here is stored. You can keep using BEAN in guest mode, which keeps your session data
-            on this device only.
+            <div className="min-w-0">
+              <Label
+                htmlFor="bean-teacher-adult"
+                className="block cursor-pointer text-sm font-medium leading-relaxed text-foreground"
+              >
+                I confirm that I am 18 or older and eligible to create a BEAN Teacher account.
+              </Label>
+            </div>
+          </div>
+          <p id="bean-teacher-adult-note" className="text-xs leading-relaxed text-muted-foreground">
+            This is BEAN&apos;s minimum account-eligibility requirement for every account — it is not a teaching
+            qualification. Teaching rights are granted only through the reviewed BEAN Teach application.
           </p>
-        )}
-      </fieldset>
+        </fieldset>
+      ) : (
+        <fieldset className="space-y-2 rounded-lg border border-hairline bg-elevated/40 p-3 sm:p-4">
+          <legend className="text-xs font-medium text-foreground">Age declaration</legend>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            BEAN supports school-level learners. To keep children&apos;s data safe, accounts for users under 18 need
+            guardian verification that is not available yet.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="radio"
+                name="bean-age"
+                checked={props.ageBand === 'ADULT_18_PLUS'}
+                onChange={() => props.onAgeBand('ADULT_18_PLUS')}
+                disabled={false}
+                aria-label="I am 18 or older"
+              />
+              I am 18 or older
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="radio"
+                name="bean-age"
+                checked={props.ageBand === 'UNDER_18'}
+                onChange={() => props.onAgeBand('UNDER_18')}
+                aria-label="I am under 18"
+              />
+              I am under 18
+            </label>
+          </div>
+          {props.ageBand === 'UNDER_18' && (
+            <p className="rounded-md border border-gold/30 bg-gold/10 p-2 text-xs leading-relaxed text-gold" role="note">
+              Guardian-verified accounts are not available yet, so we cannot create an account for you right now —
+              nothing you type here is stored. You can keep using BEAN in guest mode, which keeps your session data
+              on this device only.
+            </p>
+          )}
+        </fieldset>
+      )}
 
-      <div className="flex items-start gap-2">
-        <Checkbox
+      {/* Two independent full-width consent rows on one shared surface with a
+          subtle separator — equal padding, aligned starting positions, fixed
+          checkbox column, version metadata on its own muted line. The links
+          are siblings of the labels (never nested), so activating a link can
+          never toggle a checkbox or submit this form. */}
+      <div role="group" aria-label="Legal acceptance" className="divide-y divide-hairline rounded-lg border border-hairline bg-elevated/40">
+        <LegalConsentRow
           id="bean-accept-terms"
           checked={props.acceptTerms}
-          onCheckedChange={v => props.onAcceptTerms(v === true)}
-          className="mt-0.5"
+          onCheckedChange={props.onAcceptTerms}
+          statement="I agree to the Terms & Conditions."
+          linkHref="#/terms"
+          linkLabel="Read the Terms & Conditions"
+          version={props.legalCfg?.termsVersion ?? null}
+          draft={props.legalCfg?.versionsAreDraft}
+          effectiveDate={props.legalCfg?.dates?.terms?.effectiveDate ?? null}
         />
-        <Label htmlFor="bean-accept-terms" className="text-xs font-normal leading-relaxed text-muted-foreground">
-          I have read and accept the{' '}
-          <a href="#/terms" className="text-gold underline underline-offset-2" target="_blank" rel="noreferrer">
-            Terms and Conditions
-          </a>
-          {props.legalCfg ? <> (version {props.legalCfg.termsVersion}{draft ? ', draft' : ''})</> : null}.
-        </Label>
-      </div>
-
-      <div className="flex items-start gap-2">
-        <Checkbox
+        <LegalConsentRow
           id="bean-ack-privacy"
+          separated
           checked={props.ackPrivacy}
-          onCheckedChange={v => props.onAckPrivacy(v === true)}
-          className="mt-0.5"
+          onCheckedChange={props.onAckPrivacy}
+          statement="I acknowledge the Privacy Policy and understand how my information is used."
+          linkHref="#/privacy"
+          linkLabel="Read the Privacy Policy"
+          version={props.legalCfg?.privacyVersion ?? null}
+          draft={props.legalCfg?.versionsAreDraft}
+          effectiveDate={props.legalCfg?.dates?.privacy?.effectiveDate ?? null}
         />
-        <Label htmlFor="bean-ack-privacy" className="text-xs font-normal leading-relaxed text-muted-foreground">
-          I have read the{' '}
-          <a href="#/privacy" className="text-gold underline underline-offset-2" target="_blank" rel="noreferrer">
-            Privacy Policy
-          </a>
-          {props.legalCfg ? <> (version {props.legalCfg.privacyVersion}{draft ? ', draft' : ''})</> : null} and I
-          understand how my information is used.
-        </Label>
       </div>
     </div>
   )
@@ -305,6 +343,10 @@ export function AuthView({ onAuthed }: AuthViewProps) {
 
   const chooseAudience = (a: Audience) => {
     setAudience(a)
+    // The age declaration is audience-specific (teacher confirmation vs the
+    // student/institution declaration) — a declaration made under one
+    // presentation must never silently carry over to another.
+    setAgeBand(null)
     try {
       sessionStorage.setItem(INTENT_KEY, a)
     } catch { /* non-fatal */ }
@@ -338,15 +380,28 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         setError('Please review and accept the Terms and Privacy Notice to create an account.')
         return
       }
-      if (!ageBand) {
-        setError('Please complete the age declaration.')
-        return
-      }
+      // Honest fail-safe FIRST: an explicit under-18 declaration is refused
+      // outright for every audience — nothing is submitted, nothing is stored
+      // (the server enforces the same rule with a 403).
       if (ageBand === 'UNDER_18') {
-        // Honest fail-safe: nothing is submitted, nothing is stored.
         setError('Guardian-verified accounts are not available yet, so an account cannot be created right now. You can keep using guest mode.')
         return
       }
+      if (audience === 'TEACHER') {
+        // Teacher presentation: the single eligibility checkbox must be
+        // explicitly selected — signup cannot silently bypass it, and no
+        // declaration is ever fabricated for the user.
+        if (ageBand !== 'ADULT_18_PLUS') {
+          setError('Please confirm that you are 18 or older and eligible to create a BEAN Teacher account.')
+          return
+        }
+      } else if (!ageBand) {
+        // Student / Institution presentation: the two-option declaration.
+        setError('Please complete the age declaration.')
+        return
+      }
+      // Both guard paths narrow ageBand to the explicit ADULT_18_PLUS
+      // declaration the user actually made.
       declaredAge = ageBand
       if (!declaredAge) {
         setError('Please complete the age declaration.')
@@ -449,12 +504,21 @@ export function AuthView({ onAuthed }: AuthViewProps) {
       setError('Please review and accept the Terms and Privacy Notice to create an account.')
       return
     }
-    if (!ageBand) {
-      setError('Please complete the age declaration.')
-      return
-    }
+    // Same audience-aware gates as password signup (see submit()): the
+    // fail-safe under-18 refusal first, then the audience-specific explicit
+    // declaration requirement — Google signup keeps every account-eligibility
+    // check, while Google SIGN-IN stays declaration-free.
     if (ageBand === 'UNDER_18') {
       setError('Guardian-verified accounts are not available yet, so an account cannot be created right now. You can keep using guest mode.')
+      return
+    }
+    if (audience === 'TEACHER') {
+      if (ageBand !== 'ADULT_18_PLUS') {
+        setError('Please confirm that you are 18 or older and eligible to create a BEAN Teacher account.')
+        return
+      }
+    } else if (!ageBand) {
+      setError('Please complete the age declaration.')
       return
     }
     setBusy(true)
@@ -638,6 +702,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
         <CardContent>
           <form onSubmit={submitGoogleSignup} className="space-y-4">
             <LegalAcceptanceFields
+              audience={audience}
               legalCfg={legalCfg}
               acceptTerms={acceptTerms}
               ackPrivacy={ackPrivacy}
@@ -753,6 +818,7 @@ export function AuthView({ onAuthed }: AuthViewProps) {
 
           {panel === 'signup' && (
             <LegalAcceptanceFields
+              audience={audience}
               legalCfg={legalCfg}
               acceptTerms={acceptTerms}
               ackPrivacy={ackPrivacy}
