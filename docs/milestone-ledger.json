@@ -929,7 +929,7 @@
           "remoteVerifiedSha": "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
           "verifiedAt": "2026-11-25T02:05:00Z",
           "summary": "Baseline + source audit: origin/main verified d86dfcc (PR #40 = CI-3 ledger close-out; CI-3 fully merged); all 12 charter claims verified in source (36 ISCED-F families, 8 packs IN_REVIEW, 11 languages honest states incl. structural TRANSCRIPTION=UNSUPPORTED, 19-role registry, bounded queue with CAS/lease/backpressure, one consent-gated observer via API only, dispatchFleetForSession has zero production call sites, profession catalogue at LICENCE_GATE_PENDING, no retrieval layer). HEADLINE: CI-3's OpenStax records claimed CC-BY-4.0 — AUDIT CORRECTION to CC-BY-NC-SA-4.0 with primary evidence (github.com/openstax/university-physics LICENSE fetched raw: 'Attribution-NonCommercial-ShareAlike 4.0 International'); NC content cannot be ingested into BEAN's commercial operation. Machine-checkable licence-restriction vocabulary added (NON_COMMERCIAL/SHARE_ALIKE/NO_DERIVATIVES/REFERENCE_ONLY/PERMISSION_PENDING) + assertSourceContentUsable() ingestion gate (distinct from the citation gate — citations stay permitted, ingestion of NC sources refused with verbatim audit reasons; ShareAlike usable WITH obligations; schema back-compatible). NCERT/CEFR REFERENCE_ONLY formalised; MDN ShareAlike obligation recorded. New docs: CI4-BASELINE.md (12-claim evidence map) + SOURCE-LICENSE-AUDIT.md (per-source records incl. live-verified O*NET CC BY 4.0 + trademark, ESCO acknowledgement plan, NCO reuse UNVERIFIED -> no import (dge.gov.in unreachable), NSQF non-claim policy, Wikidata CC0). tests/unit/ci4-source-audit.test.ts 9 tests; CI-3 S1.5 tightened to assert licence identity. Suite 1491/0 (1482+9), tsc clean, lint clean; pushed+verified 367b8ff.",
-          "mergeState": "MERGED_INTO_MAIN via owner PR #41 (merge commit 9e932eee174aa0f2f4f44eecc1a6a74c93b54382, main run 45525195806 SUCCESS)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4B",
@@ -937,7 +937,7 @@
           "remoteVerifiedSha": "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
           "verifiedAt": "2026-11-25T02:40:00Z",
           "summary": "World taxonomy adapters (world-taxonomy.ts): 5 new registered sources with CI-4A restriction flags — onet-web-database (CC BY 4.0 verified LIVE 2026-11-25 incl. O*NET trademark notice), esco-classification (REFERENCE_ONLY, EC acknowledgement string exported, import LICENCE_GATE_PENDING — no identifier asserted from memory), india-nco-2015 (REFERENCE_ONLY+PERMISSION_PENDING — dge.gov.in unreachable at audit, zero content/codes), india-nsqf (REFERENCE_ONLY, enforced non-claim: BEAN assessment never an NSQF qualification/government certification), ilo-isco-08 (structural facts only). Curated O*NET seed: 12 occupation mappings, every identifier+label live-verified (title-match at onetonline.org, verificationRef per record), 11 of 36 families covered, crosswalk confidence vocabulary EXACT/CLOSE/PARTIAL/MANUAL_REVIEW, adaptedBy BEAN, jurisdiction per record, verbatim identifier preservation (NN-NNNN.NN asserted). Machine-checkable per-source import states; mapping validator wired into the CI-4A gate (quarantined sources cannot gain mappings; unknown domains refused); fail-fast registration. Docs: WORLD-TAXONOMY.md (per-source positions, seed table, integrity rules, honest gaps). tests ci4-world-taxonomy 10 (B1–B10); suite 1501/0; tsc clean; lint clean; pushed+verified cdb1b2a.",
-          "mergeState": "MERGED_INTO_MAIN via owner PR #41 (merge commit 9e932eee174aa0f2f4f44eecc1a6a74c93b54382, main run 45525195806 SUCCESS)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4C",
@@ -945,7 +945,7 @@
           "remoteVerifiedSha": "1bbb4855dbaab0426e555513440370930d5e248b",
           "verifiedAt": "2026-11-25T03:25:00Z",
           "summary": "Domain curation & human review: append-only ClassroomPackReview ledger (migration 20261125080000; reviewer identity SERVER-RESOLVED via requireAdmin — body-supplied identity ignored; decision bound to pack version + sha256 checksum with honest 409 on stale bindings; no reviewer FK so governance survives account deletion). curator.ts: resolveCuratedStatus pure derivation — VERIFIED from recorded human approvals only (STANDARD 1 distinct reviewer; HIGH_STAKES 2 DISTINCT — same reviewer twice never counts; REJECTED terminal per version with permanent audit row; CHANGES_REQUESTED/RE_REVIEW work states); strict zod decision vocabulary (AUTO_VERIFY refused); curatedDispatchablePacks = machine gate AND human gate (rejected packs never dispatch; dispatcher adopts in CI-4E/4G). Admin API: GET packs (curated summaries), GET pack detail (read-only source licence snapshot — reviewer can never approve a licence for its rights holder), POST review (append-only). PACK_STATUS.REJECTED added. Four new pack candidates honestly IN_REVIEW with per-domain BEAN-authored seed sources + 4 deterministic fixtures (education-pedagogy w/ verified O*NET teacher mappings + dignity/diagnosis prohibitions; engineering w/ educational≠certifiable boundary; agriculture-agritech w/ agrochemical prescription refusal; history-philosophy w/ contested-claims honesty + archivist mapping) — fixture suite 12/12 green. Curator guide doc. Count assertions updated for the documented expansion (12 packs / 13 seed sources). Tests ci4-curator 8 (C1–C7+persist, real requireAdmin path incl. 401/403/forged-id/409/golden). Suite 1509/0; tsc clean; lint clean; prisma valid; migrate deploy green on fresh DB; pushed+verified 1bbb485.",
-          "mergeState": "MERGED_INTO_MAIN via owner PR #41 (merge commit 9e932eee174aa0f2f4f44eecc1a6a74c93b54382, main run 45525195806 SUCCESS)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4D",
@@ -953,7 +953,7 @@
           "remoteVerifiedSha": "45369608717cb957ed5870a27946e43a4aa245b2",
           "verifiedAt": "2026-11-25T04:10:00Z",
           "summary": "Source-grounded retrieval (retrieval.ts + ClassroomKnowledgeChunk migration 20261125090000): SQLite/Prisma lexical layer — no vector DB, no external APIs, no network fetches. Ingestion gate order: bounds schema → domain scope → CI-4A content gate on the CONTENT-AUTHOR source (OpenStax NC-SA refused verbatim; obligations recorded verbatim per chunk) → citation anchors resolve → deterministic prompt-injection scan (422; verdict stored) → idempotent chunkKey=sha256(sourceId|locator|content). Glossary definitions are BEAN-authored originals — corpus ingests under bean-authored seed sources (generic bean-authored-knowledge-corpus record added for CI-3 packs) with external anchors recorded as CITATIONS (attribution without ingestion). Retrieval: pack-scoped bounded lexical scoring, deterministic order, language filter, LIVE query-time licence re-check (superseded/unregistered sources excluded with reasons; revocation via revokeKnowledgeChunks marks rows, never deletes, audit survives). validateCitations refuses fabricated citations (must be live AND retrieved/pack-declared). formatRetrievedContextForPrompt = DATA-NOT-INSTRUCTIONS envelope (delimiters + provenance + untrusted-content framing). resolveKnowledgeContext = taxonomy resolution (honest empty) AND machine gate AND curator gate with explicit missing[] reasons. seedBeanKnowledgeCorpus idempotent across all 12 packs. RETRIEVAL.md documents architecture + honest corpus state (no external text ingested; embeddings deliberately deferred). Tests ci4-retrieval 12 (D1–D12, isolated real DB via migrate deploy). Suite 1521/0; tsc clean; lint clean; pushed+verified 4536960.",
-          "mergeState": "MERGED_INTO_MAIN via owner PR #41 (merge commit 9e932eee174aa0f2f4f44eecc1a6a74c93b54382, main run 45525195806 SUCCESS)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4E",
@@ -961,7 +961,7 @@
           "remoteVerifiedSha": "5a787b703c8a14542554eeb9a0159e95f239d0e3",
           "verifiedAt": "2026-11-25T04:55:00Z",
           "summary": "Specialist intelligence upgrade (existing agents, no duplication): subject specialists now retrieval-grounded (CI-4D envelope in the prompt; catalogue-tag language resolution — 'English'→'en'; out-of-catalogue = no filter, never a wrong filter; retrieval failure degrades to an explicit unknown, never blocks). Grounding extension: cited source must be registered AND pack-declared OR retrieved; fabricated refs still demote. Contract 1.1.0: optional structured handoffs[] (handoffId, source/target, question, permittedEvidenceKinds, outputContractVersion, budget, returnStatus) + NEW C7 (targets must be declared related domains; pack-less handoffs refused; bound 3). planHandoffFollowUps: server-side PROPOSALS only (machine AND curator gates on the target; per-class domain cap; receiver answers under its own pack scope — model output can never dispatch work). runPackBenchmark: deterministic fixture evidence recorded, 'human review still required for VERIFIED' label, status never flips, empty refs record honestly. CHECKSUM INTEGRITY FIX (found by CI-4E): the CI-3 canonical pack form dropped ALL nested content from the checksum (replacer-array allowlist of top-level keys) — canonical form now sorts keys at every level so the CI-4C review binding covers the full pack. Docs: SPECIALIST-BEHAVIOUR.md (responsibilities, professional boundaries table, handoff walkthrough, honest not-built list). Tests ci4-specialists 5 (E1–E6 through the real worker/claim path). Suite 1526/0; tsc clean; lint clean; pushed+verified 5a787b7.",
-          "mergeState": "PENDING_PR — implemented, pushed (tip aab6a9654db79b075191b21df27e51ea17552496), 1535/0 suite; carried by the follow-up owner-authorised PR (repo policy: PRs opened by the owner)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4F",
@@ -969,7 +969,7 @@
           "remoteVerifiedSha": "88f2e351dc3865b9b91bcef36aeb1d6095463a84",
           "verifiedAt": "2026-11-25T05:35:00Z",
           "summary": "Multilingual quality: corrected the CI-3 honesty ladder — CI-3F flipped a measured machine pass straight to VERIFIED (violating 'a model never certifies itself'); the corrected ladder is EXPERIMENTAL → benchmark (deterministic) → LIMITED (provenance recorded) → recordHumanLanguageApproval (server-resolved reviewer identity; refuses UNMEASURED capabilities; reviewer attribution appended) → VERIFIED. LanguageCapabilityRecord extended back-compatibly (dialect/modelProvider/modelVersion/domain/benchmarkVersion/humanApproved). Benchmark expansion: 10 new BEAN-authored cases — in-script terminology preservation for all 11 catalogue languages + mathematical-notation preservation (x² + 2x + 1 = 0 inside Devanagari); runCi4LanguageBenchmark runs both sets per language, records with provenance, ran=false without adapter. TRANSCRIPTION structurally UNSUPPORTED — immovable by benchmarks AND human approvals (tested). CI-3 L1.3/L1.4 updated to the stricter rule (no assertion weakened). CI4-LANGUAGE-RESULTS.md states the honest current state: zero VERIFIED language capabilities BY DESIGN (no production measurement, no human bilingual review yet); dialects recorded as variationNotes, not separately benchmarked; translation stays NEEDS_HUMAN_REVIEW; speech decision preserved unchanged. Tests ci4-language 6 (F1–F6). Suite 1532/0; tsc clean; lint clean; pushed+verified 88f2e35.",
-          "mergeState": "PENDING_PR — implemented, pushed (tip aab6a9654db79b075191b21df27e51ea17552496), 1535/0 suite; carried by the follow-up owner-authorised PR (repo policy: PRs opened by the owner)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4G",
@@ -977,7 +977,7 @@
           "remoteVerifiedSha": "de09e40e0f5d6f882a4e7649ab007a12775e59ef",
           "verifiedAt": "2026-11-25T06:15:00Z",
           "summary": "Classroom operation: (1) teacher observer controls UI (observer-controls.tsx) on the REAL CI-3D owner API — honest status/connectivity/reconnect/failure states incl. media-access provenance and transcription-disabled rendering; typed API refusals first-class. (2) Student disclosure (observer-disclosure.tsx in classroom-shell) for EVERYONE when the observer is present — bean-observer: identity prefix shared with the webhook attendance exclusion so disclosure and no-fake-attendance cannot drift; explicit 'no audio or video is being recorded'. (3) Safe post-class fleet dispatch: BEAN_CI_FLEET_AUTO_DISPATCH must be exactly 'true' (default OFF; tested 'TRUE'/'1' refuse); live/end + room_finished fire-and-forget for TERMINAL classes; flag alone NEVER bypasses consent (dispatcher re-check at dispatch + worker re-check at claim — tested flag-on+no-consent=0 rows); repeat dispatch idempotent via taskKey. (4) Capacity benchmark (scripts/ci4-capacity-benchmark.ts, isolated real SQLite, deterministic executor, REAL bounded pool): 20 classrooms x 7 tasks (140) — 4 workers 160 tasks/s (6.26 ms/task), 8: 208 (4.81), 16: 259 (3.86), +62% with diminishing gains consistent with single-writer SQLite; invariants 140/140 COMPLETED 0 FAILED; honest limits documented (machinery-only numbers, no horizontal-scale claims, machinery time != simultaneous classrooms). OBSERVER-AND-DISPATCH.md. Tests ci4-classroom-operation 3 (G1–G3). Suite 1535/0; tsc clean; lint clean; prisma valid; pushed+verified de09e40.",
-          "mergeState": "PENDING_PR — implemented, pushed (tip aab6a9654db79b075191b21df27e51ea17552496), 1535/0 suite; carried by the follow-up owner-authorised PR (repo policy: PRs opened by the owner)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         },
         {
           "id": "CI-4H",
@@ -985,29 +985,34 @@
           "remoteVerifiedSha": "9b155f3897be82f6bfdfd803154560fdeaacc4d7",
           "verifiedAt": "2026-11-25T06:55:00Z",
           "summary": "Final verification: production build exit 0 (standalone); full suite 1535/0 across 109 files (baseline 1482 → CI-4 added 53; no assertion weakened — count/fact updates documented per unit); tsc clean; lint clean; prisma valid; both CI-4 migrations green via migrate deploy on fresh DBs; coverage docs gained CI-4 addenda (12/36 packs; zero VERIFIED languages BY DESIGN; transcription structural). CI4-RESULTS.md records the complete evidence map (every unit SHA + ls-remote verification, licence-audit headline, capability classification: IMPLEMENTED+TESTED / HUMAN-VERIFIED none-yet / VERIFIED BY BENCHMARK / EXPERIMENTAL / IN_REVIEW / UNSUPPORTED / DEFERRED incl. the explicitly deferred authenticated browser walkthrough with reason). GitHub Actions quality job on the final tip: SUCCESS (run 45542087661, branch push — all steps incl. Tests + Production build). Zero new runtime dependencies (package.json unchanged from d86dfcc). Pushed+verified 9b155f3.",
-          "mergeState": "PENDING_PR — implemented, pushed (tip aab6a9654db79b075191b21df27e51ea17552496), 1535/0 suite; carried by the follow-up owner-authorised PR (repo policy: PRs opened by the owner)"
+          "mergeState": "MERGED_INTO_MAIN — CI-4A-D via owner PR #41 (merge commit 9e932ee), CI-4E-H via owner PR #42 (merge commit a6c8d33665ef866e94762d5d37b0719d9280d02e)"
         }
       ],
       "remoteFeatureSha": "aab6a9654db79b075191b21df27e51ea17552496",
       "pushVerifiedAt": "2026-11-25T04:31:00Z",
       "pr": {
-        "number": null,
-        "state": "AWAITING_OWNER",
-        "url": null
+        "number": 42,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/42"
       },
       "ci": [
         {
           "runId": "45542087661",
           "conclusion": "SUCCESS",
           "subject": "push build on feature branch at CI-4H tip 9b155f3 (full quality gate incl. Tests + Production build)"
+        },
+        {
+          "runId": "owner-merged-PR-42",
+          "conclusion": "MERGED",
+          "subject": "PR #42 merged into main at a6c8d33; main tree 339751d1844fc261eb8e1fd4037a1ce03bec6374 is IDENTICAL to the fully verified CI-4 tip 3f49f89 tree (git tree-hash equality — every verified byte applies). Sandbox GitHub API was rate-limited so the newest run IDs were read by the owner from the GitHub UI; feature-branch run 45542087661 (tip 9b155f3) was SUCCESS."
         }
       ],
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "PUSHED",
+      "finalMainSha": "a6c8d33665ef866e94762d5d37b0719d9280d02e",
+      "syncStatus": "IN_SYNC",
+      "status": "COMPLETE",
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-RESULTS.md",
-      "ciNote": "CI-4A-D merged into main via owner PR #41 (merge commit 9e932ee; main run 45525195806 SUCCESS). CI-4E-H implemented on the feature branch; reconciliation merge aab6a96 (origin/main 9e932ee merged in, ordinary merge, zero-behind, all 8 E-H commits preserved) pushed + ls-remote verified; full gate green (1535/0, lint, tsc, prisma validate + migrate deploy, production build). Follow-up owner-authorised PR to main carries ONLY the remaining CI-4E-H diff. CI-4 marked COMPLETE only after that PR is merged into main.",
-      "updatedAt": "2026-11-25T04:31:00Z",
+      "ciNote": "CI-4 COMPLETE: all eight units integrated into main. CI-4A-D via owner PR #41 (9e932ee), CI-4E-H via owner PR #42 (a6c8d33). Reconciliation merge aab6a96 (origin/main 9e932ee into the CI-4 branch, zero-behind, all 8 E-H commits preserved, no force/rebase) was included in PR #42. Verification at the verified tip 3f49f89: 1535/0 suite (--isolate), lint clean, tsc clean, prisma validate + migrate deploy clean, production build exit 0, targeted gates green (specialists/language/observer/registry; BEAN_CI_FLEET_AUTO_DISPATCH default-off; TRANSCRIPTION UNSUPPORTED all 11 languages; VERIFIED pack gate requires human curation). Main merge verified by tree-hash equality (main a6c8d33 tree == 3f49f89 tree). completionRule satisfied.",
+      "updatedAt": "2026-11-25T05:15:00Z",
       "ci4Reconciliation": {
         "date": "2026-11-25T04:31:00Z",
         "requestedBy": "owner CI-4 final reconciliation instruction",
@@ -1038,7 +1043,8 @@
         },
         "prSeparation": "CI-4A-D: already integrated into main via owner PR #41 (merge commit 9e932ee). CI-4E-H: pending — the follow-up owner-authorised PR carries ONLY the remaining CI-4E-H diff (1940 insertions, 31 deletions, 23 files).",
         "completionRule": "CI-4 remains NOT COMPLETE until CI-4E-H are integrated into main and verified there."
-      }
+      },
+      "completionRule": "SATISFIED — all units in main, verified (tree-identity proof), milestone COMPLETE."
     }
   ],
   "branchReconciliation": {
