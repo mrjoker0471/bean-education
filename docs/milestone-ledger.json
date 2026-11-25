@@ -906,6 +906,38 @@
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI3-RESULTS.md",
       "ciNote": "CI-3H + ledger commit ab814ae reached main via owner PR #38 (d64df69), but its CI run (45460947690) failed exactly one test — CI-3H L1.1 — and the main run 45348155949 failed the same way: the load benchmark imported fleet modules through workstation-specific absolute paths that exist only on a developer worktree. Fix commit eb27d2e: (1) all six benchmark dynamic imports now resolve from the script's own location (checkout-portable), (2) L1.1 diagnostics expose captured stdout/stderr/ status/signal/spawn-error on failure (assertions unchanged), (3) @livekit/rtc-node added to serverExternalPackages — Turbopack cannot place its native NAPI bindings, so the Production build step would have failed next. Pushed + ls-remote verified eb27d2e; branch run 45524463110 SUCCESS; owner opened and merged PR #39 → main c93cbd5; main run 45525195806 SUCCESS (Lint, TypeScript, Tests, Production build all green). Local verification at eb27d2e additionally ran the full stack in-sandbox: benchmark direct (350 tasks, terminal invariants 350/350, 0 FAILED), suite 1482/0, lint, tsc, prisma validate, production build — correcting the earlier claim that the local sandbox cannot run next build. Ledger-close docs ride chore/ci3-ledger-merge-record (owner PR pending).",
       "updatedAt": "2026-11-25T01:26:00Z"
+    },
+    {
+      "id": "bean-classroom-intelligence-ci4",
+      "title": "BEAN Classroom Intelligence CI-4 — world knowledge, professional expertise & specialist excellence: source licence quarantine, world taxonomy adapters (ESCO/O*NET/NCO/NSQF audit), domain curation with human review, source-grounded retrieval, specialist intelligence upgrade, measured multilingual quality, observer controls + safe auto-dispatch, capacity verification (charter docs/BEAN-CLASSROOM-INTELLIGENCE-AGENT-CHARTER.md + CI-4 mission brief)",
+      "branch": "feat/bean-classroom-intelligence-ci4",
+      "baseMainSha": "d86dfcc339317b41720884ca5b3c37b5152256f5",
+      "commits": [
+        "367b8ffd09ccb43a1963c2485ebc3434e012abb0"
+      ],
+      "units": [
+        {
+          "id": "CI-4A",
+          "commitSha": "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
+          "remoteVerifiedSha": "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
+          "verifiedAt": "2026-11-25T02:05:00Z",
+          "summary": "Baseline + source audit: origin/main verified d86dfcc (PR #40 = CI-3 ledger close-out; CI-3 fully merged); all 12 charter claims verified in source (36 ISCED-F families, 8 packs IN_REVIEW, 11 languages honest states incl. structural TRANSCRIPTION=UNSUPPORTED, 19-role registry, bounded queue with CAS/lease/backpressure, one consent-gated observer via API only, dispatchFleetForSession has zero production call sites, profession catalogue at LICENCE_GATE_PENDING, no retrieval layer). HEADLINE: CI-3's OpenStax records claimed CC-BY-4.0 — AUDIT CORRECTION to CC-BY-NC-SA-4.0 with primary evidence (github.com/openstax/university-physics LICENSE fetched raw: 'Attribution-NonCommercial-ShareAlike 4.0 International'); NC content cannot be ingested into BEAN's commercial operation. Machine-checkable licence-restriction vocabulary added (NON_COMMERCIAL/SHARE_ALIKE/NO_DERIVATIVES/REFERENCE_ONLY/PERMISSION_PENDING) + assertSourceContentUsable() ingestion gate (distinct from the citation gate — citations stay permitted, ingestion of NC sources refused with verbatim audit reasons; ShareAlike usable WITH obligations; schema back-compatible). NCERT/CEFR REFERENCE_ONLY formalised; MDN ShareAlike obligation recorded. New docs: CI4-BASELINE.md (12-claim evidence map) + SOURCE-LICENSE-AUDIT.md (per-source records incl. live-verified O*NET CC BY 4.0 + trademark, ESCO acknowledgement plan, NCO reuse UNVERIFIED -> no import (dge.gov.in unreachable), NSQF non-claim policy, Wikidata CC0). tests/unit/ci4-source-audit.test.ts 9 tests; CI-3 S1.5 tightened to assert licence identity. Suite 1491/0 (1482+9), tsc clean, lint clean; pushed+verified 367b8ff."
+        }
+      ],
+      "remoteFeatureSha": "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
+      "pushVerifiedAt": "2026-11-25T02:05:00Z",
+      "pr": {
+        "number": null,
+        "state": "NONE",
+        "url": null
+      },
+      "ci": [],
+      "finalMainSha": null,
+      "syncStatus": "PENDING",
+      "status": "IN_PROGRESS",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md",
+      "ciNote": "",
+      "updatedAt": "2026-11-25T02:05:00Z"
     }
   ],
   "branchReconciliation": {
