@@ -184,6 +184,19 @@ export interface LanguageCapabilityRecord {
   testRef: string | null
   measuredAt: string | null
   note: string
+  // ─── CI-4F extended provenance (optional; back-compatible defaults) ───────
+  /** Dialect/region variant when one was MEASURED — never assumed. */
+  dialect?: string | null
+  /** Provider/adapter id the measurement ran against. */
+  modelProvider?: string | null
+  /** Model version when the adapter exposes one ('unversioned-adapter' otherwise). */
+  modelVersion?: string | null
+  /** Domain scope of the measurement when domain-specific. */
+  domain?: string | null
+  /** Benchmark-set version the result belongs to. */
+  benchmarkVersion?: string | null
+  /** VERIFIED requires a recorded HUMAN bilingual-reviewer approval. */
+  humanApproved?: boolean
 }
 
 /**
@@ -219,7 +232,12 @@ export function defaultLanguageCapabilities(): LanguageCapabilityRecord[] {
 
 const capabilityStore: LanguageCapabilityRecord[] = defaultLanguageCapabilities()
 
-/** Record a measured benchmark result for one language+task (curator path). */
+/**
+ * Record a measured benchmark result for one language+task. CI-4F honesty:
+ * a measured MACHINE pass records LIMITED — VERIFIED additionally requires a
+ * recorded human bilingual-reviewer approval (a model never grades itself
+ * into a capability claim). TRANSCRIPTION remains structurally unflippable.
+ */
 export function recordCapabilityMeasurement(rec: {
   language: string
   task: Ci3LanguageTask
@@ -227,6 +245,12 @@ export function recordCapabilityMeasurement(rec: {
   testRef: string
   measuredAt: string
   note?: string
+  dialect?: string | null
+  modelProvider?: string | null
+  modelVersion?: string | null
+  domain?: string | null
+  benchmarkVersion?: string | null
+  humanApproved?: boolean
 }): void {
   if (rec.task === 'TRANSCRIPTION') {
     // The §9.2 gate cannot be flipped by a benchmark. Ever.
@@ -236,11 +260,53 @@ export function recordCapabilityMeasurement(rec: {
   if (idx === -1) return
   capabilityStore[idx] = {
     ...capabilityStore[idx],
-    status: rec.passed ? 'VERIFIED' : 'LIMITED',
+    status: rec.passed ? (rec.humanApproved ? 'VERIFIED' : 'LIMITED') : 'LIMITED',
     testRef: rec.testRef,
     measuredAt: rec.measuredAt,
     note: rec.note ?? capabilityStore[idx].note,
+    dialect: rec.dialect ?? capabilityStore[idx].dialect ?? null,
+    modelProvider: rec.modelProvider ?? capabilityStore[idx].modelProvider ?? null,
+    modelVersion: rec.modelVersion ?? capabilityStore[idx].modelVersion ?? null,
+    domain: rec.domain ?? capabilityStore[idx].domain ?? null,
+    benchmarkVersion: rec.benchmarkVersion ?? capabilityStore[idx].benchmarkVersion ?? null,
+    humanApproved: rec.humanApproved ?? false,
   }
+}
+
+/**
+ * CI-4F curator path: a qualified bilingual human reviewer approves a
+ * measured capability. Requires an existing MEASURED record (a reviewer can
+ * only approve what a benchmark actually measured) and a reviewer identity;
+ * TRANSCRIPTION can never be touched (the §9.2 gate is structural).
+ */
+export function recordHumanLanguageApproval(rec: {
+  language: string
+  task: Ci3LanguageTask
+  reviewerId: string
+  reviewerName: string
+  note?: string
+}): { ok: true } | { ok: false; reason: string } {
+  if (rec.task === 'TRANSCRIPTION') {
+    return { ok: false, reason: 'TRANSCRIPTION is structurally UNSUPPORTED (charter §9.2 consent/legal gate) — no human approval can change it' }
+  }
+  if (!rec.reviewerId || rec.reviewerId.trim().length < 3) {
+    return { ok: false, reason: 'human approval requires a server-resolved reviewer identity' }
+  }
+  const idx = capabilityStore.findIndex((c) => c.language === rec.language && c.task === rec.task)
+  if (idx === -1) {
+    return { ok: false, reason: `no capability record for ${rec.language}/${rec.task}` }
+  }
+  const current = capabilityStore[idx]
+  if (current.status === 'EXPERIMENTAL' || current.status === 'UNSUPPORTED' || current.status === 'NEEDS_HUMAN_REVIEW') {
+    return { ok: false, reason: `cannot approve an UNMEASURED capability: ${rec.language}/${rec.task} is ${current.status} — run the benchmark first` }
+  }
+  capabilityStore[idx] = {
+    ...current,
+    status: 'VERIFIED',
+    humanApproved: true,
+    note: `${rec.note ?? current.note} — human bilingual review: ${rec.reviewerName} (${rec.reviewerId})`,
+  }
+  return { ok: true }
 }
 
 export function listLanguageCapabilities(): LanguageCapabilityRecord[] {
@@ -382,6 +448,27 @@ export const TEXT_BENCHMARK_CASES: readonly TextBenchmarkCase[] = [
   },
 ]
 
+// ─── CI-4F benchmark expansion: terminology preservation per language ────────
+// Original BEAN-authored terms (educational vocabulary, no copyrighted
+// material). Each case is a deterministic in-script preservation check: the
+// model must return the term EXACTLY as written — never transliterate it
+// away, never "correct" the script. Acceptance is code, never a model judge.
+
+export const CI4_BENCHMARK_VERSION = 'ci4-lang-bench-1'
+
+export const CI4_TERMINOLOGY_CASES: readonly TextBenchmarkCase[] = [
+  { id: 'ci4-bench-hi-term', language: 'hi', task: 'TERMINOLOGY', user: 'Reply with ONLY this Hindi term exactly as written, unchanged: बीजगणित', accept: (r) => r.includes('बीजगणित'), detail: 'Hindi term preserved in Devanagari' },
+  { id: 'ci4-bench-te-term', language: 'te', task: 'TERMINOLOGY', user: 'Reply with ONLY this Telugu term exactly as written, unchanged: గణితం', accept: (r) => r.includes('గణితం'), detail: 'Telugu term preserved in Telugu script' },
+  { id: 'ci4-bench-ml-term', language: 'ml', task: 'TERMINOLOGY', user: 'Reply with ONLY this Malayalam term exactly as written, unchanged: കണക്ക്', accept: (r) => r.includes('കണക്ക്'), detail: 'Malayalam term preserved in Malayalam script' },
+  { id: 'ci4-bench-kn-term', language: 'kn', task: 'TERMINOLOGY', user: 'Reply with ONLY this Kannada term exactly as written, unchanged: ವಿಜ್ಞಾನ', accept: (r) => r.includes('ವಿಜ್ಞಾನ'), detail: 'Kannada term preserved in Kannada script' },
+  { id: 'ci4-bench-bn-term', language: 'bn', task: 'TERMINOLOGY', user: 'Reply with ONLY this Bengali term exactly as written, unchanged: বীজগণিত', accept: (r) => r.includes('বীজগণিত'), detail: 'Bengali term preserved in Bengali script' },
+  { id: 'ci4-bench-mr-term', language: 'mr', task: 'TERMINOLOGY', user: 'Reply with ONLY this Marathi term exactly as written, unchanged: व्याकरण', accept: (r) => r.includes('व्याकरण'), detail: 'Marathi term preserved in Devanagari' },
+  { id: 'ci4-bench-gu-term', language: 'gu', task: 'TERMINOLOGY', user: 'Reply with ONLY this Gujarati term exactly as written, unchanged: ભૂમિતિ', accept: (r) => r.includes('ભૂમિતિ'), detail: 'Gujarati term preserved in Gujarati script' },
+  { id: 'ci4-bench-ur-term', language: 'ur', task: 'TERMINOLOGY', user: 'Reply with ONLY this Urdu term exactly as written, unchanged: حساب', accept: (r) => r.includes('حساب'), detail: 'Urdu term preserved in Arabic (Nastaliq-tradition) script' },
+  { id: 'ci4-bench-pa-term', language: 'pa', task: 'TERMINOLOGY', user: 'Reply with ONLY this Punjabi term exactly as written, unchanged: ਗਣਿਤ', accept: (r) => r.includes('ਗਣਿਤ'), detail: 'Punjabi term preserved in Gurmukhi' },
+  { id: 'ci4-bench-notation-preserve', language: 'hi', task: 'TERMINOLOGY', user: 'इस समीकरण को जैसा है वैसा लिखें (केवल समीकरण, कोई व्याख्या नहीं): x² + 2x + 1 = 0', accept: (r) => r.includes('x² + 2x + 1 = 0'), detail: 'mathematical notation preserved inside a Devanagari instruction' },
+] as const
+
 export interface TextBenchmarkResult {
   ran: boolean
   reason: string
@@ -428,5 +515,96 @@ export async function runTextBenchmarkHarness(): Promise<TextBenchmarkResult> {
     cases: results,
     passed: results.filter((r) => r.passed).length,
     failed: results.filter((r) => !r.passed).length,
+  }
+}
+// ─── CI-4F per-language measurement runner ───────────────────────────────────
+
+export interface LanguageBenchmarkSummary {
+  ran: boolean
+  reason: string
+  benchmarkVersion: string
+  perLanguage: {
+    language: string
+    tasks: { task: Ci3LanguageTask; passed: number; total: number }[]
+    recorded: boolean
+    statusAfter: Ci3CapabilityStatus | null
+  }[]
+}
+
+/**
+ * Run BOTH benchmark sets (CI-3F cases + CI-4F terminology/notation cases)
+ * against the CURRENT adapter and record per-language measurements with full
+ * provenance (modelProvider, benchmarkVersion). Honest rules: without an
+ * adapter nothing runs and nothing is recorded; a measured pass records
+ * LIMITED (never VERIFIED — human bilingual approval is a separate curator
+ * act); TRANSCRIPTION is never recorded (§9.2 gate).
+ */
+export async function runCi4LanguageBenchmark(): Promise<LanguageBenchmarkSummary> {
+  const { getCiModelAdapter } = await import('../model-adapter')
+  const adapter = getCiModelAdapter()
+  if (!adapter) {
+    return {
+      ran: false,
+      reason: 'no model adapter available in this deployment — capabilities stay unmeasured (honest)',
+      benchmarkVersion: CI4_BENCHMARK_VERSION,
+      perLanguage: [],
+    }
+  }
+  const allCases = [...TEXT_BENCHMARK_CASES, ...CI4_TERMINOLOGY_CASES]
+  const byLanguage = new Map<string, TextBenchmarkCase[]>()
+  for (const c of allCases) {
+    byLanguage.set(c.language, [...(byLanguage.get(c.language) ?? []), c])
+  }
+  const perLanguage: LanguageBenchmarkSummary['perLanguage'] = []
+  for (const [language, cases] of byLanguage) {
+    const taskCounts = new Map<Ci3LanguageTask, { passed: number; total: number }>()
+    for (const testCase of cases) {
+      const counts = taskCounts.get(testCase.task) ?? { passed: 0, total: 0 }
+      counts.total++
+      try {
+        const reply = await adapter.complete({
+          system: 'You are BEAN\u2019s multilingual evaluation probe. Follow the reply-format instruction EXACTLY. Never add commentary.',
+          user: testCase.user,
+        })
+        if (testCase.accept(reply)) counts.passed++
+      } catch {
+        // honest failure — counted as not passed
+      }
+      taskCounts.set(testCase.task, counts)
+    }
+    const tasks: LanguageBenchmarkSummary['perLanguage'][number]['tasks'] = []
+    let allPassed = true
+    for (const [task, counts] of taskCounts) {
+      tasks.push({ task, passed: counts.passed, total: counts.total })
+      if (counts.passed < counts.total) allPassed = false
+    }
+    // Record TEXT_UNDERSTANDING / TERMINOLOGY measurements that were actually run.
+    let recorded = false
+    let statusAfter: Ci3CapabilityStatus | null = null
+    for (const [task, counts] of taskCounts) {
+      if (task !== 'TEXT_UNDERSTANDING' && task !== 'TERMINOLOGY') continue
+      if (counts.total === 0) continue
+      recordCapabilityMeasurement({
+        language,
+        task,
+        passed: counts.passed === counts.total,
+        testRef: `${CI4_BENCHMARK_VERSION} (${counts.passed}/${counts.total} cases)`,
+        measuredAt: new Date().toISOString().slice(0, 10),
+        modelProvider: adapter.id,
+        modelVersion: 'unversioned-adapter',
+        benchmarkVersion: CI4_BENCHMARK_VERSION,
+        humanApproved: false,
+      })
+      recorded = true
+      statusAfter = capabilityStore.find((c) => c.language === language && c.task === task)?.status ?? null
+    }
+    perLanguage.push({ language, tasks, recorded, statusAfter })
+    void allPassed
+  }
+  return {
+    ran: true,
+    reason: `measured against adapter "${adapter.id}" — LIMITED states only; VERIFIED requires human bilingual review`,
+    benchmarkVersion: CI4_BENCHMARK_VERSION,
+    perLanguage,
   }
 }

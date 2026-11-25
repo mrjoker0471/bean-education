@@ -718,6 +718,16 @@ export const api = {
     ),
   teachBook: (classId: string) =>
     jsonFetch<{ booking: MyBookingDTO }>(`/api/teach/classes/${encodeURIComponent(classId)}/book`, { method: 'POST', body: '{}' }),
+
+  // ─── CI-4G: teacher-facing observer controls (owner-only API) ───────────────
+  observerStatus: (classId: string) =>
+    jsonFetch<{ liveStatus: string | null; observer: import('@/lib/ci/fleet/observer').ClassroomObserverDTO | null }>(
+      `/api/teach/classes/${encodeURIComponent(classId)}/live/observer`,
+    ),
+  observerEnable: (classId: string) =>
+    jsonFetch<unknown>(`/api/teach/classes/${encodeURIComponent(classId)}/live/observer`, { method: 'POST', body: '{}' }),
+  observerWithdraw: (classId: string) =>
+    jsonFetch<{ observer: unknown }>(`/api/teach/classes/${encodeURIComponent(classId)}/live/observer`, { method: 'DELETE' }),
   teachCancelBooking: (classId: string) =>
     jsonFetch<{ booking: { id: string; status: string } }>(`/api/teach/classes/${encodeURIComponent(classId)}/book`, { method: 'DELETE' }),
   teachMyBookings: () => jsonFetch<MyBookingsResponse>('/api/teach/my-bookings'),
