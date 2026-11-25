@@ -25,6 +25,7 @@ import { CI_TRIGGER } from '@/lib/ci/constants'
 // CI-3D: the observer must leave when the session ends — fire-and-forget,
 // error-isolated; a cancelled observer can never affect the end response.
 import { cancelObserverForEndedSession, OBSERVER_LEFT_REASON } from '@/lib/ci/fleet/observer'
+import { autoDispatchFleetForEndedSession } from '@/lib/ci/fleet/dispatcher'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -143,6 +144,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // ends. Fire-and-forget; a cancelled observer can never affect the
       // classroom completion path (acceptance criterion 6).
       cancelObserverForEndedSession(id, OBSERVER_LEFT_REASON.SESSION_ENDED)
+    }
+
+    // CI-4G: optional post-class fleet dispatch — disabled unless
+    // BEAN_CI_FLEET_AUTO_DISPATCH=true (deployment configuration decides; the
+    // teacher's CI consent is re-checked at dispatch AND at claim). The class
+    // is terminal here by construction. Fire-and-forget, error-isolated.
+    if (outcome.kind === 'ok' && !outcome.alreadyEnded) {
+      autoDispatchFleetForEndedSession(id, 'live-end')
     }
 
     return NextResponse.json({ live: outcome.live, alreadyEnded: outcome.alreadyEnded })

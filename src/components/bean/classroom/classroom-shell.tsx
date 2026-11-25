@@ -17,6 +17,7 @@ import { useLiveClassroom, type ClassroomConnection } from './use-live-classroom
 import { VideoGrid, ScreenShareView } from './participant-media'
 import { WhiteboardCanvas } from './whiteboard-canvas'
 import { ClassroomControlBar, ConnectionStatus } from './classroom-controls'
+import { ObserverDisclosure, isObserverIdentity } from './observer-disclosure'
 import { ParticipantPanel } from './participant-panel'
 import { formatClassInZone } from '@/components/bean/teach-format'
 
@@ -47,6 +48,10 @@ export function ClassroomShell({ classId, classTitle, teacherName, startsAt, tim
   }))
   const teacherParticipant = participants.find((p) => p.role === 'TEACHER')
   const screenShare = participants.find((p) => p.screenSharing)
+  // CI-4G: the visible observer is disclosed to everyone when present. The
+  // observer never counts toward attendance (webhook-side exclusion) and the
+  // disclosure states plainly that nothing is recorded.
+  const observerParticipant = participants.find((p) => isObserverIdentity(p.identity))
 
   // Enumerate devices for the selectors (labels appear after permission grants).
   useEffect(() => {
@@ -148,6 +153,10 @@ export function ClassroomShell({ classId, classTitle, teacherName, startsAt, tim
               screenTrack={classroom.getScreenShareTrack(screenShare.identity, screenShare.isLocal)}
               presenterName={screenShare.name}
             />
+          )}
+
+          {observerParticipant && (
+            <ObserverDisclosure observerName={observerParticipant.name} />
           )}
 
           {boardOpen && (

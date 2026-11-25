@@ -43,6 +43,7 @@ const {
   defaultLanguageCapabilities,
   listLanguageCapabilities,
   recordCapabilityMeasurement,
+  recordHumanLanguageApproval,
   resetLanguageCapabilitiesForTests,
   capabilityRefusalReason,
   runTextBenchmarkHarness,
@@ -193,16 +194,27 @@ describe('CI-3F language capability registry (L1)', () => {
     }
   })
 
-  test('L1.3 a benchmark can VERIFY a text task but can NEVER flip TRANSCRIPTION (§9.2 gate is structural)', () => {
+  test('L1.3 a measured benchmark records LIMITED (machine evidence); only a human bilingual review VERIFIES — and TRANSCRIPTION can NEVER flip (§9.2 gate is structural)', () => {
+    // CI-4F correction: CI-3 let a machine pass flip VERIFIED directly, which
+    // violates the charter rule that a model never certifies its own
+    // capability. The measured gate now stops at LIMITED until a human
+    // bilingual reviewer approves the measured result.
     resetLanguageCapabilitiesForTests()
-    recordCapabilityMeasurement({ language: 'ta', task: 'TEXT_UNDERSTANDING', passed: true, testRef: 'ci3-bench-ta-comprehension', measuredAt: '2026-11-24' })
+    recordCapabilityMeasurement({ language: 'ta', task: 'TEXT_UNDERSTANDING', passed: true, testRef: 'ci4-lang-bench-1/ci3-bench-ta-comprehension', measuredAt: '2026-11-25', modelProvider: 'fake-adapter' })
     const caps = listLanguageCapabilities()
     const taText = caps.find((c) => c.language === 'ta' && c.task === 'TEXT_UNDERSTANDING')
-    expect(taText?.status).toBe('VERIFIED')
-    expect(taText?.testRef).toBe('ci3-bench-ta-comprehension')
-    // the forbidden flip
+    expect(taText?.status).toBe('LIMITED')
+    expect(taText?.humanApproved).toBe(false)
+    expect(taText?.modelProvider).toBe('fake-adapter')
+    // the human curator path verifies the MEASURED capability
+    const approval = recordHumanLanguageApproval({ language: 'ta', task: 'TEXT_UNDERSTANDING', reviewerId: 'admin-bilingual', reviewerName: 'Bilingual Reviewer' })
+    expect(approval.ok).toBe(true)
+    expect(listLanguageCapabilities().find((c) => c.language === 'ta' && c.task === 'TEXT_UNDERSTANDING')?.status).toBe('VERIFIED')
+    // the forbidden flip — no benchmark AND no human can move TRANSCRIPTION
     recordCapabilityMeasurement({ language: 'ta', task: 'TRANSCRIPTION', passed: true, testRef: 'cheating-benchmark', measuredAt: '2026-11-24' })
-    const taAsr = caps.find((c) => c.language === 'ta' && c.task === 'TRANSCRIPTION')
+    const forbiddenApproval = recordHumanLanguageApproval({ language: 'ta', task: 'TRANSCRIPTION', reviewerId: 'admin-bilingual', reviewerName: 'Bilingual Reviewer' })
+    expect(forbiddenApproval.ok).toBe(false)
+    const taAsr = listLanguageCapabilities().find((c) => c.language === 'ta' && c.task === 'TRANSCRIPTION')
     expect(taAsr?.status).toBe('UNSUPPORTED')
   })
 
@@ -212,6 +224,10 @@ describe('CI-3F language capability registry (L1)', () => {
     expect(capabilityRefusalReason('te', 'TRANSCRIPTION')).toContain('UNSUPPORTED')
     expect(capabilityRefusalReason('klingon', 'TEXT_UNDERSTANDING')).toContain('outside the catalogue')
     recordCapabilityMeasurement({ language: 'te', task: 'TEXT_UNDERSTANDING', passed: true, testRef: 'bench', measuredAt: '2026-11-24' })
+    // CI-4F: a machine-measured pass is LIMITED — it still refuses until a
+    // human bilingual review approves it (a model never certifies itself).
+    expect(capabilityRefusalReason('te', 'TEXT_UNDERSTANDING')).toContain('LIMITED')
+    recordHumanLanguageApproval({ language: 'te', task: 'TEXT_UNDERSTANDING', reviewerId: 'admin-bilingual', reviewerName: 'Bilingual Reviewer' })
     expect(capabilityRefusalReason('te', 'TEXT_UNDERSTANDING')).toBeNull()
   })
 })

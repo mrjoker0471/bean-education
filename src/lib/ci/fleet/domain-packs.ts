@@ -142,15 +142,27 @@ export interface PackCheck {
   detail: string
 }
 
-function canonicalJson(pack: DomainPack): string {
-  // Deterministic canonical form: sorted keys, JSON.stringify of a rebuilt
-  // object with stable ordering — checksum covers content, not formatting.
-  return JSON.stringify(pack, Object.keys(pack).sort())
+/** Deterministic canonical JSON: keys sorted at EVERY level (CI-4E fix — the
+ *  CI-3 form used a replacer-array allowlist of TOP-LEVEL keys only, which
+ *  silently dropped all nested content (glossary fields, benchmark results,
+ *  language support) from the checksum; the curator review binding and
+ *  benchmark recording require the checksum to cover the whole pack). */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function canonicalJsonForPack(pack: DomainPack): string {
+  return canonicalJson(pack)
 }
 
 /** sha256 over the canonical pack JSON — the pack's integrity checksum. */
 export function computePackChecksum(pack: DomainPack): string {
-  return createHash('sha256').update(canonicalJson(pack)).digest('hex')
+  return createHash('sha256').update(canonicalJsonForPack(pack)).digest('hex')
 }
 
 /**
