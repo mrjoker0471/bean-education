@@ -914,7 +914,8 @@
       "baseMainSha": "d86dfcc339317b41720884ca5b3c37b5152256f5",
       "commits": [
         "367b8ffd09ccb43a1963c2485ebc3434e012abb0",
-        "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278"
+        "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
+        "1bbb4855dbaab0426e555513440370930d5e248b"
       ],
       "units": [
         {
@@ -930,10 +931,17 @@
           "remoteVerifiedSha": "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
           "verifiedAt": "2026-11-25T02:40:00Z",
           "summary": "World taxonomy adapters (world-taxonomy.ts): 5 new registered sources with CI-4A restriction flags — onet-web-database (CC BY 4.0 verified LIVE 2026-11-25 incl. O*NET trademark notice), esco-classification (REFERENCE_ONLY, EC acknowledgement string exported, import LICENCE_GATE_PENDING — no identifier asserted from memory), india-nco-2015 (REFERENCE_ONLY+PERMISSION_PENDING — dge.gov.in unreachable at audit, zero content/codes), india-nsqf (REFERENCE_ONLY, enforced non-claim: BEAN assessment never an NSQF qualification/government certification), ilo-isco-08 (structural facts only). Curated O*NET seed: 12 occupation mappings, every identifier+label live-verified (title-match at onetonline.org, verificationRef per record), 11 of 36 families covered, crosswalk confidence vocabulary EXACT/CLOSE/PARTIAL/MANUAL_REVIEW, adaptedBy BEAN, jurisdiction per record, verbatim identifier preservation (NN-NNNN.NN asserted). Machine-checkable per-source import states; mapping validator wired into the CI-4A gate (quarantined sources cannot gain mappings; unknown domains refused); fail-fast registration. Docs: WORLD-TAXONOMY.md (per-source positions, seed table, integrity rules, honest gaps). tests ci4-world-taxonomy 10 (B1–B10); suite 1501/0; tsc clean; lint clean; pushed+verified cdb1b2a."
+        },
+        {
+          "id": "CI-4C",
+          "commitSha": "1bbb4855dbaab0426e555513440370930d5e248b",
+          "remoteVerifiedSha": "1bbb4855dbaab0426e555513440370930d5e248b",
+          "verifiedAt": "2026-11-25T03:25:00Z",
+          "summary": "Domain curation & human review: append-only ClassroomPackReview ledger (migration 20261125080000; reviewer identity SERVER-RESOLVED via requireAdmin — body-supplied identity ignored; decision bound to pack version + sha256 checksum with honest 409 on stale bindings; no reviewer FK so governance survives account deletion). curator.ts: resolveCuratedStatus pure derivation — VERIFIED from recorded human approvals only (STANDARD 1 distinct reviewer; HIGH_STAKES 2 DISTINCT — same reviewer twice never counts; REJECTED terminal per version with permanent audit row; CHANGES_REQUESTED/RE_REVIEW work states); strict zod decision vocabulary (AUTO_VERIFY refused); curatedDispatchablePacks = machine gate AND human gate (rejected packs never dispatch; dispatcher adopts in CI-4E/4G). Admin API: GET packs (curated summaries), GET pack detail (read-only source licence snapshot — reviewer can never approve a licence for its rights holder), POST review (append-only). PACK_STATUS.REJECTED added. Four new pack candidates honestly IN_REVIEW with per-domain BEAN-authored seed sources + 4 deterministic fixtures (education-pedagogy w/ verified O*NET teacher mappings + dignity/diagnosis prohibitions; engineering w/ educational≠certifiable boundary; agriculture-agritech w/ agrochemical prescription refusal; history-philosophy w/ contested-claims honesty + archivist mapping) — fixture suite 12/12 green. Curator guide doc. Count assertions updated for the documented expansion (12 packs / 13 seed sources). Tests ci4-curator 8 (C1–C7+persist, real requireAdmin path incl. 401/403/forged-id/409/golden). Suite 1509/0; tsc clean; lint clean; prisma valid; migrate deploy green on fresh DB; pushed+verified 1bbb485."
         }
       ],
-      "remoteFeatureSha": "cdb1b2a085d6bc4a0f1f3dc75c7316da0ff22278",
-      "pushVerifiedAt": "2026-11-25T02:40:00Z",
+      "remoteFeatureSha": "1bbb4855dbaab0426e555513440370930d5e248b",
+      "pushVerifiedAt": "2026-11-25T03:25:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -943,9 +951,9 @@
       "finalMainSha": null,
       "syncStatus": "PENDING",
       "status": "IN_PROGRESS",
-      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI4-BASELINE.md; docs/BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md; docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-CURATOR-GUIDE.md",
       "ciNote": "",
-      "updatedAt": "2026-11-25T02:40:00Z"
+      "updatedAt": "2026-11-25T03:25:00Z"
     }
   ],
   "branchReconciliation": {
