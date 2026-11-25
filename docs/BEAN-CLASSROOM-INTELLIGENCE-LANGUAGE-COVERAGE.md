@@ -73,3 +73,26 @@ teacher-supplied notes; a declared class language alone is never evidence
 4. Language detection uses script evidence only; same-script language pairs
    (e.g. Hindi vs Marathi in Devanagari) need model-assisted identification
    with confidence, which is not yet built.
+
+---
+
+## CI-4 update (2026-11-25)
+
+- The capability ladder is CORRECTED (CI-4F): a measured machine pass records
+  **LIMITED** with full provenance (modelProvider, modelVersion,
+  benchmarkVersion, measuredAt); **VERIFIED additionally requires a recorded
+  human bilingual-reviewer approval** (`recordHumanLanguageApproval` — refuses
+  unmeasured capabilities, appends reviewer attribution). CI-3's direct
+  machine-pass→VERIFIED flip violated the charter's "a model never grades
+  itself" rule and is gone.
+- Benchmark set now covers **all 11 catalogue languages** with BEAN-authored
+  in-script terminology cases plus a mathematical-notation preservation case;
+  `runCi4LanguageBenchmark()` records per-language measurements honestly
+  (nothing runs without an adapter).
+- Current state is unchanged and honest: **zero VERIFIED language
+  capabilities** — no production measurement against a named provider has been
+  recorded and no human bilingual review has happened yet.
+- TRANSCRIPTION remains structurally UNSUPPORTED for every language — in CI-4F
+  neither benchmarks nor human approvals can move it (§9.2 gate; tested).
+- Speech/ASR decision unchanged (Omnilingual ASR rejected, CI-3F; revisiting
+  requires a separately reviewed proposal).

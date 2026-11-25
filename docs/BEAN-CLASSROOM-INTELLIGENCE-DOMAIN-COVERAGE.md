@@ -50,3 +50,28 @@ terms must be re-read before any content import.
    (licence-gated retrieval is a later milestone).
 4. Profession catalogue remains `LICENCE_GATE_PENDING` (ESCO/O*NET terms must
    be re-read before import — charter §6.2/§7.3).
+
+---
+
+## CI-4 update (2026-11-25)
+
+- **12 of 36 families now have packs** (8 CI-3 seeds + 4 CI-4C candidates:
+  education-pedagogy, engineering, agriculture-agritech, history-philosophy) —
+  all honestly IN_REVIEW; the human curator ledger (CI-4C) and two-reviewer
+  HIGH_STAKES rule exist but no pack has human approval yet.
+- **26 of 36 families await packs** (previously 28; the CI-4C candidates
+  closed education-pedagogy from the "highest demand next" list).
+- Profession mappings: 12 LIVE-VERIFIED O*NET occupation identifiers
+  (CC BY 4.0, per-record attribution + trademark notice) covering 11 families;
+  ESCO at its licence gate; NCO 2015 no-import (permission unverified).
+  See BEAN-CLASSROOM-INTELLIGENCE-WORLD-TAXONOMY.md.
+- Retrieval is IMPLEMENTED (CI-4D): licence-gated ingestion (OpenStax
+  quarantined — CI-4A audit corrected the licence to CC BY-NC-SA-4.0),
+  pack-scoped lexical retrieval with provenance, citation validation,
+  revocation. The corpus is BEAN-authored glossaries only; no external text
+  is ingested.
+- Source-grounding for specialists is wired (CI-4E): prompts carry the
+  licence-gated retrieval envelope; grounding accepts pack-declared OR
+  retrieved sources only.
+- Deterministic fixture suite: 12 fixtures (8 CI-3 + 4 CI-4C), all green;
+  `runPackBenchmark` records results without flipping status.
