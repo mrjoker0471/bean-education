@@ -1066,17 +1066,28 @@
       "remoteFeatureSha": "1da7371056bed1ac59882d6715cc98fd2dfd30df",
       "pushVerifiedAt": "2026-11-25T05:05:00Z",
       "pr": {
-        "number": null,
-        "state": "AWAITING_OWNER",
-        "url": null
+        "number": 43,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/43"
       },
-      "ci": [],
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "PUSHED",
+      "ci": [
+        {
+          "runId": "45550606192",
+          "conclusion": "SUCCESS",
+          "subject": "feature-branch run on feat/bean-auth-age-legal-consent-ux at implementation commit 1da7371 (owner-verified from the GitHub UI — sandbox GitHub API rate-limited)"
+        },
+        {
+          "runId": "45550624182",
+          "conclusion": "SUCCESS",
+          "subject": "main run on the PR #43 merge commit d02d5ee (owner-verified from the GitHub UI — sandbox GitHub API rate-limited)"
+        }
+      ],
+      "finalMainSha": "d02d5ee55e54d63dacc5bb772ba5daacf6a10b33",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
       "evidence": "docs/AUTH-AGE-CLARITY-CONSENT-RESULTS.md",
-      "ciNote": "Implementation commit 1da7371 pushed + verified via git ls-remote (local HEAD == remote tip). Follow-up PR to main = manual owner action (repo policy: PRs are opened by the owner; no PR-creation credential in the sandbox). CI runs on the new branch are verified from the GitHub UI / API by the owner; PR will carry exactly this one implementation commit + the ledger commit over baseline 9e932ee.",
-      "updatedAt": "2026-11-25T05:05:00Z"
+      "ciNote": "AUTH-AGE-CONSENT COMPLETE: implementation commit 1da7371 merged into main via owner PR #43 (merge commit d02d5ee = live origin/main; commit proven an ancestor of main by git merge-base). Feature CI run 45550606192 SUCCESS and main CI run 45550624182 SUCCESS (run IDs owner-verified from the GitHub UI; sandbox GitHub API rate-limited and gh CLI unavailable, so recorded from verified evidence — not assumed). Implementation summary, tests, screenshots and the original feature commit are unchanged from the pushed record; only the merge-state fields were corrected. main tree at d02d5ee contains the auth feature files (auth-view.tsx, legal-consent-row.tsx, route tests, results doc + screenshots) via the PR #43 merge.",
+      "updatedAt": "2026-11-25T05:12:00Z"
     }
   ],
   "branchReconciliation": {
