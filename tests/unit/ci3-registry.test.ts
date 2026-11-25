@@ -337,7 +337,7 @@ describe('CI-3B domain packs', () => {
         expect(result.checks.map(c => c.id)).toEqual(['V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8'])
       }
     }
-    expect(listDomainPacks().length).toBe(4)
+    expect(listDomainPacks().length).toBe(8) // 4 CI-3B seeds + 4 CI-3E core families
   })
 
   test('P1.2 VERIFIED is structurally refused without recorded human review', () => {
@@ -412,7 +412,7 @@ describe('CI-3B domain packs', () => {
 
   test('P1.9 seed packs are honest IN_REVIEW — dispatchable with the review flag', () => {
     const dispatchable = dispatchableDomainPacks()
-    expect(dispatchable.length).toBe(4)
+    expect(dispatchable.length).toBe(8) // 4 CI-3B seeds + 4 CI-3E core families
     for (const d of dispatchable) {
       expect(d.pack.status).toBe(PACK_STATUS.IN_REVIEW)
       expect(d.underReview).toBe(true)

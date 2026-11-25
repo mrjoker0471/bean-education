@@ -22,6 +22,9 @@ import { USAGE_RECONCILE_SQL } from '@/lib/livekit/usage'
 // Never throws into the classroom response path (see trigger.ts contract).
 import { triggerEvaluationForEndedSession } from '@/lib/ci/trigger'
 import { CI_TRIGGER } from '@/lib/ci/constants'
+// CI-3D: the observer must leave when the session ends — fire-and-forget,
+// error-isolated; a cancelled observer can never affect the end response.
+import { cancelObserverForEndedSession, OBSERVER_LEFT_REASON } from '@/lib/ci/fleet/observer'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -136,6 +139,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // session. Fire-and-forget, consent-gated server-side; failure here is
       // logged inside the trigger and can never affect this response.
       triggerEvaluationForEndedSession(id, CI_TRIGGER.SESSION_END)
+      // Classroom Intelligence (CI-3D): the observer leaves when the session
+      // ends. Fire-and-forget; a cancelled observer can never affect the
+      // classroom completion path (acceptance criterion 6).
+      cancelObserverForEndedSession(id, OBSERVER_LEFT_REASON.SESSION_ENDED)
     }
 
     return NextResponse.json({ live: outcome.live, alreadyEnded: outcome.alreadyEnded })

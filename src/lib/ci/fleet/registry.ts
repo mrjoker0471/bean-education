@@ -42,6 +42,8 @@ export const fleetAgentSpecSchema = z.object({
   capacityGated: z.boolean().default(true),
 }).strict()
 export type FleetAgentSpec = z.infer<typeof fleetAgentSpecSchema>
+/** Registration input: schema-defaulted fields (dynamicDomain, allowedDomains) are optional. */
+export type FleetAgentSpecInput = z.input<typeof fleetAgentSpecSchema>
 
 // ─── Registry store ──────────────────────────────────────────────────────────
 
@@ -135,7 +137,7 @@ export function reRegisterCoreFleetForTests(): void {
  * capability before use, the registry documents the fleet.
  */
 export function registerCoreFleet(): void {
-  const register = (spec: FleetAgentSpec) => {
+  const register = (spec: FleetAgentSpecInput) => {
     const res = registerAgent(spec)
     if (!res.ok) throw new Error(`core fleet registration failed for ${spec.agentId}: ${res.reason}`)
   }

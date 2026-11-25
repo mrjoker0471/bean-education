@@ -147,3 +147,47 @@ export const FLEET_OBSERVATION_MAX = 1000
 export const FLEET_MAX_UNKNOWN_ITEMS = 10
 /** Max domains one lesson may dispatch specialists for (charter §16.1 cap). */
 export const FLEET_MAX_DOMAINS_PER_CLASS = 3
+
+// ─── CI-3C: fleet task roles, priorities and worker-pool bounds ──────────────
+
+/**
+ * Dispatch role groups. The dispatcher plans server-side; a task's role group
+ * decides its queue priority and which capacity rules apply. These values are
+ * persisted on `ClassroomFleetTask.taskRole`.
+ */
+export const FLEET_TASK_ROLE = {
+  /** Charter-mandated post-class pair: learner + teacher judge. */
+  CORE: 'CORE',
+  /** Always-dispatched honesty pair: evidence auditor + safety guardian. */
+  MANDATORY_AUDIT: 'MANDATORY_AUDIT',
+  /** Dynamic subject experts resolved against domain packs. */
+  DOMAIN_SPECIALIST: 'DOMAIN_SPECIALIST',
+  /** Multilingual coordination — only on real multilingual evidence. */
+  LANGUAGE: 'LANGUAGE',
+  /** Post-report coaching — first against capacity pressure (skippable). */
+  ENRICHMENT: 'ENRICHMENT',
+} as const
+export type FleetTaskRole = (typeof FLEET_TASK_ROLE)[keyof typeof FLEET_TASK_ROLE]
+
+/** Lower runs first. Honest ordering (charter §4/§11): the core pair first,
+ * then domain/language specialists so their outputs EXIST, then the mandatory
+ * audit pair (which challenges specialist outputs — it can only do that after
+ * them), then enrichment coaching last. */
+export const FLEET_TASK_PRIORITY = {
+  CORE: 10,
+  DOMAIN_SPECIALIST: 20,
+  LANGUAGE: 30,
+  MANDATORY_AUDIT: 40,
+  ENRICHMENT: 50,
+} as const
+
+/** Worker-pool bounds (charter §4.3 — bounded pools, never unbounded). */
+export const FLEET_LEASE_MS = 8 * 60_000
+export const FLEET_POLL_MS = 5_000
+export const FLEET_HEARTBEAT_MS = 60_000
+export const FLEET_MAX_ATTEMPTS = 3
+/** Backpressure point: when the QUEUED backlog exceeds this, ENRICHMENT tasks are skipped honestly. */
+export const FLEET_BACKLOG_BACKPRESSURE = 50
+export const FLEET_WORKER_CONCURRENCY_DEFAULT = 4
+export const FLEET_WORKER_CONCURRENCY_MIN = 1
+export const FLEET_WORKER_CONCURRENCY_MAX = 32

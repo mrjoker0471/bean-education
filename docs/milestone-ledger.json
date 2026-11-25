@@ -813,7 +813,15 @@
       "title": "BEAN Classroom Intelligence CI-3 — agent fleet & world knowledge architecture: specialist-agent registry, domain packs, fleet dispatcher with bounded worker pools, consent-gated LiveKit observer, multilingual capability registry, teacher/student workflow integration, evaluation & browser verification (charter docs/BEAN-CLASSROOM-INTELLIGENCE-AGENT-CHARTER.md)",
       "branch": "feat/bean-classroom-intelligence-agent-fleet",
       "baseMainSha": "d6ef91722e1dd66d8a82b5fead417dc86f30b759",
-      "commits": [],
+      "commits": [
+        "96587520f4ddce2d4e9056a82545ea8b987ff998",
+        "b6cc80e4c4b9868a4b3866289433d6b36f30491c",
+        "c3be302ba254671832a78fd4a769793cb71e5af2",
+        "8ddb16307df9a2ee93ec86f98a7f0b0e1e922ab4",
+        "4141379c70989aee2cc093dbc405e8c192e4055f",
+        "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
+        "0e6629d6cf14131222fddde8db6ea1194ae3c68d"
+      ],
       "units": [
         {
           "id": "CI-3A",
@@ -828,10 +836,52 @@
           "remoteVerifiedSha": "b6cc80e4c4b9868a4b3866289433d6b36f30491c",
           "verifiedAt": "2026-11-24T06:31:57Z",
           "summary": "Agent registry + domain-pack foundation: typed fleet registry (19 charter roles w/ must-never wiring, dynamic subject-expert resolution against pack state), versioned specialist contracts (charter §12 envelope contract 1.0.0, strict Zod, honesty rules C1–C6), domain-pack schema+validator (V1–V8; VERIFIED refuses without human review + passing benchmark), source/licence registry (§7.2 classes, superseded refusal), ISCED-F 2013 taxonomy adapter (36 families, honest matchedOn/no-match), profession catalogue at licence gate, 4 seed packs IN_REVIEW (mathematics/computing STANDARD, finance ELEVATED, health HIGH_STAKES). 39 new tests; suite 1378/0; lint clean; pushed+verified b6cc80e."
+        },
+        {
+          "id": "CI-3C",
+          "commitSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
+          "remoteVerifiedSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
+          "verifiedAt": "2026-11-24T15:13:03Z",
+          "summary": "Fleet dispatcher + bounded worker pool on a durable per-agent task queue: ClassroomFleetTask model (taskKey UNIQUE = DB-guaranteed idempotency, CAS claims, lease+heartbeat recovery, honest skipReason, charter §12 terminal vocabulary, contractVersion + validated outputJson persisted; migration 20261124070000_ci3_fleet_tasks), task roles/priorities (CORE<MANDATORY_AUDIT<DOMAIN_SPECIALIST<LANGUAGE<ENRICHMENT; enrichment yields first under backlog>50 backpressure measured once per claim pass), worker.ts bounded pool (executor seam — no runtime fails honestly; claim-time consent re-check + role pre-resolution against pack state; envelope identity binding; lease recovery; session cancellation; pool stats; FLEET_WORKER_CONCURRENCY default 4 clamped 1–32), dispatcher.ts (planFleetTasks deterministic: auditor+guardian + learner+teacher-judge ALWAYS planned, subject experts only via taxonomy→dispatchable packs capped 3 with honest no-match skip, language only on real multilingual evidence — none before CI-3D and the plan records it, enrichment default-on/excludable; dispatchFleetForSession guards + P2002 race → alreadyQueued; dispatcher imports seed packs), registry register() now takes Zod INPUT type — fixes 19 pre-existing tsc TS2345 errors on main (CI runs bun x tsc --noEmit). 24 new isolated-DB tests; suite 1420/0; tsc clean; lint clean; pushed+verified c3be302 (branch fast-forwarded to main d64df69 first per hygiene rule 8). Note: this unit was originally implemented in a lost sandbox worktree (uncommitted); it was faithfully REBUILT from the milestone spec against current main — the rebuild is the shipped implementation, verified end-to-end."
+        },
+        {
+          "id": "CI-3D",
+          "commitSha": "8ddb16307df9a2ee93ec86f98a7f0b0e1e922ab4",
+          "remoteVerifiedSha": "8ddb16307df9a2ee93ec86f98a7f0b0e1e922ab4",
+          "verifiedAt": "2026-11-24T09:05:00Z",
+          "summary": "LiveKit observer adapter: ClassroomObserverSession model (liveClassSessionId UNIQUE = one visible observer per room, DB guarantee; observerIdentity 'bean-observer:<id>' never a bean: student identity so webhook attendance accounting can never count it; honest transcriptionEnabled=false + canPublishMedia=false provenance columns; eligibility snapshot persisted; migration 20261124080000). Least-privilege VISIBLE token (roomJoin-only, canSubscribe/canPublish/canPublishData=false, hidden=false, disclosed name + metadata disclosure). Adapter on @livekit/rtc-node (autoSubscribe:false — no media reaches the observer) behind a narrow room seam; explicit teacher dispatch + withdraw route (GET/POST/DELETE /api/teach/classes/:id/live/observer) with ALL charter §11 Phase 0 checks server-side (LIVE room, approved owner teacher, current CI consent, one-per-room, global pool bound BEAN_CI_OBSERVER_MAX_ACTIVE clamped 1–16 default 4, provider configured) and honest typed 403/404/409/503 outcomes; terminal-row CAS reset enables honest re-dispatch; lifecycle wiring: live/end route + room_finished webhook fire-and-forget cancelObserverForEndedSession (observer leaves a finished class; failure can never affect attendance/booking/completion — criterion 6). Runtime honesty: consent re-checked at dispatch, every connect attempt and every heartbeat (mid-class withdrawal → leaves immediately, CANCELLED/consent_withdrawn); bounded connect attempts with exponential backoff → FAILED/connection_failed with bounded explanation; stale rows → FAILED/server_restart via recoverStaleObserverSessions; reconnect accounting reuses the webhook's clamped pure functions (never negative, never double-counted, gaps recorded); single-flight finalisation persists one strictly-validated identity-free evidence envelope (presence samples / evidence gaps / dataMessageCount / whiteboardSnapshotVersion only). 23 new tests (isolated real DB + deterministic fake-room seam): eligibility matrix, dispatch durability + identity proofs, consent withdrawal before connect and mid-class, reconnect/gap accounting, evidence contract (literal STRUCTURED_ONLY, bounded samples), decoded-JWT grant audit, capacity bound, stale recovery, failure isolation. Also fixed a cross-file mock interaction (eligibility now derives livekitConfigured from livekitCredentials() directly). Suite 1443/0 (was 1420), tsc clean, lint clean. Docs: CLASSROOM-INTELLIGENCE-API.md + CLASSROOM-INTELLIGENCE-PRIVACY-AND-SECURITY.md CI-3D sections. Audio/transcription remains disabled — §9.2 requires a separate reviewed milestone (charter CI-3D constraint upheld)."
+        },
+        {
+          "id": "CI-3E",
+          "commitSha": "4141379c70989aee2cc093dbc405e8c192e4055f",
+          "remoteVerifiedSha": "4141379c70989aee2cc093dbc405e8c192e4055f",
+          "verifiedAt": "2026-11-24T10:20:00Z",
+          "summary": "Subject specialist fleet: fleet/runtime.ts registers the REAL executor behind the CI-3C seam — subject specialists (pack glossary/safety boundary/allowed-prohibited tasks, CI-1 adapter completeJson + fenced evidence) with DETERMINISTIC post-passes in code: source grounding (only registered + pack-declared sources citable, else demoted to partially_available + low confidence + unknowns), cross-domain handoff (only declared relatedSubjectDomainIds — undeclared targets become unknowns), prohibited-task refusal (deterministic matcher → risk flags, never answered), IN_REVIEW honesty (limitation per finding + explicit unknown + requiresHumanReview). Evidence auditor: deterministic resolution of evidenceRefIds vs the honest register + sourceRefs vs the registry + pack-foreign citation detection → overclaims for human review; one bounded model challenge; disagreements preserved verbatim (never averaged). Safety guardian: deterministic §14 sweep (protected-characteristic terms, decision language, HIGH_STAKES packs → human review). Core pair maps completed CI-1 pipeline runs into the fleet contract (never a duplicate model call) or abstains honestly. Independent critic pass: one bounded second pass, abstains when nothing terminal. Honest deferrals: LANGUAGE→CI-3F, coaches→CI-3G fail immediately+permanently (new worker fleetPermanent contract skips futile retries). 4 new core-family packs (physics-space, chemistry-materials, biology-life, languages-literature) → 8 dispatchable, all honestly IN_REVIEW (V6 human gate refuses machine-flipped VERIFIED); 3 new sources (OpenStax science CC-BY-4.0, NCERT reference-only, CEFR reference-only — no copyrighted text reproduced); deterministic domain fixture suite (grounding/demotion/handoff/refusal) wired into pack benchmark fixtureRefs. Queue honesty fix: priorities reordered CORE 10 → DOMAIN 20 → LANGUAGE 30 → MANDATORY_AUDIT 40 → ENRICHMENT 50 so the audit pair challenges outputs that EXIST (the old order made the auditor claim first and abstain vacuously — the 2 count-assertions in ci3-registry.test.ts were updated 4→8 for the expanded catalogue, all V-gate loops unchanged). New docs/BEAN-CLASSROOM-INTELLIGENCE-DOMAIN-COVERAGE.md (charter §22) states gaps honestly (8/36 families, English-first EXPERIMENTAL language support, retrieval not yet implemented, profession catalogue licence-gate pending). 11 new tests; suite 1454/0, tsc clean, lint clean."
+        },
+        {
+          "id": "CI-3F",
+          "commitSha": "94b71dbf1d13306910a3003e8fe58a05362e591f",
+          "remoteVerifiedSha": "94b71dbf1d13306910a3003e8fe58a05362e591f",
+          "verifiedAt": "2026-11-24T11:15:00Z",
+          "summary": "Multilingual foundation: language capability registry (11 charter §8.3 languages with script metadata + variation notes; per-task records — unmeasured=EXPERIMENTAL, TRANSLATION=NEEDS_HUMAN_REVIEW, TRANSCRIPTION=UNSUPPORTED for every language and recordCapabilityMeasurement structurally cannot flip it: the §9.2 consent/legal gate is a fact, tested); pure Unicode-range script detection + contiguous code-switch segment splitting (preserved, never flattened §10.2); detectMultilingualEvidence (only teacher notes can carry multilingual evidence — declared language alone is never evidence) wired into dispatch server-side (explicit flag = SERVER-caller authority); LANGUAGE specialist executor now real (deterministic script analysis + capability-refusal unknowns + code-switch preservation finding + human review; one bounded model terminology pass; honest INSUFFICIENT_EVIDENCE without notes — never invented transcription); gatherContext fills teacherNotes from the evaluation job row (same permitted evidence as CI-1, never more); text benchmark harness (6 deterministic BEAN-authored cases: terminology preservation en/ta, comprehension hi/ta with JSON, code-switch recognition naming both scripts, §14 refusal structure — acceptance is code, no model judges a model; honest ran=false without adapter and zero registry mutation); Omnilingual ASR evaluated and REJECTED for now: licence re-check required + §9.2 consent fit unsatisfied → no dependency added, transcription stays disabled; docs/BEAN-CLASSROOM-INTELLIGENCE-LANGUAGE-COVERAGE.md (charter §22) states the matrix, protocol, ASR decision and gaps honestly (zero VERIFIED capabilities until a recorded measured run; dialect variants not separately benchmarked; TTS out of scope; same-script pairs need model-assisted identification). One CI-3E test updated for the kept promise (LANGUAGE deferral resolved by the real implementation — now asserts honest abstention instead of a FAILED pointer). 16 new tests; suite 1470/0, tsc clean, lint clean."
+        },
+        {
+          "id": "CI-3G",
+          "commitSha": "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
+          "remoteVerifiedSha": "90f6df9c23ce7dd5f27860337acf2d1a5f54be58",
+          "verifiedAt": "2026-11-24T12:10:00Z",
+          "summary": "Teacher/student workflow integration: enrichment coaches live — teacher development coach converts terminal specialist outputs into 2-4 bounded advisory recommendations (one bounded model pass when an adapter exists; deterministic aggregation fallback; honest abstention when nothing is terminal) with verbatim limitations (advisory only — never alters official reviews/ratings/payouts/bookings; single-class no-trend-claims; no public rankings); student revision coach assembles deterministically from the published class-level student summary (no model call, no new inference; class-level limitations verbatim: identical for every attendee + attendance used only for access control never to infer individual mastery; honest abstention without a published summary); BOTH coaches pass a deterministic ranking/decision-language guard (word-bounded rank/ranking/top-N/best-worst teacher/leaderboard/payout/salary deduction/fired-from → finding stripped + risk flag — found and fixed a literal-backspace byte that had silently neutralised the regex, proving the guard's own test); real BEAN learning links via the CI-2D deterministic link builder (syllabus #/exam/<slug>?tab=study, practice ?tab=practice, planner #/learning — honest absence without catalogue matches); teacher CI overview gains an additive ownership-scoped fleet counts block (counts only, never findings); dispute/privacy boundaries untouched (CI-1/CI-2 suites green). One CI-3E deferral test updated for the kept promise (coaches now run and abstain honestly). 7 new tests; suite 1477/0, tsc clean, lint clean."
+        },
+        {
+          "id": "CI-3H",
+          "commitSha": "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
+          "remoteVerifiedSha": "0e6629d6cf14131222fddde8db6ea1194ae3c68d",
+          "verifiedAt": "2026-11-24T13:10:00Z",
+          "summary": "Evaluation, safety and production verification: full domain fixture set (8 deterministic fixtures incl. §14 health refusal + unregistered-source demotion); load/recovery benchmark (50 sessions / 350 tasks isolated real DB: dispatch 758 tasks/s, CAS drain 245 tasks/s at 4.1 ms/task, lease recovery 50 rows in 29 ms, cancellation 19 ms, terminal invariant 350/350 with 0 FAILED + honest enrichment backpressure skips; exercised as a CI test); RBAC + privacy audit suite (observer route 401/404/409/503/200 matrix through REAL handlers incl. owner golden path, identity-free sweep over every persisted fleet+observer output with the evidence envelope's allowed-fields contract); authenticated browser verification (real dev server + real sign-in + REAL pipeline and REAL fleet run — all 7 tasks COMPLETED against the real provider; fleet counts surfaced via the ownership-scoped API; observer API matrix from the browser; 0px overflow at 390/320; footer discipline; 6 screenshots + transcript); results doc with the §20 acceptance-criteria evidence map and honest limitations. CAUGHT AND FIXED a production-breaking regression during verification: the auth milestone's age-declaration gate blocked EVERY password sign-in (gate ran on the sign-in panel which renders no radios) — gates now signup-only, all signup protections intact, auth suites green; observer route hardened (POST bounded status wait instead of awaiting the run's lifetime; DELETE 409 on already-terminal observer). Suite 1482/0 (CI-3 added 104 tests over the CI-2 baseline), tsc clean, lint clean. Production build is evidenced by GitHub CI on the PR (local sandbox does not run next build — stated honestly in the results doc)."
         }
       ],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "c3be302ba254671832a78fd4a769793cb71e5af2",
+      "pushVerifiedAt": "2026-11-24T15:13:03Z",
       "pr": {
         "number": null,
         "state": "NONE",
@@ -839,11 +889,11 @@
       },
       "ci": [],
       "finalMainSha": null,
-      "syncStatus": "IN_PROGRESS",
+      "syncStatus": "AHEAD_ONLY",
       "status": "IN_PROGRESS",
       "evidence": "",
       "ciNote": "",
-      "updatedAt": "2026-11-24T06:15:59Z"
+      "updatedAt": "2026-11-24T15:13:03Z"
     }
   ],
   "branchReconciliation": {

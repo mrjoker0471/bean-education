@@ -129,6 +129,73 @@ export function ensurePackSourcesRegistered(): void {
     attribution: 'BEAN Education original content.',
   })
 
+  registerSource({
+    sourceId: 'openstax-science-series',
+    title: 'OpenStax Science series (Physics, Chemistry 2e, Biology 2e, Astronomy)',
+    canonicalRef: 'https://openstax.org/subjects/science',
+    publisher: 'OpenStax, Rice University',
+    authors: [],
+    publishedAt: null,
+    jurisdiction: null,
+    version: 'current editions (per-volume versioning upstream)',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.PROFESSION_BODY,
+    licence: {
+      spdx: 'CC-BY-4.0',
+      statement:
+        'OpenStax science textbooks are published under Creative Commons Attribution 4.0 International (CC BY 4.0): reuse and adaptation permitted with attribution; specific check required per volume for embedded third-party figures. Verified against openstax.org licence statements; re-read the per-volume licence page before importing any content.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse:
+      'Authoritative peer-reviewed open textbook reference for physics/chemistry/biology/astronomy concept grounding, glossary anchoring and retrieval scoping (attribution required).',
+    attribution:
+      'OpenStax Science titles © Rice University, licensed CC BY 4.0. View free at openstax.org.',
+  })
+
+  registerSource({
+    sourceId: 'ncert-textbooks',
+    title: 'NCERT e-textbooks (National Council of Educational Research and Training, India)',
+    canonicalRef: 'https://ncert.nic.in/textbook.php',
+    publisher: 'NCERT, Government of India',
+    authors: [],
+    publishedAt: null,
+    jurisdiction: 'India (curriculum reference)',
+    version: 'current editions (per-title versioning upstream)',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.OFFICIAL_CURRICULUM,
+    licence: {
+      spdx: null,
+      statement:
+        'NCERT publishes its e-textbooks for free educational use on ncert.nic.in. No formal open-licence instrument is published alongside the PDFs, so no SPDX id is claimed: only concept-level references are made and no NCERT text is reproduced. Terms must be re-read from ncert.nic.in before any content import.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse:
+      'Official Indian curriculum reference for concept/terminology anchoring in school-level packs (curriculum alignment notes only; no text reproduction).',
+    attribution: 'Reference: NCERT e-textbooks (ncert.nic.in), National Council of Educational Research and Training.',
+  })
+
+  registerSource({
+    sourceId: 'cefr-companion-volume',
+    title: 'CEFR Companion Volume (Common European Framework of Reference for Languages)',
+    canonicalRef: 'https://www.coe.int/en/web/common-european-framework-reference-languages',
+    publisher: 'Council of Europe',
+    authors: [],
+    publishedAt: '2020',
+    jurisdiction: null,
+    version: 'Companion Volume 2020',
+    superseded: false,
+    qualityClass: SOURCE_QUALITY_CLASS.OFFICIAL_REGULATOR,
+    licence: {
+      spdx: null,
+      statement:
+        'The Council of Europe publishes the CEFR/Companion Volume as a freely downloadable reference framework with attribution requested for reuse; no open-content licence instrument is published, so only level descriptors are REFERENCED (never reproduced) and terms are re-read from coe.int before any content import.',
+      verifiedAt: VERIFIED_AT,
+    },
+    permittedUse:
+      'Reference framework for language-level descriptors (A1–C2) in language-education packs; level names and the framework are cited, descriptor text is not copied.',
+    attribution: 'Reference: CEFR Companion Volume, Council of Europe (coe.int).',
+  })
+
   registered = true
 }
 

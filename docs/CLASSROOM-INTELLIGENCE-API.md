@@ -123,3 +123,144 @@ Evaluation jobs are created by two server-internal, error-isolated triggers:
 `room_finished` webhook (PROVIDER_ROOM_FINISHED). Both are consent-gated and
 deduplicated; they can never delay or fail the classroom operation that
 triggered them. Teacher requests go exclusively through the API above.
+
+## CI-3D — Live classroom observer (explicit dispatch, structured-only)
+
+The observer is the charter's Agent 01 (`BEAN_CLASSROOM_OBSERVER`): ONE visible
+programmatic LiveKit participant per consented room (DB-unique per live
+session), joined ONLY through an explicit teacher action, in charter §9.1
+**Mode A (structured-only)** — the observer subscribes to no media at all
+(token `canSubscribe/canPublish/canPublishData` all `false`, `hidden: false`)
+and records only identity-free aggregate signals. Audio/transcript processing
+does not exist in CI-3D; `transcriptionEnabled` stays `false` on the row and in
+the evidence contract.
+
+### `GET /api/teach/classes/:id/live/observer`
+**Auth**: approved class owner. Returns `{ liveStatus, observer }` where
+`observer` (or `null`) is:
+`{ observerSessionId, status, leftReason, consentMode, transcriptionEnabled,
+canPublishMedia, reconnectCount, connectedSeconds, dispatchedAt, connectedAt,
+leftAt, hasEvidence }`. Statuses: `PLANNED | CONNECTING | OBSERVING | LEFT |
+FAILED | CANCELLED`.
+
+### `POST /api/teach/classes/:id/live/observer`
+**Auth**: approved class owner + same-origin. **Explicit dispatch.** All
+charter §11 Phase 0 checks run server-side (ownership, approved teacher,
+LIVE room, current CI consent, one-observer-per-room, global observer pool
+bound, provider configured); the authorising identity is the session-resolved
+teacher — never a request body. Errors are honest typed reasons with statuses
+`404/403/409/503` (`class_not_found`, `teacher_not_authorised`, `room_not_live`,
+`no_consent`, `already_observing`, `observer_capacity_full`,
+`livekit_not_configured`). Re-dispatch after a terminal run resets the room's
+single observer row (CAS-guarded) for a fresh run.
+
+### `DELETE /api/teach/classes/:id/live/observer`
+**Auth**: approved class owner + same-origin. Withdraws the observer: an
+in-process run disconnects its room and finalises `CANCELLED/teacher_cancelled`;
+a run owned by another process is terminal-marked directly (stale remote rows
+are recovered honestly by `recoverStaleObserverSessions`, never resurrected).
+
+### Lifecycle hooks (no public API)
+`POST /api/teach/classes/:id/live/end` and the LiveKit `room_finished` webhook
+also fire-and-forget `cancelObserverForEndedSession` — the observer always
+leaves a finished class, and its failure can never affect attendance, booking
+or class completion (charter acceptance criterion 6).
+
+### Evidence (written once at finalisation, strictly validated)
+`consentMode` (literal `STRUCTURED_ONLY`), `transcriptionEnabled` (literal
+`false`), observer identity/room name, `connectedSeconds`, `reconnectCount`,
+bounded `presenceSamples` (timestamps + aggregate participant counts only),
+bounded `evidenceGaps` (reconnects, server restarts), `dataMessageCount`
+(counts only — payloads never read), `whiteboardSnapshotVersion` (structure
+count from the authorised whiteboard row). No student identities, no media, no
+payloads — asserted by tests (`tests/unit/ci3-observer.test.ts`).
+
+## CI-3E — Specialist fleet runtime (executors behind the CI-3C worker seam)
+
+The CI-3E runtime (`src/lib/ci/fleet/runtime.ts`) is the real executor behind
+`registerFleetTaskExecutor`, auto-registered wherever dispatch runs. Role map:
+`BEAN_SUBJECT_EXPERT::<domain>` (source-grounded specialist), `EVIDENCE_AUDITOR`
+(deterministic resolution + one bounded model challenge), `SAFETY_GUARDIAN`
+(deterministic-only §14 sweep), `LEARNER`/`TEACHER_JUDGE` (deterministic mapping
+of completed CI-1 pipeline runs — never a duplicate model call), `LANGUAGE`
+(honest FAILED until CI-3F), enrichment coaches (honest FAILED until CI-3G).
+Permanent failures (missing pack, unparseable upstream output, missing handler)
+skip retries via the worker's `fleetPermanent` contract.
+
+Queue honesty fix: task priorities were reordered (`CORE 10 → DOMAIN 20 →
+LANGUAGE 30 → MANDATORY_AUDIT 40 → ENRICHMENT 50`) so the audit pair challenges
+outputs that EXIST — auditing before specialists would be a vacuous pass.
+
+### Specialist guarantees (all enforced in code, tested in `tests/unit/ci3-specialists.test.ts`)
+- **Source grounding**: a finding may cite only registered sources that the
+  pack itself declares (pack `sources` or glossary anchors); everything else is
+  demoted to `partially_available` + low confidence + an honest unknown.
+- **Cross-domain handoff**: `handoffTargetDomainId` is honoured only when it is
+  a declared `relatedSubjectDomainIds` entry of the citing pack; undeclared
+  targets become unknowns, never guesses.
+- **Prohibited tasks**: claims matching a pack's `prohibitedTasks` are refused
+  (deterministic matcher) and recorded as risk flags, never answered.
+- **IN_REVIEW honesty**: outputs of under-review packs carry a limitation on
+  every finding, an explicit unknown, and `requiresHumanReview: true`.
+- **Disagreements preserved**: the auditor surfaces conflicts verbatim; it
+  never averages or smooths them (§10.2).
+
+### Deterministic domain fixtures
+`src/lib/ci/fleet/fixtures.ts` ships the grounding/demotion/handoff/refusal
+fixture suite referenced by the packs' benchmarks (no model needed); the CI-3E
+core-family packs (`physics-space`, `chemistry-materials`, `biology-life`,
+`languages-literature`) extend the catalogue to 8 dispatchable packs — all
+still honestly IN_REVIEW pending the human VERIFIED gate (§6.4).
+
+## CI-3F — Multilingual foundation
+
+- **Language capability registry** (`src/lib/ci/fleet/language.ts`): the 11
+  charter §8.3 audience languages with per-task records. Unmeasured tasks are
+  EXPERIMENTAL; TRANSLATION is NEEDS_HUMAN_REVIEW; TRANSCRIPTION is UNSUPPORTED
+  for every language and `recordCapabilityMeasurement` structurally cannot flip
+  it (the §9.2 consent/legal gate — no ASR dependency exists).
+- **Script/code-switch handling**: pure Unicode-range detection and contiguous
+  segment splitting — segments are preserved, never flattened (§10.2).
+- **Dispatch wiring**: `dispatchFleetForSession` detects real multilingual
+  evidence server-side (the only permitted text channel is teacher-supplied
+  notes on the evaluation job); the explicit `multilingualEvidence` flag is
+  SERVER-caller authority, never client input. The LANGUAGE specialist runs
+  deterministically (script analysis + capability unknowns) plus one bounded
+  model terminology pass when an adapter exists; without notes it abstains
+  honestly.
+- **Benchmark harness**: `runTextBenchmarkHarness()` — 6 deterministic cases
+  (terminology preservation en/ta, comprehension hi/ta with JSON output,
+  code-switch recognition, §14 refusal structure) against the current adapter;
+  without an adapter it measures nothing and touches no capability. Results
+  and the Omnilingual ASR licence/consent-fit decision live in
+  `docs/BEAN-CLASSROOM-INTELLIGENCE-LANGUAGE-COVERAGE.md`.
+
+## CI-3G — Teacher/student workflow integration
+
+- **Teacher development coach** (`BEAN_TEACHER_COACH`): converts terminal
+  specialist outputs into 2–4 bounded, advisory recommendations — one bounded
+  model pass when an adapter exists, deterministic aggregation of specialist
+  suggestions otherwise; abstains honestly when nothing is terminal. Every
+  finding carries `advisory only — never alters official reviews, ratings,
+  payouts or bookings`, `no trend claims`, `no public rankings`. Real BEAN
+  learning links (syllabus topic, exam practice, the `#/learning` revision
+  planner) are attached through the CI-2D deterministic link builder.
+- **Student revision coach** (`BEAN_STUDENT_REVISION_COACH`): deterministic
+  assembly from the published class-level student summary (CI-1) — no model
+  call, no new inference. Limitations state the class-level boundary verbatim
+  (`identical for every attendee`, `attendance is used only for access
+  control — never to infer individual mastery`). Links are real catalogue
+  matches or honestly absent.
+- **Ranking/decision-language guard**: both coaches strip findings whose
+  category/observation/suggestion matches ranking or decision vocabulary
+  (`\b(rank|ranking|top-N|best/worst teacher|leaderboard|payout|salary
+  deduction|fired from)\b`) and record a risk flag — a coach can never emit a
+  disciplinary, rating or payment instruction (charter §5 must-nevers,
+  deterministically enforced).
+- **Surface**: the teacher's CI overview (`GET /api/teach/classroom-
+  intelligence`) now includes an additive, ownership-scoped `fleet` block per
+  class — honest counts only (`total/completed/failed/running`), never
+  findings; coach content flows through the classroom evaluation flow.
+- **Dispute/privacy boundaries unchanged**: coach outputs are advisory rows on
+  the class; the dispute flow, report rebuild rules and student summary access
+  control are untouched (verified by the existing CI-1/CI-2 suites).

@@ -36,6 +36,9 @@ import {
 // for provider-initiated room finishes (never affects the webhook response).
 import { triggerEvaluationForEndedSession } from '@/lib/ci/trigger'
 import { CI_TRIGGER } from '@/lib/ci/constants'
+// CI-3D: the observer leaves when the provider finishes the room —
+// fire-and-forget, error-isolated (never affects the webhook response).
+import { cancelObserverForEndedSession, OBSERVER_LEFT_REASON } from '@/lib/ci/fleet/observer'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -246,6 +249,8 @@ export async function POST(req: NextRequest) {
         })
         if (knownLive) {
           triggerEvaluationForEndedSession(knownLive.classSessionId, CI_TRIGGER.PROVIDER_ROOM_FINISHED)
+          // CI-3D: the observer leaves when the provider finished the room.
+          cancelObserverForEndedSession(knownLive.classSessionId, OBSERVER_LEFT_REASON.PROVIDER_FINISHED)
         }
       }
 

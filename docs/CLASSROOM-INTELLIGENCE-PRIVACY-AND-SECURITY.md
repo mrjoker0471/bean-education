@@ -175,3 +175,40 @@ Reinspection of every CI-1 + CI-2 access path, executed as real database tests o
 | Sensitive exposure | student-facing DTOs carry no model provenance and no teacher identity; dispute reasons are visible only to the dispute's teacher and authorised administrators |
 
 Nothing in CI-2 changed the data model (no new tables or columns — the reconsider appeal reuses the append-only event table), so the CI-1 deletion/export surface grows only by the dispute-history inclusion above. No legal certification is claimed; the disclosures in the privacy policy and the in-product AI notice remain the authoritative wording.
+
+## CI-3D observer privacy evidence (audit date: 2026-11-24, branch `feat/bean-classroom-intelligence-agent-fleet`)
+
+The CI-3D observer extends the CI-1/CI-2 boundary instead of widening it:
+
+1. **No new signal classes.** Charter §9.1 Mode A only. The observer receives
+   NO media: `Room.connect({ autoSubscribe: false })` at the transport level
+   plus a fixed least-privilege token (`canSubscribe=false`, `canPublish=false`,
+   `canPublishData=false` — asserted from the minted JWT in tests). No
+   transcription code exists; the persisted `transcriptionEnabled` column and
+   the evidence contract's literal `false` make a silent consent downgrade
+   impossible (§9.2 requires a separate reviewed milestone first).
+2. **Visible by construction.** `hidden: false`, participant name
+   "BEAN Classroom Observer (AI)", and a metadata disclosure ("no audio or
+   video is processed, recorded or stored; the teacher can remove this
+   participant at any time") are minted into every token (§10.1).
+3. **Identity minimisation.** The observer's identity is `bean-observer:<rowId>`
+   — never a `bean:` student identity — so webhook accounting can never count
+   it as a participant (`studentIdFromIdentity` returns null; asserted in
+   tests). Presence evidence is aggregate counts only; the observer never reads
+   participant identities, data payloads or track content.
+4. **Consent is re-checked at dispatch, at every connect attempt and on every
+   heartbeat; withdrawal mid-class makes the observer leave immediately and
+   finalise `CANCELLED/consent_withdrawn` (§10.2).**
+5. **Explicit dispatch + ownership.** Only the approved owner teacher can
+   dispatch/withdraw via the guarded route; every §11 Phase 0 check runs
+   server-side; exactly one observer per room is a DB unique constraint.
+6. **Failure honesty.** Bounded connect attempts → `FAILED/connection_failed`
+   with a bounded explanation; lost runs (server restart) → `FAILED/
+   server_restart` with an evidence gap; reconnects are clamped intervals from
+   the same pure functions as the attendance webhook (never negative, never
+   double-counted) and are recorded as evidence gaps. An observer failure
+   never touches class, booking or attendance state (criterion 6, tested).
+7. **Retention.** The row stores aggregate, identity-free evidence only;
+   deletion of the class/account cascades the row. Re-dispatch resets the
+   room's single row for a fresh run (previous envelope replaced by the new
+   run's honest finalisation).

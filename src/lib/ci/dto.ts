@@ -38,6 +38,8 @@ export interface CiClassEvaluationSummaryDTO {
   currentVersion: number | null
   insufficientEvidence: boolean
   requiresHumanReview: boolean
+  /** CI-3G: honest fleet task counts for the class (additive; counts only). */
+  fleet?: { total: number; completed: number; failed: number; running: number }
 }
 
 export interface CiTeacherSummaryResponse {
