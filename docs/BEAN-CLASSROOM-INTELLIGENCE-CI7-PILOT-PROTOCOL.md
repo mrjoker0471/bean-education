@@ -153,3 +153,36 @@ Legal/contractual review, compensation commitments and any accreditation claims 
 - Does not relax any CI-4/CI-5/CI-6 gate, threshold or transition.
 - Does not send any external message.
 - Does not touch student data, transcription, or consequential decisions.
+
+---
+
+## 17. Evaluation protocol (CI-7F — specified BEFORE any evaluation)
+
+**Authority:** the existing CI-5F benchmark programme is the ONLY evaluation machinery — datasets, expert case labels, harness runs, regression comparison. CI-7 implements no second benchmark system. This section specifies what must be pinned before any evaluation runs, and the readiness gate that reports `INSUFFICIENT EVIDENCE` when evidence does not support a metric.
+
+**Must be specified before evaluating (all recorded in the evaluation design):**
+
+| # | Requirement | Rule |
+|---|---|---|
+| 1 | Model and model version | Exact provider + version pinned in the design; never "current" or "latest". An unversioned model can never be reported against. |
+| 2 | Domain and pack version | The evaluation evaluates the pilot subject only: `education-pedagogy` v1.0.0 at its exact checksum. |
+| 3 | Exact evaluation dataset version | Dataset slug + immutable version + checksum (sha256 of the canonical case set, `computeDatasetChecksum`). |
+| 4 | Label provenance | Every reported label is a genuine human label: `expertBenchmarkCaseLabel` rows bound to a real `reviewerProfileId` of an ACTIVE, scope-matched reviewer. Deterministic-only rows never count as human evidence; fixture labels never count at all. |
+| 5 | Training/evaluation separation | The existing split policy: DEVELOPMENT / CALIBRATION / VALIDATION / BLIND_HOLDOUT. Holdout cases are sealed until scoring and cannot be labelled through the open path. No case used to develop the pack's guidance may appear in the holdout. |
+| 6 | Holdout policy | Holdout keys are never listed in development views; scoring runs against the holdout are one-shot and recorded as run rows. |
+| 7 | Evaluation metrics | Metrics come only from `runBenchmarkHarness` output (accuracy over expert-labelled cases, prohibited-conclusion violations) — always with `sampleSize`, `expertLabelledSample`, `deterministicOnlySample` reported alongside. |
+| 8 | Acceptance threshold and justification | Set by the owner in the evaluation design BEFORE the run, with a written justification. Moving a threshold after seeing results is cherry-picking and is prohibited. |
+| 9 | Reviewer qualifications | Every labeler is an ACTIVE reviewer with the exact approved domain scope (`reviewerCanReviewDomain` at label time). |
+| 10 | Required independent labels | ≥ 2 independent qualified reviewers per design; ≥ 10 distinct labelled cases and ≥ 10 human labels before any metric may be reported (`CI7_EVALUATION_*` thresholds). |
+| 11 | Treatment of disagreement | Reviewer disagreement is preserved (CI-5/CI-7E authorities) and analysed — it is never silently counted as model failure, and never averaged into a false consensus label. |
+| 12 | Failure classification | Model failures are classified against the rubric dimensions (accuracy / source fidelity / completeness / relevance / clarity / safety) with the offending case evidence; no aggregate score without per-case traceability. |
+
+**Prohibitions (enforced or structurally honoured):**
+- Model-generated self-certification: a run is a measurement only — it never mutates `ClassroomPackReview` or `LanguageCapabilityStatus`; `executor: null` rows are honest non-runs (`ran: false`).
+- Training/evaluation leakage: split separation is enforced at the dataset level (BF2).
+- Reuse of fixture labels as human evidence: fixture results stay `fixtureOnlyTestResults`-marked and never enter the human-label counts.
+- Cherry-picking: an evaluation reports the pre-registered dataset version's full labelled sample — no selective case inclusion.
+- Publishing a metric from an insufficient sample: the readiness gate reports `INSUFFICIENT EVIDENCE` until thresholds are met.
+- Treating a small pilot as universal model validation: any reported result is scoped to the exact dataset version + checksum + reviewer cohort, stated verbatim in the report.
+
+**Insufficient evidence:** when thresholds are not met, the report is the literal state `INSUFFICIENT EVIDENCE` with the missing-evidence list (`GET /api/admin/ci7/evaluation-readiness`). No performance score is reported as proven, and language evaluation remains separate from domain-pack approval — a domain pack's evaluation can never mark a language capability VERIFIED, and TRANSCRIPTION stays structurally UNSUPPORTED.

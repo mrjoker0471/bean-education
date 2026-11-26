@@ -383,6 +383,131 @@ export function buildFindingsSummary(analyses: ReadonlyArray<Record<string, unkn
   }
 }
 
+// ─── CI-7F: human-grounded model evaluation readiness ────────────────────────
+// The evaluation authority is CI-5F's benchmark programme (datasets, expert
+// case labels by scoped ACTIVE reviewers, harness runs, regression compare) —
+// CI-7 adds NO second benchmark system. This gate derives, from the REAL
+// ledgers, whether a meaningful evaluation is possible BEFORE any metric is
+// reported. When evidence is insufficient, the honest output is
+// INSUFFICIENT EVIDENCE — never a performance score.
+//
+// Explicit rules (protocol §17):
+//   - a metric is reported only from GENUINE expert labels (reviewer-bound;
+//     deterministic-only rows never count as human evidence);
+//   - a minimum labelled sample and ≥2 independent reviewers are required;
+//   - model outputs can never approve their own quality (runs are
+//     measurements only — recordPackReview / LanguageCapabilityStatus stay
+//     human-gated, and executor:null rows are honest non-runs);
+//   - fixture labels never count as human evidence (fixture-only results stay
+//     marked fixture-only);
+//   - reviewer disagreement is treated as information to analyse (CI-7E),
+//     never silently as model failure;
+//   - a small pilot is never reported as universal model validation.
+
+/** Minimum distinct labelled cases before ANY metric may be reported. */
+export const CI7_EVALUATION_MIN_LABELLED_CASES = 10
+/** Minimum distinct human reviewers providing labels (independence). */
+export const CI7_EVALUATION_MIN_INDEPENDENT_REVIEWERS = 2
+/** Minimum genuine human labels in total. */
+export const CI7_EVALUATION_MIN_HUMAN_LABELS = 10
+
+export interface Ci7EvaluationLabelRow {
+  caseKey: string
+  reviewerProfileId: string | null
+  rubricVersion: string | null
+}
+
+export interface Ci7EvaluationReadinessInput {
+  dataset: { slug: string; version: string; checksum: string; split: string } | null
+  labels: ReadonlyArray<Ci7EvaluationLabelRow>
+  modelBinding: { provider: string; version: string } | null
+}
+
+export interface Ci7EvaluationReadinessResult {
+  status: 'INSUFFICIENT EVIDENCE' | 'EVALUABLE'
+  missing: string[]
+  sampleSize: number
+  humanLabels: number
+  deterministicOnlyLabels: number
+  labelledCases: number
+  independentReviewers: number
+  holdoutPolicy: string
+  note: string
+}
+
+/**
+ * Derive evaluation readiness from real ledger rows. PURE function over the
+ * passed rows — the route loads them from the authoritative tables.
+ */
+export function evaluatePilotEvaluationReadiness(input: Ci7EvaluationReadinessInput): Ci7EvaluationReadinessResult {
+  const missing: string[] = []
+  const humanLabels = input.labels.filter((l) => typeof l.reviewerProfileId === 'string' && l.reviewerProfileId.length > 0)
+  const deterministicOnly = input.labels.length - humanLabels.length
+  const labelledCases = new Set(humanLabels.map((l) => l.caseKey)).size
+  const independentReviewers = new Set(humanLabels.map((l) => l.reviewerProfileId)).size
+
+  if (!input.dataset) missing.push('a bound evaluation dataset (slug + version + checksum) must exist before any evaluation is designed')
+  else {
+    if (!input.dataset.version) missing.push('the dataset version is missing — an unversioned dataset can never ground a metric')
+    if (!input.dataset.checksum) missing.push('the dataset checksum is missing — an unchecksummed dataset can never ground a metric')
+  }
+  if (humanLabels.length < CI7_EVALUATION_MIN_HUMAN_LABELS) {
+    missing.push(`only ${humanLabels.length} genuine human label(s) recorded — at least ${CI7_EVALUATION_MIN_HUMAN_LABELS} reviewer-bound labels are required (deterministic-only rows do not count as human evidence)`)
+  }
+  if (labelledCases < CI7_EVALUATION_MIN_LABELLED_CASES) {
+    missing.push(`only ${labelledCases} distinct case(s) carry human labels — at least ${CI7_EVALUATION_MIN_LABELLED_CASES} labelled cases are required before any metric is reported`)
+  }
+  if (independentReviewers < CI7_EVALUATION_MIN_INDEPENDENT_REVIEWERS) {
+    missing.push(`only ${independentReviewers} independent reviewer(s) contributed labels — at least ${CI7_EVALUATION_MIN_INDEPENDENT_REVIEWERS} independent qualified reviewers are required`)
+  }
+  if (!input.modelBinding || !input.modelBinding.provider || !input.modelBinding.version) {
+    missing.push('the model provider + exact model version must be bound before evaluating — an unversioned model can never be reported against')
+  }
+
+  const status: Ci7EvaluationReadinessResult['status'] = missing.length === 0 ? 'EVALUABLE' : 'INSUFFICIENT EVIDENCE'
+  return {
+    status,
+    missing,
+    sampleSize: input.labels.length,
+    humanLabels: humanLabels.length,
+    deterministicOnlyLabels: deterministicOnly,
+    labelledCases,
+    independentReviewers,
+    holdoutPolicy: 'existing CI-5F split policy: DEVELOPMENT/CALIBRATION/VALIDATION/BLIND_HOLDOUT — holdout cases are sealed until scoring and never labelled through the open path',
+    note: status === 'INSUFFICIENT EVIDENCE'
+      ? 'INSUFFICIENT EVIDENCE — no performance score may be reported from this state; the honest report is the missing-evidence list below, and fixture-only results stay marked fixture-only'
+      : 'evidence thresholds met for the PILOT SCOPE ONLY — a result is attributable to this dataset version + checksum and this reviewer cohort; it is never a universal model validation, and reviewer disagreement routes to CI-7E analysis rather than being counted as model failure without analysis',
+  }
+}
+
+/**
+ * Load the readiness inputs from the authoritative benchmark ledgers (the
+ * CI-5F tables) for a given dataset slug + version. The model binding comes
+ * from the APPROVED evaluation design (protocol §17) — it is never inferred
+ * from a run row, because a run IS an evaluation; readiness gates the design,
+ * not the result. Returns null dataset when absent — readiness then honestly
+ * reports INSUFFICIENT EVIDENCE.
+ */
+export async function pilotEvaluationReadinessFromDb(
+  benchmarkDb: {
+    expertBenchmarkDataset: { findFirst(args?: Record<string, unknown>): Promise<{ id: string; slug: string; version: string; checksum: string; split: string } | null> }
+    expertBenchmarkCaseLabel: { findMany(args?: Record<string, unknown>): Promise<Array<{ caseKey: string; reviewerProfileId: string | null; rubricVersion: string | null }>> }
+  },
+  slug: string,
+  version: string,
+  modelBinding: { provider: string; version: string } | null,
+): Promise<Ci7EvaluationReadinessResult> {
+  const dataset = await benchmarkDb.expertBenchmarkDataset.findFirst({ where: { slug, version } })
+  const labels = dataset
+    ? await benchmarkDb.expertBenchmarkCaseLabel.findMany({ where: { datasetId: dataset.id, datasetVersion: dataset.version } })
+    : []
+  return evaluatePilotEvaluationReadiness({
+    dataset: dataset ? { slug: dataset.slug, version: dataset.version, checksum: dataset.checksum, split: dataset.split } : null,
+    labels,
+    modelBinding,
+  })
+}
+
 // ─── CI-7C: expert cohort activation — pilot participation consent ───────────
 // The cohort is NOT a second onboarding system: it reuses the existing CI-6
 // flow (INVITE → APPLY → EVIDENCE → INDEPENDENT VERIFICATION → QUALIFICATION
