@@ -43,6 +43,9 @@ export type Route =
   // CI-5 — expert reviewer governance (additive)
   | { view: 'admin-ci5-reviewers' }
   | { view: 'reviewer-workspace' }
+  // CI-6 — real expert network (additive)
+  | { view: 'expert-apply' }
+  | { view: 'expert-directory' }
   | { view: 'my-reports' }
   | { view: 'trust-policy' }
   // Public experience, authentication & legal foundation (additive)
@@ -171,6 +174,11 @@ export function parseHash(hash: string): Route {
     // CI-5 — expert reviewer governance
     case 'reviewer':
       return { view: 'reviewer-workspace' }
+    // CI-6 — real expert network
+    case 'expert-apply':
+      return { view: 'expert-apply' }
+    case 'experts':
+      return { view: 'expert-directory' }
     case 'my-reports':
       return { view: 'my-reports' }
     case 'trust-policy':
@@ -292,6 +300,8 @@ export function routeToHash(route: Route): string {
     case 'admin-trust': return '#/admin/trust'
     case 'admin-ci5-reviewers': return '#/admin/ci5-reviewers'
     case 'reviewer-workspace': return '#/reviewer'
+    case 'expert-apply': return '#/expert-apply'
+    case 'expert-directory': return '#/experts'
     case 'my-reports': return '#/my-reports'
     case 'trust-policy': return '#/trust-policy'
     // Public experience, authentication & legal foundation

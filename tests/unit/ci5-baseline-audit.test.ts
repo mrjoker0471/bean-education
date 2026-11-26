@@ -39,9 +39,9 @@ describe('CI5 baseline: milestone ledger', () => {
     milestones: { id: string; status: string; syncStatus?: string; finalMainSha?: string | null; pr?: { number: number | null; state: string } | null; commits?: string[] }[]
   }
 
-  test('ledger has 28 milestone entries with unique ids (27 pre-CI-5 + the CI-5 record)', () => {
-    expect(ledger.milestones.length).toBe(28)
-    expect(new Set(ledger.milestones.map((m) => m.id)).size).toBe(28)
+  test('ledger has 29 milestone entries with unique ids (28 pre-CI-6 + the CI-6 record)', () => {
+    expect(ledger.milestones.length).toBe(29)
+    expect(new Set(ledger.milestones.map((m) => m.id)).size).toBe(29)
     const ci5 = ledger.milestones.find((m) => m.id === 'bean-classroom-intelligence-ci5')
     expect(ci5).toBeDefined()
     expect(ci5!.baseMainSha).toBe('7ccf355986c0cab738cb705e11b87f97c25a5c32')

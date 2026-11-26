@@ -2153,6 +2153,16 @@ model ExpertReviewerProfile {
   approvedLanguages      String    @default("[]")
   qualificationCategory  String?   // e.g. "PhD Mathematics", "Bilingual Tamil–English educator"
   professionalExperience String?
+  // CI-6B application detail (additive): institution/professional affiliation
+  // where applicable, and the applicant's selected specialties WITHIN the
+  // proposed domains (JSON string[]). Advisory — the approved scope stays the
+  // server-controlled authority (approvedDomains/approvedLanguages).
+  institutionAffiliation String?
+  specialtiesJson        String    @default("[]")
+  // CI-6B explicit consent: the applicant reviewed the exact information
+  // submitted and its intended use (credential verification + reviewer
+  // process) and consented. Recorded as CONSENT_RECORDED event + timestamp.
+  applicationConsentAt   DateTime?
   // UNVERIFIED | DOCUMENT_REVIEWED | REFERENCED_VERIFIED (minimal result only)
   verificationStatus     String    @default("UNVERIFIED")
   verificationNote       String?
@@ -2164,6 +2174,19 @@ model ExpertReviewerProfile {
   conflictOfInterest     String
   suspendedReason        String?
   revokedReason          String?
+  // CI-6D (additive): consent-gated public profile. PRIVATE by default; the
+  // public projection exposes ONLY consented fields and never credentials,
+  // verification notes, COI text or internal audit data.
+  profileVisibility      String    @default("PRIVATE") // PRIVATE | LISTED
+  disclosureConsentAt    DateTime?
+  publicDisplayName      String?
+  professionalSummary    String?
+  availabilityNote       String?
+  disclosedAffiliation   Boolean   @default(false)
+  // CI-6F (additive): reviewer availability / workload control. AVAILABLE by
+  // default; PAUSED reviewers receive no new assignments (server-side gate)
+  // while in-flight work is unaffected.
+  availability           String    @default("AVAILABLE") // AVAILABLE | PAUSED
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -2448,6 +2471,111 @@ model ClassroomReportAuditReview {
 // error), a renewal DEMAND is recorded. Previous approvals are never erased —
 // the demand marks the current status appropriately and the resolution is a
 // new, reasoned, admin-authorised event.
+// ─── BEAN Classroom Intelligence (CI-6B): real expert application evidence ────
+// Supporting credential evidence for an expert application. Files live in the
+// RESTRICTED evidence store (db/evidence/, mode 0600, never web-served by any
+// ordinary profile endpoint); this table stores metadata + content hash only.
+// Possession of a document is never treated as proof of its authenticity —
+// verification is a separate human process (ExpertVerificationRecord, CI-6C).
+// FK-less on purpose: the audit trail survives account deletion (CI-5 rule).
+model ExpertCredentialEvidence {
+  id                 String    @id @default(cuid())
+  profileId          String // ExpertReviewerProfile.id (no FK, by design)
+  // CV | CERTIFICATE | LICENCE | EMPLOYMENT_RECORD | PUBLICATION | REFERENCE | OTHER
+  kind               String
+  fileName           String
+  byteSize           Int
+  sha256             String // content hash; purged files keep the hash
+  mimeType           String    // application/pdf | image/png | image/jpeg only
+  storagePath        String    // relative path inside the restricted store
+  // ACTIVE | PURGED — withdrawn/expired applications purge file bytes but
+  // keep the metadata + hash so the audit trail stays truthful.
+  retentionState     String    @default("ACTIVE")
+  purgedAt           DateTime?
+  purgedReason       String?
+  uploadedByStudentId String // server-resolved (never from the client)
+  createdAt          DateTime  @default(now())
+
+  @@index([profileId, createdAt])
+}
+
+// Admin request for additional information/evidence during application review.
+// The applicant answers in place; the loop is fully audited via reviewer events.
+model ExpertApplicationInfoRequest {
+  id                 String    @id @default(cuid())
+  profileId          String // ExpertReviewerProfile.id (no FK, by design)
+  requestText        String
+  status             String    @default("OPEN") // OPEN | ANSWERED
+  responseText       String?
+  requestedByAdminId String // server-resolved administrator
+  requestedAt        DateTime  @default(now())
+  answeredAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([profileId, status])
+}
+
+// ─── BEAN Classroom Intelligence (CI-6E): expert recruitment invitations ──────
+// Admin-controlled recruitment. The RAW invitation token is shown exactly once
+// at creation (copied and shared manually — no email infrastructure is
+// claimed); only its SHA-256 hash is stored. An accepted invitation STARTS OR
+// LINKS an application and NEVER grants reviewer privileges or verification
+// state by itself.
+model ExpertInvitation {
+  id                     String    @id @default(cuid())
+  tokenHash              String    @unique // sha256; raw token never stored
+  // DOMAIN_EXPERT | BILINGUAL_LANGUAGE — the requested (advisory) category
+  category               String
+  requestedDomainsJson   String    @default("[]")
+  requestedLanguagesJson String    @default("[]")
+  note                   String? // admin note shared with the applicant
+  // PENDING | CLAIMED | EXPIRED | REVOKED
+  status                 String    @default("PENDING")
+  createdByAdminId       String // server-resolved administrator
+  expiresAt              DateTime
+  claimedByStudentId     String?
+  claimedAt              DateTime?
+  revokedReason          String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([createdByAdminId, createdAt])
+}
+
+// ─── BEAN Classroom Intelligence (CI-6C): independent credential verification ──
+// Append-only record of ONE human verification examination of one credential.
+// A record never by itself changes the reviewer lifecycle (strict CI-5B
+// transition table) or any content-approval authority. Honest method
+// vocabulary — no third-party verification result is fabricated. FK-less on
+// purpose: the audit trail survives account deletion (CI-5 rule).
+model ExpertVerificationRecord {
+  id                   String    @id @default(cuid())
+  profileId            String // ExpertReviewerProfile.id (no FK, by design)
+  // DEGREE | CERTIFICATION | LICENCE | EMPLOYMENT | PUBLICATION | REFERENCE | OTHER
+  credentialType       String
+  issuingInstitution   String
+  // What the credential covers (domain ids and/or language tags), as text.
+  qualificationScope   String
+  // JSON string[] of ExpertCredentialEvidence ids examined for this decision.
+  evidenceIds          String    @default("[]")
+  // DOCUMENT_EXAMINATION | ISSUING_BODY_REFERENCE | PUBLISHED_REGISTRY
+  verificationMethod   String
+  // Registry/reference detail when the method used an external check.
+  referenceDetail      String?
+  // VERIFIED | REJECTED | NEEDS_MORE_EVIDENCE | SUPERSEDED
+  decision             String
+  // Required for every decision — especially adverse or changed ones.
+  reason               String
+  expiresAt            DateTime?
+  verifiedByAdminId    String // server-resolved administrator
+  verifiedAt           DateTime
+  createdAt            DateTime  @default(now())
+
+  @@index([profileId, createdAt])
+}
+
 model ExpertReviewRenewalDemand {
   id          String    @id @default(cuid())
   subjectType String    // DOMAIN_PACK | LANGUAGE_CAPABILITY | CLASSROOM_REPORT

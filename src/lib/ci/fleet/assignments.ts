@@ -197,6 +197,12 @@ export async function createAssignment(
     return { ok: false, status: 409, error: `reviewer ${reviewerProfile.reviewerCode} is ${reviewerProfile.status} — only ACTIVE reviewers receive assignments` }
   }
 
+  // CI-6F (additive): reviewer availability/workload control — a reviewer who
+  // has paused availability receives no new assignments until they resume.
+  if ((reviewerProfile as { availability?: string }).availability === 'PAUSED') {
+    return { ok: false, status: 409, error: `reviewer ${reviewerProfile.reviewerCode} has paused availability — no new assignments are received until they resume` }
+  }
+
   // Admin COI check: a declared conflict refuses the assignment outright.
   if (data.coiCheck === 'CONFLICT_FOUND') {
     return { ok: false, status: 409, error: 'conflict of interest recorded for this reviewer/subject — assignment refused; choose an independent reviewer (the COI note is preserved in the audit trail only via a recusal/reassignment record)' }

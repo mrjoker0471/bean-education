@@ -15,7 +15,8 @@
 // server-authorised, append-only event.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, ShieldCheck, ClipboardList, Languages, FlaskConical, FileSearch, Users, RefreshCw } from 'lucide-react'
+import { Loader2, ShieldCheck, ClipboardList, Languages, FlaskConical, FileSearch, Users, RefreshCw, FileCheck } from 'lucide-react'
+import { Ci6VerificationWorkbench } from '@/components/bean/ci6-verification-workbench'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -115,7 +116,7 @@ interface AuditDTO {
   ambiguousCount: number
 }
 
-type AdminTab = 'reviewers' | 'assignments' | 'language' | 'benchmarks' | 'audits'
+type AdminTab = 'reviewers' | 'assignments' | 'language' | 'benchmarks' | 'audits' | 'verification'
 
 export function AdminCi5GovernancePanel() {
   const [tab, setTab] = useState<AdminTab>('reviewers')
@@ -168,6 +169,8 @@ export function AdminCi5GovernancePanel() {
     { id: 'language', label: 'Language', icon: Languages },
     { id: 'benchmarks', label: 'Benchmarks', icon: FlaskConical },
     { id: 'audits', label: 'Report audits', icon: FileSearch },
+    // CI-6C (additive): independent credential verification workbench
+    { id: 'verification', label: 'Verification', icon: FileCheck },
   ]
 
   return (
@@ -306,6 +309,9 @@ export function AdminCi5GovernancePanel() {
               ))
             )
           )}
+
+          {/* CI-6C (additive): independent credential verification workbench */}
+          {tab === 'verification' && <Ci6VerificationWorkbench />}
         </div>
       )}
     </div>
@@ -323,6 +329,7 @@ interface MeProfile {
     scope: { approvedDomains: string[]; approvedLanguages: { tag: string; tasks: string[] }[] }
     qualificationCategory: string | null
     expiresAt: string | null
+    availability?: string
   } | null
   events: { id: string; eventType: string; rationale: string | null; createdAt: string }[]
 }
@@ -399,6 +406,18 @@ export function Ci5ReviewerWorkspace() {
       await load()
     } catch (err) {
       toast({ title: 'Could not recuse', description: err instanceof Error ? err.message : 'refused', variant: 'destructive' })
+    } finally { setBusy(null) }
+  }
+
+  // CI-6F (additive): availability / workload control.
+  const setAvailability = async (availability: 'AVAILABLE' | 'PAUSED') => {
+    setBusy('availability')
+    try {
+      await api.post('/api/ci5/reviewer/availability', { availability })
+      toast({ title: availability === 'PAUSED' ? 'Availability paused' : 'Availability resumed', description: availability === 'PAUSED' ? 'You will receive no new assignments until you resume; in-flight work is unaffected.' : 'You are eligible for new scoped assignments again.' })
+      await load()
+    } catch (err) {
+      toast({ title: 'Could not update availability', description: err instanceof Error ? err.message : 'refused', variant: 'destructive' })
     } finally { setBusy(null) }
   }
 
@@ -509,6 +528,36 @@ export function Ci5ReviewerWorkspace() {
           {p.scope.approvedLanguages.length ? `${p.scope.approvedDomains.length ? ' · ' : ''}languages ${p.scope.approvedLanguages.map((l) => `${l.tag}(${l.tasks.join('/')})`).join(', ')}` : ''}
           {!p.scope.approvedDomains.length && !p.scope.approvedLanguages.length ? 'none yet' : ''}
         </p>
+        {/* CI-6F (additive): availability / workload control — pausing stops new
+            assignments server-side; in-flight work is unaffected. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            Availability: <span className={p.availability === 'PAUSED' ? 'font-medium text-amber-600 dark:text-amber-400' : 'font-medium text-success'}>{p.availability?.toLowerCase() ?? 'available'}</span>
+          </span>
+          {p.availability !== 'PAUSED' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-[44px] border-amber-500/40 bg-transparent text-amber-600 dark:text-amber-400"
+              onClick={() => void setAvailability('PAUSED')}
+              disabled={busy === 'availability'}
+              data-testid="ci5-availability-pause"
+            >
+              Pause new assignments
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-[44px] border-success/40 bg-transparent text-success"
+              onClick={() => void setAvailability('AVAILABLE')}
+              disabled={busy === 'availability'}
+              data-testid="ci5-availability-resume"
+            >
+              Resume availability
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Assignments */}

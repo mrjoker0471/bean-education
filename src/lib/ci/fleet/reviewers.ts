@@ -37,6 +37,9 @@ export const REVIEWER_STATUS = [
   'EXPIRED',
   'REVOKED',
   'REJECTED',
+  // CI-6B (additive): applicant-initiated withdrawal. Terminal — a withdrawn
+  // application never auto-reopens; the audit trail keeps the full history.
+  'WITHDRAWN',
 ] as const
 export type ReviewerStatus = (typeof REVIEWER_STATUS)[number]
 
@@ -58,6 +61,22 @@ export const REVIEWER_EVENT_TYPES = [
   'REJECTED',
   'SCOPE_UPDATED',
   'COI_DECLARED',
+  // CI-6B (additive): application onboarding events — evidence lifecycle,
+  // information-request loop, explicit consent, applicant withdrawal.
+  'EVIDENCE_UPLOADED',
+  'EVIDENCE_PURGED',
+  'INFO_REQUESTED',
+  'INFO_ANSWERED',
+  'APPLICATION_WITHDRAWN',
+  'CONSENT_RECORDED',
+  // CI-6C (additive): a credential verification examination was recorded by an
+  // authorised administrator (append-only ExpertVerificationRecord + event).
+  'CREDENTIAL_VERIFICATION_RECORDED',
+  // CI-6E (additive): the account claimed an expert invitation (advisory link
+  // only — no privilege is granted by claiming).
+  'INVITATION_CLAIMED',
+  // CI-6F (additive): the reviewer changed their availability/workload state.
+  'AVAILABILITY_CHANGED',
 ] as const
 export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
 
@@ -67,14 +86,15 @@ export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
  * and by admins (explicit renewal re-review path).
  */
 export const REVIEWER_TRANSITIONS: Readonly<Record<ReviewerStatus, readonly ReviewerStatus[]>> = {
-  APPLICATION_PENDING: ['QUALIFICATION_REVIEW', 'REJECTED'],
-  QUALIFICATION_REVIEW: ['APPROVED', 'REJECTED'],
+  APPLICATION_PENDING: ['QUALIFICATION_REVIEW', 'REJECTED', 'WITHDRAWN'],
+  QUALIFICATION_REVIEW: ['APPROVED', 'REJECTED', 'WITHDRAWN'],
   APPROVED: ['ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'],
   ACTIVE: ['SUSPENDED', 'REVOKED', 'EXPIRED'],
   SUSPENDED: ['ACTIVE', 'REVOKED', 'EXPIRED'],
   EXPIRED: ['QUALIFICATION_REVIEW', 'REVOKED'],
   REVOKED: [],
   REJECTED: [],
+  WITHDRAWN: [],
 }
 
 // Statuses from which an admin action route may administer the profile at all.
@@ -104,6 +124,11 @@ export interface ReviewerProfileRow {
   approvedLanguages: string // JSON [{ tag, tasks, domains? }]
   qualificationCategory: string | null
   professionalExperience: string | null
+  // CI-6B application detail (additive columns; advisory only).
+  institutionAffiliation: string | null
+  specialtiesJson: string
+  applicationConsentAt: Date | null
+  // UNVERIFIED | DOCUMENT_REVIEWED | REFERENCED_VERIFIED
   verificationStatus: string
   verificationNote: string | null
   issuingBody: string | null
@@ -112,6 +137,15 @@ export interface ReviewerProfileRow {
   conflictOfInterest: string
   suspendedReason: string | null
   revokedReason: string | null
+  // CI-6F availability control (additive column; AVAILABLE | PAUSED).
+  availability: string
+  // CI-6D disclosure columns (additive; consent-gated public projection).
+  profileVisibility: string
+  disclosureConsentAt: Date | null
+  publicDisplayName: string | null
+  professionalSummary: string | null
+  availabilityNote: string | null
+  disclosedAffiliation: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -393,6 +427,24 @@ const applicationInputSchema = z.object({
   qualificationCategory: z.string().max(160).optional(),
   professionalExperience: z.string().max(2000).optional(),
   issuingBody: z.string().max(160).optional(),
+  // CI-6B (additive, optional): institution/professional affiliation where
+  // applicable and the applicant's selected specialties within their proposed
+  // domains. Advisory — the admin-approved scope stays authoritative.
+  institutionAffiliation: z.string().max(200).optional(),
+  specialties: z.array(z.string().min(1).max(80)).max(12).optional(),
+  /**
+   * CI-6B explicit consent: the applicant reviewed the exact information being
+   * submitted and its intended use (credential verification + reviewer
+   * process) and consents to it. Must be literal true when present; the
+   * CONSENT_RECORDED event + applicationConsentAt timestamp prove it.
+   */
+  consentGranted: z.literal(true).optional(),
+  /**
+   * CI-6E (optional): an expert invitation CLAIMED by THIS account. Linked as
+   * provenance only — claiming never grants any privilege, and the server
+   * re-validates the claim binding (invitation.claimedByStudentId === actor).
+   */
+  invitationId: z.string().min(4).max(64).optional(),
   /** Explicit conflict-of-interest declaration — "none declared" must be explicit. */
   conflictOfInterest: z.string().min(4, 'conflict-of-interest declaration required (explicitly state "none declared" if none)').max(2000),
   /** PROPOSED scope — advisory only; the admin-approved scope is authoritative. */
@@ -409,6 +461,7 @@ export async function submitReviewerApplication(
   db: ReviewerDb,
   actor: { studentId: string; displayName: string },
   input: unknown,
+  options: { invitationLink?: { id: string } } = {},
 ): Promise<ReviewerOpResult> {
   const parsed = applicationInputSchema.safeParse(input)
   if (!parsed.success) {
@@ -430,6 +483,11 @@ export async function submitReviewerApplication(
       qualificationCategory: data.qualificationCategory ?? null,
       professionalExperience: data.professionalExperience ?? null,
       issuingBody: data.issuingBody ?? null,
+      // CI-6B additive application detail. No qualification/verification/scope
+      // state is writable here — those remain admin-only paths.
+      institutionAffiliation: data.institutionAffiliation ?? null,
+      specialtiesJson: JSON.stringify(data.specialties ?? []),
+      applicationConsentAt: data.consentGranted === true ? new Date() : null,
     },
   })
   await db.expertReviewerEvent.create({
@@ -438,12 +496,19 @@ export async function submitReviewerApplication(
       eventType: 'APPLICATION_SUBMITTED',
       actorKind: 'REVIEWER',
       actorId: actor.studentId,
-      rationale: `reviewer application submitted (${data.category})`,
+      rationale: `reviewer application submitted (${data.category})${options.invitationLink ? ` via claimed invitation ${options.invitationLink.id}` : ''}`,
       payload: JSON.stringify({
         proposedDomains: data.proposedDomains ?? [],
         proposedLanguages: data.proposedLanguages ?? [],
         qualificationCategory: data.qualificationCategory ?? null,
         issuingBody: data.issuingBody ?? null,
+        // CI-6B: the exact information the applicant reviewed before consent.
+        institutionAffiliation: data.institutionAffiliation ?? null,
+        specialties: data.specialties ?? [],
+        consentGranted: data.consentGranted === true,
+        // CI-6E: invitation provenance (validated by the caller — claimed by
+        // this account). Provenance only; claiming never grants privileges.
+        invitationId: options.invitationLink?.id ?? null,
       }),
     },
   })
@@ -456,6 +521,17 @@ export async function submitReviewerApplication(
       rationale: data.conflictOfInterest.slice(0, 2000),
     },
   })
+  if (data.consentGranted === true) {
+    await db.expertReviewerEvent.create({
+      data: {
+        profileId: created.id,
+        eventType: 'CONSENT_RECORDED',
+        actorKind: 'REVIEWER',
+        actorId: actor.studentId,
+        rationale: 'applicant reviewed the exact submitted information and its intended use (credential verification + reviewer process) and consented',
+      },
+    })
+  }
   return { ok: true, profile: created }
 }
 

@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
         conflictOfInterest: p.conflictOfInterest,
         suspendedReason: p.suspendedReason,
         revokedReason: p.revokedReason,
+        availability: p.availability,
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,
       })),
