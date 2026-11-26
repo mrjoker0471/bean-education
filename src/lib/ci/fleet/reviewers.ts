@@ -37,6 +37,9 @@ export const REVIEWER_STATUS = [
   'EXPIRED',
   'REVOKED',
   'REJECTED',
+  // CI-6B (additive): applicant-initiated withdrawal. Terminal — a withdrawn
+  // application never auto-reopens; the audit trail keeps the full history.
+  'WITHDRAWN',
 ] as const
 export type ReviewerStatus = (typeof REVIEWER_STATUS)[number]
 
@@ -58,6 +61,14 @@ export const REVIEWER_EVENT_TYPES = [
   'REJECTED',
   'SCOPE_UPDATED',
   'COI_DECLARED',
+  // CI-6B (additive): application onboarding events — evidence lifecycle,
+  // information-request loop, explicit consent, applicant withdrawal.
+  'EVIDENCE_UPLOADED',
+  'EVIDENCE_PURGED',
+  'INFO_REQUESTED',
+  'INFO_ANSWERED',
+  'APPLICATION_WITHDRAWN',
+  'CONSENT_RECORDED',
 ] as const
 export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
 
@@ -67,14 +78,15 @@ export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
  * and by admins (explicit renewal re-review path).
  */
 export const REVIEWER_TRANSITIONS: Readonly<Record<ReviewerStatus, readonly ReviewerStatus[]>> = {
-  APPLICATION_PENDING: ['QUALIFICATION_REVIEW', 'REJECTED'],
-  QUALIFICATION_REVIEW: ['APPROVED', 'REJECTED'],
+  APPLICATION_PENDING: ['QUALIFICATION_REVIEW', 'REJECTED', 'WITHDRAWN'],
+  QUALIFICATION_REVIEW: ['APPROVED', 'REJECTED', 'WITHDRAWN'],
   APPROVED: ['ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'],
   ACTIVE: ['SUSPENDED', 'REVOKED', 'EXPIRED'],
   SUSPENDED: ['ACTIVE', 'REVOKED', 'EXPIRED'],
   EXPIRED: ['QUALIFICATION_REVIEW', 'REVOKED'],
   REVOKED: [],
   REJECTED: [],
+  WITHDRAWN: [],
 }
 
 // Statuses from which an admin action route may administer the profile at all.
@@ -104,6 +116,11 @@ export interface ReviewerProfileRow {
   approvedLanguages: string // JSON [{ tag, tasks, domains? }]
   qualificationCategory: string | null
   professionalExperience: string | null
+  // CI-6B application detail (additive columns; advisory only).
+  institutionAffiliation: string | null
+  specialtiesJson: string
+  applicationConsentAt: Date | null
+  // UNVERIFIED | DOCUMENT_REVIEWED | REFERENCED_VERIFIED
   verificationStatus: string
   verificationNote: string | null
   issuingBody: string | null
@@ -393,6 +410,18 @@ const applicationInputSchema = z.object({
   qualificationCategory: z.string().max(160).optional(),
   professionalExperience: z.string().max(2000).optional(),
   issuingBody: z.string().max(160).optional(),
+  // CI-6B (additive, optional): institution/professional affiliation where
+  // applicable and the applicant's selected specialties within their proposed
+  // domains. Advisory — the admin-approved scope stays authoritative.
+  institutionAffiliation: z.string().max(200).optional(),
+  specialties: z.array(z.string().min(1).max(80)).max(12).optional(),
+  /**
+   * CI-6B explicit consent: the applicant reviewed the exact information being
+   * submitted and its intended use (credential verification + reviewer
+   * process) and consents to it. Must be literal true when present; the
+   * CONSENT_RECORDED event + applicationConsentAt timestamp prove it.
+   */
+  consentGranted: z.literal(true).optional(),
   /** Explicit conflict-of-interest declaration — "none declared" must be explicit. */
   conflictOfInterest: z.string().min(4, 'conflict-of-interest declaration required (explicitly state "none declared" if none)').max(2000),
   /** PROPOSED scope — advisory only; the admin-approved scope is authoritative. */
@@ -430,6 +459,11 @@ export async function submitReviewerApplication(
       qualificationCategory: data.qualificationCategory ?? null,
       professionalExperience: data.professionalExperience ?? null,
       issuingBody: data.issuingBody ?? null,
+      // CI-6B additive application detail. No qualification/verification/scope
+      // state is writable here — those remain admin-only paths.
+      institutionAffiliation: data.institutionAffiliation ?? null,
+      specialtiesJson: JSON.stringify(data.specialties ?? []),
+      applicationConsentAt: data.consentGranted === true ? new Date() : null,
     },
   })
   await db.expertReviewerEvent.create({
@@ -444,6 +478,10 @@ export async function submitReviewerApplication(
         proposedLanguages: data.proposedLanguages ?? [],
         qualificationCategory: data.qualificationCategory ?? null,
         issuingBody: data.issuingBody ?? null,
+        // CI-6B: the exact information the applicant reviewed before consent.
+        institutionAffiliation: data.institutionAffiliation ?? null,
+        specialties: data.specialties ?? [],
+        consentGranted: data.consentGranted === true,
       }),
     },
   })
@@ -456,6 +494,17 @@ export async function submitReviewerApplication(
       rationale: data.conflictOfInterest.slice(0, 2000),
     },
   })
+  if (data.consentGranted === true) {
+    await db.expertReviewerEvent.create({
+      data: {
+        profileId: created.id,
+        eventType: 'CONSENT_RECORDED',
+        actorKind: 'REVIEWER',
+        actorId: actor.studentId,
+        rationale: 'applicant reviewed the exact submitted information and its intended use (credential verification + reviewer process) and consented',
+      },
+    })
+  }
   return { ok: true, profile: created }
 }
 

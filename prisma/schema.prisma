@@ -2153,6 +2153,16 @@ model ExpertReviewerProfile {
   approvedLanguages      String    @default("[]")
   qualificationCategory  String?   // e.g. "PhD Mathematics", "Bilingual Tamil–English educator"
   professionalExperience String?
+  // CI-6B application detail (additive): institution/professional affiliation
+  // where applicable, and the applicant's selected specialties WITHIN the
+  // proposed domains (JSON string[]). Advisory — the approved scope stays the
+  // server-controlled authority (approvedDomains/approvedLanguages).
+  institutionAffiliation String?
+  specialtiesJson        String    @default("[]")
+  // CI-6B explicit consent: the applicant reviewed the exact information
+  // submitted and its intended use (credential verification + reviewer
+  // process) and consented. Recorded as CONSENT_RECORDED event + timestamp.
+  applicationConsentAt   DateTime?
   // UNVERIFIED | DOCUMENT_REVIEWED | REFERENCED_VERIFIED (minimal result only)
   verificationStatus     String    @default("UNVERIFIED")
   verificationNote       String?
@@ -2448,6 +2458,51 @@ model ClassroomReportAuditReview {
 // error), a renewal DEMAND is recorded. Previous approvals are never erased —
 // the demand marks the current status appropriately and the resolution is a
 // new, reasoned, admin-authorised event.
+// ─── BEAN Classroom Intelligence (CI-6B): real expert application evidence ────
+// Supporting credential evidence for an expert application. Files live in the
+// RESTRICTED evidence store (db/evidence/, mode 0600, never web-served by any
+// ordinary profile endpoint); this table stores metadata + content hash only.
+// Possession of a document is never treated as proof of its authenticity —
+// verification is a separate human process (ExpertVerificationRecord, CI-6C).
+// FK-less on purpose: the audit trail survives account deletion (CI-5 rule).
+model ExpertCredentialEvidence {
+  id                 String    @id @default(cuid())
+  profileId          String // ExpertReviewerProfile.id (no FK, by design)
+  // CV | CERTIFICATE | LICENCE | EMPLOYMENT_RECORD | PUBLICATION | REFERENCE | OTHER
+  kind               String
+  fileName           String
+  byteSize           Int
+  sha256             String // content hash; purged files keep the hash
+  mimeType           String    // application/pdf | image/png | image/jpeg only
+  storagePath        String    // relative path inside the restricted store
+  // ACTIVE | PURGED — withdrawn/expired applications purge file bytes but
+  // keep the metadata + hash so the audit trail stays truthful.
+  retentionState     String    @default("ACTIVE")
+  purgedAt           DateTime?
+  purgedReason       String?
+  uploadedByStudentId String // server-resolved (never from the client)
+  createdAt          DateTime  @default(now())
+
+  @@index([profileId, createdAt])
+}
+
+// Admin request for additional information/evidence during application review.
+// The applicant answers in place; the loop is fully audited via reviewer events.
+model ExpertApplicationInfoRequest {
+  id                 String    @id @default(cuid())
+  profileId          String // ExpertReviewerProfile.id (no FK, by design)
+  requestText        String
+  status             String    @default("OPEN") // OPEN | ANSWERED
+  responseText       String?
+  requestedByAdminId String // server-resolved administrator
+  requestedAt        DateTime  @default(now())
+  answeredAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([profileId, status])
+}
+
 model ExpertReviewRenewalDemand {
   id          String    @id @default(cuid())
   subjectType String    // DOMAIN_PACK | LANGUAGE_CAPABILITY | CLASSROOM_REPORT
