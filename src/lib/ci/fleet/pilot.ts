@@ -508,6 +508,176 @@ export async function pilotEvaluationReadinessFromDb(
   })
 }
 
+// ─── CI-7G: controlled internal pilot activation, kill switch, rollback ──────
+// The restricted pilot activation ledger (`Ci7PilotActivation`, append-only).
+// DEFAULT IS DISABLED: no rows = never activated. ACTIVATED requires the
+// pack's EXISTING CI-4/CI-5 approval authority to have recorded the required
+// genuine approvals (curated status VERIFIED at the exact checksum) — CI-7
+// never bypasses an approval threshold. The kill switch (DEACTIVATED) and
+// ROLLED_BACK records are always available to authorised admins. The current
+// state is derived from the LATEST event; an activation bound to a stale
+// checksum (pack content changed since) is STALE — it does not apply and
+// re-review is required.
+
+export const CI7_PILOT_ACTIVATION_EVENTS = ['ACTIVATED', 'DEACTIVATED', 'REACTIVATED', 'ROLLED_BACK'] as const
+export type Ci7PilotActivationEventType = (typeof CI7_PILOT_ACTIVATION_EVENTS)[number]
+
+export interface Ci7PilotActivationDb {
+  ci7PilotActivation: {
+    create(args: { data: Record<string, unknown> }): Promise<{ id: string }>
+    findMany(args?: Record<string, unknown>): Promise<Array<Record<string, unknown> & { id: string; createdAt: Date }>>
+  }
+}
+
+export function ci7ActivationDbFromPrisma(client: unknown): Ci7PilotActivationDb {
+  return client as Ci7PilotActivationDb
+}
+
+export interface Ci7ActivationDecisionInput {
+  eventType?: unknown
+  packId?: unknown
+  packVersion?: unknown
+  packChecksum?: unknown
+  pilotScope?: unknown
+  protocolVersion?: unknown
+  reason?: unknown
+}
+
+export type Ci7ActivationRecordResult =
+  | { ok: true; eventId: string }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Record an activation-ledger event. ACTIVATED/REACTIVATED are gated on the
+ * pack's real curated status (genuine approvals recorded by the existing
+ * authority at the exact checksum); DEACTIVATED (kill switch) and
+ * ROLLED_BACK are always allowed for authorised admins — turning a pilot OFF
+ * must never be harder than turning it ON.
+ */
+export async function recordPilotActivationEvent(
+  db: Ci7PilotActivationDb,
+  admin: { studentId: string; displayName: string },
+  input: Ci7ActivationDecisionInput,
+  pack: DomainPack,
+  packChecksum: string,
+  curatedStatus: CuratedStatusResult | null,
+  now: Date = new Date(),
+): Promise<Ci7ActivationRecordResult> {
+  const eventType = typeof input.eventType === 'string' ? input.eventType : ''
+  if (!CI7_PILOT_ACTIVATION_EVENTS.includes(eventType as Ci7PilotActivationEventType)) {
+    return { ok: false, status: 400, error: `eventType must be one of ${CI7_PILOT_ACTIVATION_EVENTS.join(' | ')}` }
+  }
+  const packId = typeof input.packId === 'string' ? input.packId : ''
+  if (packId !== CI7_PILOT_DOMAIN_ID) {
+    return { ok: false, status: 400, error: `only the pilot subject ${CI7_PILOT_DOMAIN_ID} can be activated — no global or cross-domain activation exists` }
+  }
+  const version = typeof input.packVersion === 'string' ? input.packVersion : pack.packVersion
+  const checksum = typeof input.packChecksum === 'string' ? input.packChecksum : packChecksum
+  if (version !== pack.packVersion || checksum !== packChecksum) {
+    return { ok: false, status: 409, error: `activation must bind the CURRENT pack content (v${pack.packVersion}, checksum ${packChecksum.slice(0, 12)}…) — the requested binding is stale, re-review the current version first` }
+  }
+  const protocolVersion = typeof input.protocolVersion === 'string' ? input.protocolVersion : ''
+  if (protocolVersion !== CI7_PILOT_PROTOCOL_VERSION) {
+    return { ok: false, status: 400, error: `activation must name the current protocol version ${CI7_PILOT_PROTOCOL_VERSION}` }
+  }
+  const pilotScope = typeof input.pilotScope === 'string' ? input.pilotScope.trim() : ''
+  if ((eventType === 'ACTIVATED' || eventType === 'REACTIVATED') && pilotScope.length < 10) {
+    return { ok: false, status: 400, error: 'pilotScope is required (min 10 chars) — the activation names its exact bounded scope; global enablement does not exist' }
+  }
+  const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
+  if (reason.length < 10) {
+    return { ok: false, status: 400, error: 'a reason of at least 10 characters is required (audit trail)' }
+  }
+  if (eventType === 'ACTIVATED' || eventType === 'REACTIVATED') {
+    // THE GATE: genuine approvals recorded by the existing authority.
+    if (!curatedStatus || curatedStatus.status !== 'VERIFIED') {
+      return {
+        ok: false,
+        status: 409,
+        error: `the pack has not earned activation: curated status is ${curatedStatus?.status ?? 'unavailable'} — restricted pilot activation requires the existing CI-4/CI-5 approval authority to have recorded the required genuine approvals for this exact version + checksum`,
+      }
+    }
+  }
+  const created = await db.ci7PilotActivation.create({
+    data: {
+      eventType,
+      packId,
+      packVersion: version,
+      packChecksum: checksum,
+      pilotScope: pilotScope.length > 0 ? pilotScope : `${eventType.toLowerCase()} — the previously recorded scope no longer applies`,
+      protocolVersion,
+      reason,
+      actorAdminId: admin.studentId,
+      actorAdminName: admin.displayName,
+    },
+  })
+  return { ok: true, eventId: created.id }
+}
+
+export interface Ci7PilotActivationState {
+  state: 'DISABLED' | 'ACTIVE' | 'DEACTIVATED' | 'ROLLED_BACK' | 'STALE'
+  currentStatus: string
+  latestEvent: Record<string, unknown> | null
+  activatedChecksum: string | null
+  currentChecksum: string | null
+  reReviewRequired: boolean
+  note: string
+}
+
+/**
+ * Derive the CURRENT activation state from the append-only event ledger —
+ * latest event governs; DEFAULT IS DISABLED. If the pack content has changed
+ * since the latest ACTIVATED event (checksum drift), the state is STALE: the
+ * activation does not apply and a version-bound re-review is required.
+ */
+export function resolvePilotActivationState(
+  events: ReadonlyArray<Record<string, unknown> & { id: string; eventType: string; packChecksum: string; createdAt: Date }>,
+  currentChecksum: string | null,
+): Ci7PilotActivationState {
+  const sorted = [...events].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  const latest = sorted.length > 0 ? sorted[sorted.length - 1] : null
+  const activatedChecksum = latest && (latest.eventType === 'ACTIVATED' || latest.eventType === 'REACTIVATED') ? latest.packChecksum : null
+  if (!latest) {
+    return {
+      state: 'DISABLED',
+      currentStatus: 'DISABLED',
+      latestEvent: null,
+      activatedChecksum: null,
+      currentChecksum,
+      reReviewRequired: false,
+      note: 'DISABLED — the default. The pilot has never been activated: no activation event exists, and activation requires the pack to earn it through genuine approvals first.',
+    }
+  }
+  if (activatedChecksum && currentChecksum && activatedChecksum !== currentChecksum) {
+    return {
+      state: 'STALE',
+      currentStatus: 'STALE — NOT ACTIVE',
+      latestEvent: latest,
+      activatedChecksum,
+      currentChecksum,
+      reReviewRequired: true,
+      note: 'STALE — the pack content changed since the last activation; the previous activation no longer applies and a version-bound re-review is required before any restricted use',
+    }
+  }
+  const state = latest.eventType === 'ACTIVATED' || latest.eventType === 'REACTIVATED'
+    ? 'ACTIVE'
+    : latest.eventType === 'ROLLED_BACK' ? 'ROLLED_BACK' : 'DEACTIVATED'
+  const notes: Record<string, string> = {
+    ACTIVE: 'ACTIVE — restricted pilot use per the recorded scope; the binding is the exact version + checksum on the latest event',
+    DEACTIVATED: 'DEACTIVATED — kill switch engaged; the pilot is off (audit trail preserved)',
+    ROLLED_BACK: 'ROLLED_BACK — restored to the previous safe state; the pilot is off (audit trail preserved)',
+  }
+  return {
+    state,
+    currentStatus: state,
+    latestEvent: latest,
+    activatedChecksum: activatedChecksum,
+    currentChecksum,
+    reReviewRequired: false,
+    note: notes[state] ?? 'unknown state',
+  }
+}
+
 // ─── CI-7C: expert cohort activation — pilot participation consent ───────────
 // The cohort is NOT a second onboarding system: it reuses the existing CI-6
 // flow (INVITE → APPLY → EVIDENCE → INDEPENDENT VERIFICATION → QUALIFICATION
