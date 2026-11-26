@@ -1261,26 +1261,41 @@
           "summary": "Production readiness and acceptance (docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md): full suite 1740/0 across 124 files (baseline 1677 + 63 CI-6 tests); tsc exit 0; eslint exit 0; prisma validate clean; ALL 20 migrations applied clean on a fresh database (prisma migrate deploy, output verified); production build exit 0 (standalone server produced; sandbox OOM note recorded honestly — builds succeed after freeing memory or in CI); real-browser walkthrough of the production standalone server on the disposable fixture DB with 13 genuine screenshots (docs/screenshots/ci6-verify/) incl. honest empty expert directory, one-time invitation reveal, activation reporting grid, reviewer workspace with availability + completed review history, and 768/390/320 responsive checks (no horizontal overflow at any width); golden path executed end-to-end through REAL routes (invitation -> claim -> application with consent -> evidence upload magic-byte validated -> VERIFIED examination bound to the examined document -> qualification APPROVED with explicit scope -> ACTIVATED -> checksum-bound assignment -> A-F rubric pack review -> COMPLETED with outcomeRef) with the checksum-freshness guard provably refusing an unbound attempt; honest states preserved: production packs IN_REVIEW, languages unmeasured/LIMITED, TRANSCRIPTION structurally UNSUPPORTED, verified-expert count 0, real completed reviews 0."
         }
       ],
-      "remoteFeatureSha": "a41059fe1dd2a1ddbe27f1bf1f235356b95d06fd",
-      "pushVerifiedAt": "2026-11-26T05:52:00Z",
+      "remoteFeatureSha": "0970ff27e974680b11602d7e27c6bd8b880fb854",
+      "pushVerifiedAt": "2026-11-26T06:35:00Z",
       "pr": {
-        "number": null,
-        "state": "NONE",
-        "url": null
+        "number": 49,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/49"
       },
       "ci": [
         {
           "runId": "45762839116",
           "conclusion": "SUCCESS",
-          "subject": "push-event run on feature tip a41059f (feat/bean-classroom-intelligence-ci6) — quality job 139716620127 completed with all steps green (Set up job; Check out repository; Set up Bun 1.3.14; Install dependencies frozen lockfile; Generate Prisma client; Push schema to the isolated CI database; Lint; TypeScript; Tests; Production build; post steps; Complete job). Verified from GitHub's server-rendered commit-checks page and run page (authoritative embedded check-step data: 13/13 steps data-conclusion=\"success\", data-job-status=\"completed\") — the REST API was rate-limited on the shared sandbox egress IP, so conclusions were read from the rendered check-step records, not assumed"
+          "subject": "push-event run on feature tip a41059f (feat/bean-classroom-intelligence-ci6) — quality job 139716620127 completed with all steps green; verified from GitHub's server-rendered commit-checks page (13/13 data-conclusion=\"success\") while the REST API was rate-limited on the shared sandbox egress IP — conclusions read from rendered check-step records, not assumed"
+        },
+        {
+          "runId": "45764498434",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on final feature tip 0970ff2 (ledger close-out of push verification) — quality job 139722030763 completed, 13/13 steps green; verified from the commit-checks page rendered records (REST API rate-limited)"
+        },
+        {
+          "runId": "45765342232",
+          "conclusion": "SUCCESS",
+          "subject": "pull_request run for PR #49 on head 0970ff2 — quality job 139724785047 completed, 13/13 steps green (Set up job; Check out repository; Set up Bun 1.3.14; Install dependencies frozen lockfile; Generate Prisma client; Push schema to the isolated CI database; Lint; TypeScript; Tests; Production build; post steps; Complete job); verified from the run/job page server-rendered check-step records (REST API rate-limited on the shared sandbox egress IP)"
+        },
+        {
+          "runId": "45765355796",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on main at merge commit 54a2d94 — quality job 139724830162 completed, 13/13 steps green; verified from the merge commit's own checks page rendered records (REST API rate-limited)"
         }
       ],
-      "finalMainSha": null,
-      "syncStatus": "PENDING",
-      "status": "IN_PROGRESS",
+      "finalMainSha": "54a2d94bd7d107b8fc860b4cfe58d03c2b9872ec",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md",
-      "ciNote": "CI-6 opened from verified main 643d568 (PR #48 merge; CI-5 COMPLETE record untouched). Sandbox reset between sessions: the previously registered deploy key private half was lost — a fresh ed25519 keypair was generated (public key delivered to the owner for registration) and every unit commit is made locally in order; each will be pushed as a normal non-force fast-forward the moment push auth is available, with remoteVerifiedSha fields recording pending-push until git ls-remote verifies. Unit discipline held: every unit ran its targeted tests + CI-5 regression suites + full-suite check before commit. CI-6H acceptance: suite 1740/0, tsc 0, lint 0, prisma valid, all 20 migrations green on a fresh DB, production build exit 0, browser walkthrough with 13 genuine screenshots and no horizontal overflow at 768/390/320. HONEST FINAL STATE: software readiness delivered; real-world activation ZERO — no real experts, credentials, verifications, approvals or measurements exist; every real count reads zero in production until the operational flow (docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) produces genuinely verified records. CI-6 status becomes COMPLETE only after all units are in main and verified there per the milestone rule. PUSH VERIFIED 2026-11-26: normal fast-forward push (new branch creation, no force flag) landed tip a41059fe1dd2a1ddbe27f1bf1f235356b95d06fd on origin; verified via git ls-remote over both SSH (git protocol) and HTTPS transports; all ten commits individually proven reachable from the remote tip with git merge-base --is-ancestor and git rev-list --count main..remote = 10. No PR created by the agent (deploy key authorizes git transport only — PR creation stays with the owner). Owner review link: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci6",
-      "updatedAt": "2026-11-26T05:55:00Z"
+      "ciNote": "CI-6 opened from verified main 643d568 (PR #48 merge; CI-5 COMPLETE record untouched). Sandbox reset between sessions: the previously registered deploy key private half was lost — a fresh ed25519 keypair was generated (public key delivered to the owner for registration) and every unit commit is made locally in order; each will be pushed as a normal non-force fast-forward the moment push auth is available, with remoteVerifiedSha fields recording pending-push until git ls-remote verifies. Unit discipline held: every unit ran its targeted tests + CI-5 regression suites + full-suite check before commit. CI-6H acceptance: suite 1740/0, tsc 0, lint 0, prisma valid, all 20 migrations green on a fresh DB, production build exit 0, browser walkthrough with 13 genuine screenshots and no horizontal overflow at 768/390/320. HONEST FINAL STATE: software readiness delivered; real-world activation ZERO — no real experts, credentials, verifications, approvals or measurements exist; every real count reads zero in production until the operational flow (docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) produces genuinely verified records. CI-6 status becomes COMPLETE only after all units are in main and verified there per the milestone rule. PUSH VERIFIED 2026-11-26: normal fast-forward push (new branch creation, no force flag) landed tip a41059fe1dd2a1ddbe27f1bf1f235356b95d06fd on origin; verified via git ls-remote over both SSH (git protocol) and HTTPS transports; all ten commits individually proven reachable from the remote tip with git merge-base --is-ancestor and git rev-list --count main..remote = 10. No PR created by the agent (deploy key authorizes git transport only — PR creation stays with the owner). Owner review link: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci6 MERGE VERIFIED 2026-11-26: PR #49 merged by the owner as merge commit 54a2d94bd7d107b8fc860b4cfe58d03c2b9872ec. Verification method: (1) git fetch origin + git ls-remote over SSH — origin/main returned exactly the owner-stated SHA; (2) topology proven from the fetched object — 54a2d94 is a merge commit with parents 643d568 (previous main) and 0970ff2 (final published feature tip), subject 'Merge pull request #49 from mrjoker0471/feat/bean-classroom-intelligence-ci6'; (3) all 11 CI-6 commits individually proven reachable from origin/main via git merge-base --is-ancestor (11/11, zero missing); (4) CI verified without assumption — REST API rate-limited, so conclusions were read from GitHub's server-rendered run/job/checks pages: pull_request run 45765342232 (job 139724785047, 13/13 steps green) and main push run 45765355796 on the merge commit (job 139724830162, 13/13 steps green). Status promoted to COMPLETE/SYNCHRONIZED only after all four gates passed. HONEST ACTIVATION STATUS UNCHANGED BY THE MERGE: verified real experts 0, real completed expert reviews 0, production domain packs remain IN_REVIEW, language capabilities remain unmeasured/LIMITED, TRANSCRIPTION remains structurally UNSUPPORTED — the merge integrates software readiness only; real-world activation (recruiting, verifying and onboarding genuine experts per docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) remains an owner-side operational step that has not occurred.",
+      "updatedAt": "2026-11-26T06:35:00Z"
     }
   ],
   "branchReconciliation": {
