@@ -1,8 +1,11 @@
 'use client'
 
-// ─── BEAN Classroom Intelligence (CI-6C): independent verification workbench ───
+// ─── BEAN Classroom Intelligence (CI-6C/6E): verification workbench + invitations ──
 // Administrator surface for verifying REAL expert applicants, wired to the
 // REAL backend APIs only (no mock data, no fabricated third-party results):
+//   • Invitation operations (CI-6E): create single-use expiring invitations
+//     (raw token shown exactly once, copied manually — no email delivery is
+//     claimed), track status, revoke unused ones.
 //   • Queue of open applications (account association included — authorised
 //     personnel only).
 //   • Per-application workbench: application detail, credential-evidence
@@ -197,6 +200,7 @@ export function Ci6VerificationWorkbench() {
 
   return (
     <div className="space-y-4" data-testid="ci6-verification-workbench">
+      <InvitationsSection />
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">Independent, human, append-only verification. Verification records never change reviewer status by themselves.</p>
         <Button variant="outline" size="sm" className="min-h-[44px] shrink-0 border-border bg-elevated" onClick={() => void loadQueue()} aria-label="Refresh queue">
@@ -385,6 +389,138 @@ export function Ci6VerificationWorkbench() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── CI-6E: invitation & recruitment operations (admin-controlled) ─────────────
+
+interface InvitationRow {
+  id: string
+  category: string
+  status: string
+  expiresAt: string
+  claimedAt: string | null
+  revokedReason: string | null
+  note: string | null
+  requestedDomains: string[]
+  requestedLanguages: { tag: string; tasks: string[] }[]
+  createdByAdminId: string
+  createdAt: string
+}
+
+function InvitationsSection() {
+  const [invitations, setInvitations] = useState<InvitationRow[]>([])
+  const [category, setCategory] = useState('DOMAIN_EXPERT')
+  const [domains, setDomains] = useState('')
+  const [note, setNote] = useState('')
+  const [validDays, setValidDays] = useState('14')
+  const [busy, setBusy] = useState(false)
+  const [revealed, setRevealed] = useState<{ rawToken: string; claimUrl: string } | null>(null)
+
+  const load = useCallback(async () => {
+    const data = await api.get<{ invitations: InvitationRow[] }>('/api/admin/ci6/invitations').catch(() => ({ invitations: [] }))
+    setInvitations(data.invitations)
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function create() {
+    setBusy(true)
+    try {
+      const res = await api.post<{ rawToken: string; claimUrl: string }>('/api/admin/ci6/invitations', {
+        category,
+        requestedDomains: domains.split(',').map((d) => d.trim()).filter(Boolean),
+        note: note.trim() || undefined,
+        validDays: Number(validDays) || 14,
+      })
+      setRevealed({ rawToken: res.rawToken, claimUrl: res.claimUrl })
+      toast({ title: 'Invitation created', description: 'Copy the claim link now — it is shown once and never stored.' })
+      await load()
+    } catch (err) {
+      toast({ title: 'Creation refused', description: err instanceof Error ? err.message : 'request failed', variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function revoke(id: string) {
+    const reason = window.prompt('Revocation reason (min 10 chars):')
+    if (!reason) return
+    setBusy(true)
+    try {
+      await api.post(`/api/admin/ci6/invitations/${id}/revoke`, { reason })
+      toast({ title: 'Invitation revoked' })
+      await load()
+    } catch (err) {
+      toast({ title: 'Revocation refused', description: err instanceof Error ? err.message : 'request failed', variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function copyClaimLink() {
+    if (!revealed) return
+    const url = `${window.location.origin}${window.location.pathname}${revealed.claimUrl}`
+    void navigator.clipboard?.writeText(url).then(() => toast({ title: 'Claim link copied', description: 'Share it through your own secure channel — no email is sent by BEAN.' })).catch(() => toast({ title: 'Copy the link manually', description: revealed.claimUrl }))
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-elevated/60 p-4" data-testid="ci6-invitations">
+      <p className="text-sm font-medium">Expert invitations</p>
+      <p className="mt-1 text-xs text-muted-foreground">Single-use, expiring, revocable. The raw token is shown exactly once (hash-only storage) — copy the secure claim link and share it yourself. No unsolicited email is sent; claiming never grants privileges.</p>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <div>
+          <label htmlFor="ci6-inv-cat" className="text-xs text-muted-foreground">Requested category</label>
+          <select id="ci6-inv-cat" aria-label="Invitation category" value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1 min-h-[44px] w-full rounded border border-border bg-elevated px-3 text-sm">
+            <option value="DOMAIN_EXPERT">DOMAIN_EXPERT</option>
+            <option value="BILINGUAL_LANGUAGE">BILINGUAL_LANGUAGE</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="ci6-inv-dom" className="text-xs text-muted-foreground">Requested domains (comma-separated, advisory)</label>
+          <input id="ci6-inv-dom" aria-label="Requested domains" value={domains} onChange={(e) => setDomains(e.target.value)} className="mt-1 min-h-[44px] w-full rounded border border-border bg-elevated px-3 text-sm" />
+        </div>
+        <div>
+          <label htmlFor="ci6-inv-days" className="text-xs text-muted-foreground">Valid for (days, max 90)</label>
+          <input id="ci6-inv-days" aria-label="Validity days" type="number" min="1" max="90" value={validDays} onChange={(e) => setValidDays(e.target.value)} className="mt-1 min-h-[44px] w-full rounded border border-border bg-elevated px-3 text-sm" />
+        </div>
+        <div>
+          <label htmlFor="ci6-inv-note" className="text-xs text-muted-foreground">Note to the applicant (optional)</label>
+          <input id="ci6-inv-note" aria-label="Invitation note" value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 min-h-[44px] w-full rounded border border-border bg-elevated px-3 text-sm" />
+        </div>
+      </div>
+      <Button size="sm" className="mt-3 min-h-[44px] bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => void create()} disabled={busy} data-testid="ci6-create-invitation">
+        Create invitation
+      </Button>
+
+      {revealed && (
+        <div className="mt-3 rounded border border-gold/40 bg-gold/5 p-3" data-testid="ci6-invitation-reveal">
+          <p className="text-xs font-medium text-gold">Shown exactly once — copy now</p>
+          <p className="mt-1 break-all font-mono text-xs">{revealed.claimUrl}</p>
+          <Button size="sm" variant="outline" className="mt-2 min-h-[44px] border-gold/40 bg-transparent text-gold" onClick={copyClaimLink}>Copy claim link</Button>
+        </div>
+      )}
+
+      <ul className="mt-4 space-y-2" data-testid="ci6-invitation-list">
+        {invitations.length === 0 && <li className="text-xs text-muted-foreground">No invitations created yet.</li>}
+        {invitations.map((inv) => (
+          <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-page/40 px-3 py-2 text-xs" data-testid="ci6-invitation-row">
+            <span className="min-w-0">
+              <span className="font-medium">{inv.category}</span>
+              <span className="ml-2 rounded border border-border bg-elevated px-1.5 py-0.5 text-[10px] text-muted-foreground">{inv.status.toLowerCase()}</span>
+              <span className="ml-2 text-muted-foreground">expires {new Date(inv.expiresAt).toLocaleDateString()}{inv.requestedDomains.length > 0 ? ` · ${inv.requestedDomains.join(', ')}` : ''}</span>
+              {inv.status === 'CLAIMED' && inv.claimedAt && <span className="ml-2 text-muted-foreground">claimed {new Date(inv.claimedAt).toLocaleDateString()}</span>}
+              {inv.revokedReason && <span className="ml-2 text-muted-foreground">({inv.revokedReason})</span>}
+            </span>
+            {inv.status === 'PENDING' && (
+              <Button variant="outline" size="sm" className="min-h-[44px] border-destructive/40 bg-transparent text-destructive" onClick={() => void revoke(inv.id)} disabled={busy}>Revoke</Button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

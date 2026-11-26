@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStudent } from '@/lib/auth'
 import { submitReviewerApplication, reviewerDbFromPrisma } from '@/lib/ci/fleet/reviewers'
+import { invitationsDbFromPrisma, validateInvitationLink } from '@/lib/ci/fleet/invitations'
 import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -26,7 +27,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
     }
 
-    const result = await submitReviewerApplication(reviewerDbFromPrisma(db), { studentId: student.id, displayName: student.displayName ?? 'BEAN member' }, body)
+    // CI-6E: when the applicant references a claimed invitation, re-validate
+    // the server-side claim binding before linking it as provenance.
+    let invitationLink: { id: string } | undefined
+    if (typeof body.invitationId === 'string' && body.invitationId.length > 0) {
+      const link = await validateInvitationLink(invitationsDbFromPrisma(db), student.id, body.invitationId)
+      if (!link.ok) return NextResponse.json({ error: link.error }, { status: link.status })
+      invitationLink = { id: link.invitation.id }
+    }
+
+    const result = await submitReviewerApplication(reviewerDbFromPrisma(db), { studentId: student.id, displayName: student.displayName ?? 'BEAN member' }, body, { invitationLink })
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
     return NextResponse.json({
       profile: {

@@ -91,6 +91,11 @@ export function ExpertApplyView() {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [submitting, setSubmitting] = useState(false)
 
+  // CI-6E: invitation claim flow (?invite=<raw token> in the hash query).
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
+  const [claimedInvitation, setClaimedInvitation] = useState<{ invitationId: string; category: string; requestedDomains: string[] } | null>(null)
+  const [claiming, setClaiming] = useState(false)
+
   // form state
   const [category, setCategory] = useState<string>('DOMAIN_EXPERT')
   const [proposedDomains, setProposedDomains] = useState<string[]>([])
@@ -124,9 +129,35 @@ export function ExpertApplyView() {
   }, [])
 
   useEffect(() => {
+    // Parse ?invite=<token> from the hash query (SPA deep-link support).
+    const qIndex = window.location.hash.indexOf('?')
+    if (qIndex >= 0) {
+      const params = new URLSearchParams(window.location.hash.slice(qIndex + 1))
+      const invite = params.get('invite')
+      if (invite) setInviteToken(invite)
+    }
+  }, [])
+
+  useEffect(() => {
     if (authedStudent) void load()
     else setLoading(false)
   }, [authedStudent, load])
+
+  async function claimInvitation() {
+    if (!inviteToken) return
+    setClaiming(true)
+    try {
+      const data = await api.post<{ claim: { invitationId: string; category: string; requestedDomains: string[] } }>('/api/ci6/invitations/claim', { token: inviteToken })
+      setClaimedInvitation(data.claim)
+      setCategory(data.claim.category)
+      if (data.claim.requestedDomains.length > 0) setProposedDomains(data.claim.requestedDomains)
+      toast({ title: 'Invitation claimed', description: 'Complete the application below — claiming does not grant any reviewer privilege.' })
+    } catch (err) {
+      toast({ title: 'Claim refused', description: err instanceof Error ? err.message : 'request failed', variant: 'destructive' })
+    } finally {
+      setClaiming(false)
+    }
+  }
 
   async function submitApplication() {
     if (!conflictOfInterest.trim() || conflictOfInterest.trim().length < 4) {
@@ -149,6 +180,7 @@ export function ExpertApplyView() {
         specialties: specialties.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 12),
         proposedDomains: category === 'DOMAIN_EXPERT' ? proposedDomains : undefined,
         consentGranted: true,
+        invitationId: claimedInvitation?.invitationId,
       })
       toast({ title: 'Application submitted', description: 'Your application is pending credential verification. No expert privileges exist yet.' })
       setStep(1)
@@ -273,6 +305,21 @@ export function ExpertApplyView() {
 
       {!loading && !profile && (
         <section className="mt-6 space-y-6" data-testid="ci6-apply-form">
+          {inviteToken && !claimedInvitation && (
+            <div className="rounded-xl border border-gold/30 bg-gold/5 p-4" data-testid="ci6-invite-banner">
+              <p className="text-sm font-medium">You were invited to apply as an expert reviewer</p>
+              <p className="mt-1 text-xs text-muted-foreground">Claiming links this invitation to your account and pre-fills the requested scope. It does not grant any reviewer privilege — verification stays human and independent.</p>
+              <Button className="mt-3 min-h-[44px] bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => void claimInvitation()} disabled={claiming} data-testid="ci6-claim-invitation">
+                {claiming ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                Claim invitation
+              </Button>
+            </div>
+          )}
+          {claimedInvitation && (
+            <div className="rounded-xl border border-success/30 bg-success/5 p-4" data-testid="ci6-invite-claimed">
+              <p className="text-sm">Invitation claimed — requested category <span className="font-medium text-gold">{claimedInvitation.category}</span>{claimedInvitation.requestedDomains.length > 0 ? ` · domains: ${claimedInvitation.requestedDomains.join(', ')}` : ''}.</p>
+            </div>
+          )}
           {step === 1 && (
             <div className="rounded-xl border border-border bg-elevated/60 p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Step 1 of 3 — expertise area</p>

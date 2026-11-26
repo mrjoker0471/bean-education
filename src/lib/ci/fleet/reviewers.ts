@@ -72,6 +72,9 @@ export const REVIEWER_EVENT_TYPES = [
   // CI-6C (additive): a credential verification examination was recorded by an
   // authorised administrator (append-only ExpertVerificationRecord + event).
   'CREDENTIAL_VERIFICATION_RECORDED',
+  // CI-6E (additive): the account claimed an expert invitation (advisory link
+  // only — no privilege is granted by claiming).
+  'INVITATION_CLAIMED',
 ] as const
 export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
 
@@ -432,6 +435,12 @@ const applicationInputSchema = z.object({
    * CONSENT_RECORDED event + applicationConsentAt timestamp prove it.
    */
   consentGranted: z.literal(true).optional(),
+  /**
+   * CI-6E (optional): an expert invitation CLAIMED by THIS account. Linked as
+   * provenance only — claiming never grants any privilege, and the server
+   * re-validates the claim binding (invitation.claimedByStudentId === actor).
+   */
+  invitationId: z.string().min(4).max(64).optional(),
   /** Explicit conflict-of-interest declaration — "none declared" must be explicit. */
   conflictOfInterest: z.string().min(4, 'conflict-of-interest declaration required (explicitly state "none declared" if none)').max(2000),
   /** PROPOSED scope — advisory only; the admin-approved scope is authoritative. */
@@ -448,6 +457,7 @@ export async function submitReviewerApplication(
   db: ReviewerDb,
   actor: { studentId: string; displayName: string },
   input: unknown,
+  options: { invitationLink?: { id: string } } = {},
 ): Promise<ReviewerOpResult> {
   const parsed = applicationInputSchema.safeParse(input)
   if (!parsed.success) {
@@ -482,7 +492,7 @@ export async function submitReviewerApplication(
       eventType: 'APPLICATION_SUBMITTED',
       actorKind: 'REVIEWER',
       actorId: actor.studentId,
-      rationale: `reviewer application submitted (${data.category})`,
+      rationale: `reviewer application submitted (${data.category})${options.invitationLink ? ` via claimed invitation ${options.invitationLink.id}` : ''}`,
       payload: JSON.stringify({
         proposedDomains: data.proposedDomains ?? [],
         proposedLanguages: data.proposedLanguages ?? [],
@@ -492,6 +502,9 @@ export async function submitReviewerApplication(
         institutionAffiliation: data.institutionAffiliation ?? null,
         specialties: data.specialties ?? [],
         consentGranted: data.consentGranted === true,
+        // CI-6E: invitation provenance (validated by the caller — claimed by
+        // this account). Provenance only; claiming never grants privileges.
+        invitationId: options.invitationLink?.id ?? null,
       }),
     },
   })
