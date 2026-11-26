@@ -1187,6 +1187,38 @@
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI5-RESULTS.md",
       "ciNote": "CI-5 COMPLETE: all eight units are in main. Integration path — owner PR #45 (merge d6ab755, CI-5A–B), owner PR #46 (merge 346cf86, CI-5C–E), owner PR #47 (merge 56397a0 = finalMainSha, carrying CI-5F f6742f5 + CI-5G 42a90ad + CI-5H 321f5c8 plus the final-integration reconciliation: ordinary git merge fbbe3fd of origin/main 346cf86 into the feature branch with docs/milestone-ledger.json reconciled per milestone ID and every existing record preserved, the combined-run harness fix be314a1, and the integrated-branch walkthrough evidence f92cf11). Push verification: normal non-force fast-forward e3995a4..f92cf11; remote tip verified via git ls-remote over BOTH transports (SSH deploy key via ssh.github.com:443 and anonymous HTTPS) == f92cf11; all nine branch commits proven ancestors of final main 56397a0 by git merge-base --is-ancestor; diff equivalence proven: 346cf86..56397a0 = 56 files, +4504/−44, identical to the branch diff vs 346cf86. CI verified live via the GitHub API (not assumed): push run 45650830609 SUCCESS and pull_request run 45651168401 SUCCESS, both on f92cf11 (quality job 13/13 steps: ESLint, TypeScript, full Bun suite, production build on an isolated throwaway DB). PR provenance: the sandbox holds only a git-protocol deploy key (POST /repos/mrjoker0471/bean-education/pulls returns 401 Requires authentication — attempted and documented), so PR #47 was opened and merged by the owner (mrjoker0471) at 2026-11-25T16:07Z; no merge was performed by the agent. Honest final state per CI5-RESULTS.md §17: production domain packs remain IN_REVIEW, language capabilities remain unmeasured/LIMITED, benchmark metrics remain honest zero-measurement — no real expert approvals or real measurements are claimed; the governance, durability, binding and auditability machinery that makes genuine expert validation possible is implemented and tested, with every synthetic fixture clearly labelled. Evidence: the eight charter docs CI5-BASELINE / CI5-REVIEWER-GOVERNANCE / CI5-LANGUAGE-GOVERNANCE / CI5-DOMAIN-VALIDATION / CI5-BENCHMARK-RESULTS / CI5-CLASSROOM-PILOT / CI5-REVIEWER-UX / CI5-RESULTS.",
       "updatedAt": "2026-11-25T16:25:00Z"
+    },
+    {
+      "id": "bean-classroom-intelligence-ci6",
+      "title": "BEAN Classroom Intelligence CI-6 — real expert network & knowledge activation: proper expert application + protected credential evidence, independent server-side credential verification workbench, consent-gated expert profiles with distinct application/verified/eligible states, secure single-use invitations with manual admin-controlled delivery, reviewer availability + workspace completion, honest activation reporting with explicit zero states, full acceptance battery — built additively on the existing CI-5 reviewer lifecycle, assignment system, pack/language/benchmark authorities (charter CI-6 mission brief; architecture map docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-ARCHITECTURE.md)",
+      "branch": "feat/bean-classroom-intelligence-ci6",
+      "baseMainSha": "643d56889c33d8036d3455f6f045efbbf749e28d",
+      "commits": [
+        "180c377"
+      ],
+      "units": [
+        {
+          "id": "CI-6A",
+          "commitSha": "180c377",
+          "remoteVerifiedSha": "pending-push",
+          "verifiedAt": null,
+          "summary": "Architecture audit + activation design (docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-ARCHITECTURE.md): origin/main verified 643d568 (ls-remote == checkout == PR #48 merge that recorded CI-5 COMPLETE/SYNCHRONIZED). Source-level CI-5 inventory: reviewer lifecycle + strict transitions + append-only events (reviewers.ts), assignment/COI/recusal gates (assignments.ts), recordPackReview qualifiedApproverIds authority (curator.ts + CI-4C), durable language governance with structural TRANSCRIPTION refusal (language-governance.ts), benchmark programme honest non-runs (expert-benchmarks.ts), privacy-masked report audit (report-audit.ts), renewal demands + audit export (re-review.ts); requireStudent/requireAdmin-only authorization with ADMIN role operator-CLI-only; route conventions (force-dynamic/nodejs, Guard passthrough, await params); rate limiting absent on CI-5 routes (CI-6 public routes must rate-limit); no email infrastructure (CI-6E = admin-controlled secure links, no delivery claims); upload precedent /api/materials is guest-scoped/unauthenticated (CI-6 needs session-authenticated restricted evidence store); FK-less audit ledgers survive account deletion (proven by ci5-reliability H6); walkthrough infra = agent-browser + API-registered fixtures + docs/screenshots/. Gap analysis maps each charter requirement to the smallest additive change with hard invariants (no second authority, no self-dealing, verification!=qualification!=content-approval, honest zeros, evidence hygiene, additive-only migrations). Honest limits: no real experts/credentials/verifications exist in the sandbox; every real count reports zero until genuine independently-verified records exist."
+        }
+      ],
+      "remoteFeatureSha": null,
+      "pushVerifiedAt": null,
+      "pr": {
+        "number": null,
+        "state": "NONE",
+        "url": null
+      },
+      "ci": [],
+      "finalMainSha": null,
+      "syncStatus": "PENDING",
+      "status": "IN_PROGRESS",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-ARCHITECTURE.md",
+      "ciNote": "CI-6 opened from verified main 643d568 (PR #48 merge; CI-5 record untouched). Sandbox was reset between sessions: the previously registered deploy key's private half was lost, so a fresh ed25519 keypair was generated (public key delivered to the owner for registration) and every unit commit is made locally + pushed with a normal fast-forward as soon as push auth is available; remoteVerifiedSha fields record 'pending-push' until ls-remote verification succeeds. Remaining units CI-6B-H follow the per-unit implement-test-commit-push-verify policy; CI-6 status becomes COMPLETE only after all units are in main and verified there per the milestone rule.",
+      "updatedAt": "2026-11-25T17:05:00Z"
     }
   ],
   "branchReconciliation": {
