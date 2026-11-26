@@ -2593,3 +2593,64 @@ model ExpertReviewRenewalDemand {
   @@index([subjectType, subjectKey, status])
   @@index([trigger, status])
 }
+
+// ─── CI-7E: structured disagreement analysis (append-only) ───────────────────
+// One row per analysed genuine reviewer disagreement on an exact pack version
+// + checksum. Never edited: corrections of the analysis itself are NEW rows.
+// Preserves the original reviewer decisions, the rubric dimensions involved,
+// the evidence each reviewer cited, the classification (FACTUAL /
+// INTERPRETIVE / RUBRIC_RELATED / MIXED), the authorised adjudication outcome
+// where one exists, and whether a correction/version change/re-review is
+// needed. FK-less by design: audit history survives account deletion.
+model Ci7DisagreementAnalysis {
+  id                    String   @id @default(cuid())
+  packId                String
+  packVersion           String
+  packChecksum          String
+  // JSON string[] of ClassroomPackReview ids involved
+  reviewIdsJson         String
+  // JSON [{reviewerStudentId, decision, rationale}] — the original decisions, verbatim
+  decisionsJson         String
+  // JSON string[] of rubric section ids in dispute (A–F subset)
+  rubricDimensionsJson  String
+  // JSON [{reviewerStudentId, cited}] — evidence each reviewer cited
+  evidenceCitedJson     String
+  // FACTUAL | INTERPRETIVE | RUBRIC_RELATED | MIXED
+  classification        String
+  adjudicationRef       String?
+  adjudicationOutcome   String?
+  correctionRequired    Boolean  @default(false)
+  correctionApplied     Boolean  @default(false)
+  packVersionChanged    Boolean  @default(false)
+  reReviewRequired      Boolean  @default(false)
+  analysis              String
+  recordedByAdminId     String
+  recordedByAdminName   String
+  createdAt             DateTime @default(now())
+
+  @@index([packId, createdAt])
+  @@index([packChecksum])
+}
+
+// ─── CI-7G: pilot activation events (append-only) ────────────────────────────
+// The restricted pilot activation ledger. The CURRENT activation state is
+// derived from the LATEST event for the pack — default is DISABLED (no rows
+// = never activated). ACTIVATED requires the pack's existing CI-4/CI-5
+// approval authority to have recorded genuine approvals; DEACTIVATED is the
+// kill switch; ROLLED_BACK records the restore to the previous safe state.
+model Ci7PilotActivation {
+  id              String   @id @default(cuid())
+  // ACTIVATED | DEACTIVATED | REACTIVATED | ROLLED_BACK
+  eventType       String
+  packId          String
+  packVersion     String
+  packChecksum    String
+  pilotScope      String
+  protocolVersion String
+  reason          String
+  actorAdminId    String
+  actorAdminName  String
+  createdAt       DateTime @default(now())
+
+  @@index([packId, createdAt])
+}

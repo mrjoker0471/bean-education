@@ -23,6 +23,7 @@ import {
 import { resolveCuratedStatus, type CuratedStatusResult } from './curator'
 import { assertSourceContentUsable, listSources } from './sources'
 import { composeRubricEvidence, type PackReviewRubric } from './domain-rubric'
+import { detectReviewDisagreement } from './assignments'
 import type { ReviewerDb, ReviewerProfileRow, ReviewerActor } from './reviewers'
 
 /** Version of the pilot protocol these constants encode (protocol document §header). */
@@ -202,6 +203,184 @@ export function composePilotReviewEvidence(
 /** True when the given assignment subject is the pilot domain (used by routes to select the evidence composition). */
 export function isPilotPackSubject(subjectKey: unknown): boolean {
   return subjectKey === CI7_PILOT_DOMAIN_ID
+}
+
+// ─── CI-7E: structured disagreement analysis (append-only) ───────────────────
+// Disagreement preservation itself is the EXISTING authority: individual
+// ClassroomPackReview rows are never edited, and detectReviewDisagreement /
+// the adjudications path decide when independent adjudication is required.
+// This adds the ANALYSIS record: one append-only row per analysed
+// disagreement, anchored to the REAL review rows (the decisions stored are
+// copied verbatim from the ledger — never from request bodies alone).
+
+export const CI7_DISAGREEMENT_CLASSIFICATIONS = ['FACTUAL', 'INTERPRETIVE', 'RUBRIC_RELATED', 'MIXED'] as const
+export type Ci7DisagreementClassification = (typeof CI7_DISAGREEMENT_CLASSIFICATIONS)[number]
+
+export interface Ci7DisagreementReviewRow {
+  id: string
+  packId: string
+  packVersion: string
+  packChecksum: string
+  decision: string
+  reviewerStudentId: string
+  reviewerName: string
+  rationale: string
+  evidence: string
+  createdAt: Date
+}
+
+export interface Ci7DisagreementAnalysisDb {
+  ci7DisagreementAnalysis: {
+    create(args: { data: Record<string, unknown> }): Promise<{ id: string }>
+    findMany(args?: Record<string, unknown>): Promise<Array<Record<string, unknown> & { id: string }>>
+  }
+}
+
+export function ci7DisagreementDbFromPrisma(client: unknown): Ci7DisagreementAnalysisDb {
+  return client as Ci7DisagreementAnalysisDb
+}
+
+export interface Ci7DisagreementAnalysisInput {
+  packId?: unknown
+  packVersion?: unknown
+  packChecksum?: unknown
+  reviewIds?: unknown
+  rubricDimensions?: unknown
+  evidenceCited?: unknown
+  classification?: unknown
+  adjudicationRef?: unknown
+  adjudicationOutcome?: unknown
+  correctionRequired?: unknown
+  correctionApplied?: unknown
+  packVersionChanged?: unknown
+  reReviewRequired?: unknown
+  analysis?: unknown
+}
+
+export type Ci7DisagreementRecordResult =
+  | { ok: true; analysisId: string }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Record an append-only analysis of a GENUINE disagreement. The review set is
+ * loaded by the caller (route) from the authoritative ledger and passed in —
+ * the service re-derives everything from those real rows:
+ *   - every referenced review must exist in the passed set (no phantom ids);
+ *   - a real disagreement must exist among them (never analysed consensus);
+ *   - decisions/evidence stored are copied from the real rows verbatim.
+ */
+export async function recordDisagreementAnalysis(
+  db: Ci7DisagreementAnalysisDb,
+  admin: { studentId: string; displayName: string },
+  input: Ci7DisagreementAnalysisInput,
+  reviews: readonly Ci7DisagreementReviewRow[],
+  now: Date = new Date(),
+): Promise<Ci7DisagreementRecordResult> {
+  const classification = typeof input.classification === 'string' ? input.classification : ''
+  if (!CI7_DISAGREEMENT_CLASSIFICATIONS.includes(classification as Ci7DisagreementClassification)) {
+    return { ok: false, status: 400, error: `classification must be one of ${CI7_DISAGREEMENT_CLASSIFICATIONS.join(' | ')}` }
+  }
+  const analysis = typeof input.analysis === 'string' ? input.analysis.trim() : ''
+  if (analysis.length < 20) {
+    return { ok: false, status: 400, error: 'an analysis of at least 20 characters is required — record what the disagreement actually shows' }
+  }
+  const reviewIds = Array.isArray(input.reviewIds) ? (input.reviewIds as unknown[]).filter((id): id is string => typeof id === 'string') : []
+  if (reviewIds.length < 2) {
+    return { ok: false, status: 400, error: 'a disagreement analysis requires at least two referenced reviews' }
+  }
+  const byId = new Map(reviews.map((r) => [r.id, r]))
+  const selected = reviewIds.map((id) => byId.get(id)).filter((r): r is Ci7DisagreementReviewRow => Boolean(r))
+  if (selected.length !== reviewIds.length) {
+    return { ok: false, status: 400, error: 'reviewIds must reference real ClassroomPackReview rows (phantom references refused)' }
+  }
+  const disagreement = detectReviewDisagreement(selected)
+  if (!disagreement.disagreement) {
+    return { ok: false, status: 409, error: 'the referenced reviews do not disagree — only a genuine disagreement is analysed here (consensus needs no analysis)' }
+  }
+  const packId = typeof input.packId === 'string' ? input.packId : selected[0].packId
+  const packVersion = typeof input.packVersion === 'string' ? input.packVersion : selected[0].packVersion
+  const packChecksum = typeof input.packChecksum === 'string' ? input.packChecksum : selected[0].packChecksum
+  if (selected.some((r) => r.packId !== packId || r.packVersion !== packVersion || r.packChecksum !== packChecksum)) {
+    return { ok: false, status: 400, error: 'the referenced reviews span different subjects/versions — an analysis binds ONE exact pack version + checksum' }
+  }
+  const rubricDimensions = Array.isArray(input.rubricDimensions)
+    ? (input.rubricDimensions as unknown[]).filter((d): d is string => typeof d === 'string')
+    : []
+  const evidenceCited = Array.isArray(input.evidenceCited)
+    ? (input.evidenceCited as unknown[]).filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
+    : []
+  const created = await db.ci7DisagreementAnalysis.create({
+    data: {
+      packId,
+      packVersion,
+      packChecksum,
+      reviewIdsJson: JSON.stringify(reviewIds),
+      decisionsJson: JSON.stringify(selected.map((r) => ({ reviewerStudentId: r.reviewerStudentId, reviewerName: r.reviewerName, decision: r.decision, rationale: r.rationale }))),
+      rubricDimensionsJson: JSON.stringify(rubricDimensions),
+      evidenceCitedJson: JSON.stringify(evidenceCited),
+      classification,
+      adjudicationRef: typeof input.adjudicationRef === 'string' ? input.adjudicationRef : null,
+      adjudicationOutcome: typeof input.adjudicationOutcome === 'string' ? input.adjudicationOutcome : null,
+      correctionRequired: input.correctionRequired === true,
+      correctionApplied: input.correctionApplied === true,
+      packVersionChanged: input.packVersionChanged === true,
+      reReviewRequired: input.reReviewRequired === true,
+      analysis,
+      recordedByAdminId: admin.studentId,
+      recordedByAdminName: admin.displayName,
+    },
+  })
+  return { ok: true, analysisId: created.id }
+}
+
+export interface Ci7FindingsSummary {
+  totalAnalyses: number
+  byClassification: Record<Ci7DisagreementClassification, number>
+  correctionsRequired: number
+  correctionsApplied: number
+  packVersionChanges: number
+  reReviewsRequired: number
+  adjudicated: number
+  unresolved: number
+  note: string
+}
+
+/**
+ * Aggregate the findings summary from the append-only analysis ledger — every
+ * number comes from real recorded rows; an empty ledger reports an honest
+ * zero state with the pilot's NOT STARTED note.
+ */
+export function buildFindingsSummary(analyses: ReadonlyArray<Record<string, unknown> & { id: string }>): Ci7FindingsSummary {
+  const byClassification: Record<Ci7DisagreementClassification, number> = { FACTUAL: 0, INTERPRETIVE: 0, RUBRIC_RELATED: 0, MIXED: 0 }
+  let correctionsRequired = 0
+  let correctionsApplied = 0
+  let packVersionChanges = 0
+  let reReviewsRequired = 0
+  let adjudicated = 0
+  let unresolved = 0
+  for (const row of analyses) {
+    const classification = row.classification as Ci7DisagreementClassification
+    if (classification in byClassification) byClassification[classification] += 1
+    if (row.correctionRequired === true) correctionsRequired += 1
+    if (row.correctionApplied === true) correctionsApplied += 1
+    if (row.packVersionChanged === true) packVersionChanges += 1
+    if (row.reReviewRequired === true) reReviewsRequired += 1
+    if (typeof row.adjudicationOutcome === 'string' && row.adjudicationOutcome.length > 0) adjudicated += 1
+    else unresolved += 1
+  }
+  return {
+    totalAnalyses: analyses.length,
+    byClassification,
+    correctionsRequired,
+    correctionsApplied,
+    packVersionChanges,
+    reReviewsRequired,
+    adjudicated,
+    unresolved,
+    note: analyses.length === 0
+      ? 'NOT STARTED — no genuine disagreement has been recorded because no genuine expert review has been executed yet; every count above is a real ledger count, not a projection'
+      : 'counts derive from append-only analysis rows bound to exact pack versions + checksums; unresolved rows still require authorised adjudication',
+  }
 }
 
 // ─── CI-7C: expert cohort activation — pilot participation consent ───────────
