@@ -132,6 +132,13 @@ export interface ReviewerProfileRow {
   conflictOfInterest: string
   suspendedReason: string | null
   revokedReason: string | null
+  // CI-6D disclosure columns (additive; consent-gated public projection).
+  profileVisibility: string
+  disclosureConsentAt: Date | null
+  publicDisplayName: string | null
+  professionalSummary: string | null
+  availabilityNote: string | null
+  disclosedAffiliation: boolean
   createdAt: Date
   updatedAt: Date
 }

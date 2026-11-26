@@ -516,6 +516,8 @@ export function ExpertApplyView() {
             </Link>
           )}
 
+          <DisclosureSection onChange={load} />
+
           {events.length > 0 && (
             <div className="rounded-xl border border-border bg-elevated/60 p-4" data-testid="ci6-events">
               <p className="text-sm font-medium">Application history (append-only)</p>
@@ -545,6 +547,114 @@ function SectionHeader({ icon: Icon, title, subtitle }: { icon: typeof Graduatio
       <div className="min-w-0">
         <h1 className="font-display text-lg sm:text-xl">{title}</h1>
         <p className="text-xs text-muted-foreground">{subtitle}</p>
+      </div>
+    </div>
+  )
+}
+
+// ─── CI-6D: consent-gated public profile disclosure settings ──────────────────
+
+interface DisclosureSettings {
+  profileVisibility: string
+  disclosureConsentAt: string | null
+  publicDisplayName: string | null
+  professionalSummary: string | null
+  availabilityNote: string | null
+  disclosedAffiliation: boolean
+  institutionAffiliation: string | null
+  visibilityOptions: string[]
+}
+
+function DisclosureSection({ onChange }: { onChange: () => Promise<void> }) {
+  const [settings, setSettings] = useState<DisclosureSettings | null>(null)
+  const [draft, setDraft] = useState<{ publicDisplayName: string; professionalSummary: string; availabilityNote: string; disclosedAffiliation: boolean }>({ publicDisplayName: '', professionalSummary: '', availabilityNote: '', disclosedAffiliation: false })
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api.get<DisclosureSettings>('/api/ci5/reviewers/me/disclosure')
+      if (d && 'profileVisibility' in d) {
+        setSettings(d)
+        setDraft({
+          publicDisplayName: d.publicDisplayName ?? '',
+          professionalSummary: d.professionalSummary ?? '',
+          availabilityNote: d.availabilityNote ?? '',
+          disclosedAffiliation: d.disclosedAffiliation,
+        })
+      }
+    } catch {
+      // no application yet — the section simply doesn't render
+    } finally {
+      setLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function save(visibility?: string) {
+    setBusy(true)
+    try {
+      const body: Record<string, unknown> = {
+        publicDisplayName: draft.publicDisplayName.trim() || null,
+        professionalSummary: draft.professionalSummary.trim() || null,
+        availabilityNote: draft.availabilityNote.trim() || null,
+        disclosedAffiliation: draft.disclosedAffiliation,
+      }
+      if (visibility) body.profileVisibility = visibility
+      const updated = await api.post<DisclosureSettings>('/api/ci5/reviewers/me/disclosure', body)
+      setSettings(updated)
+      toast({ title: 'Disclosure settings saved', description: updated.profileVisibility === 'LISTED' ? 'Your profile is publicly listed with only the fields you consented to share.' : 'Your profile is private.' })
+      await onChange()
+    } catch (err) {
+      toast({ title: 'Save refused', description: err instanceof Error ? err.message : 'request failed', variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!loaded || !settings) return null
+
+  return (
+    <div className="rounded-xl border border-border bg-elevated/60 p-4 sm:p-6" data-testid="ci6-disclosure">
+      <p className="text-sm font-medium">Public profile disclosure</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        You control exactly what the public expert directory (#/experts) shows. Only the fields below are ever exposed; credentials, verification notes and
+        internal audit data are never public. Listing is consent-gated and revocable at any time.
+      </p>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="ci6-pname" className="text-xs text-muted-foreground">Public display name (blank = reviewer code)</label>
+          <input id="ci6-pname" aria-label="Public display name" value={draft.publicDisplayName} onChange={(e) => setDraft((d) => ({ ...d, publicDisplayName: e.target.value }))} className="mt-1 min-h-[44px] w-full rounded border border-border bg-elevated px-3 text-sm" />
+        </div>
+        <div>
+          <label htmlFor="ci6-avail" className="text-xs text-muted-foreground">Review availability note</label>
+          <input id="ci6-avail" aria-label="Availability note" value={draft.availabilityNote} onChange={(e) => setDraft((d) => ({ ...d, availabilityNote: e.target.value }))} className="mt-1 min-h-[44px] w-full rounded border border-border bg-elevated px-3 text-sm" />
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="ci6-summary" className="text-xs text-muted-foreground">Professional summary (max 1000 chars)</label>
+          <Textarea id="ci6-summary" aria-label="Professional summary" value={draft.professionalSummary} onChange={(e) => setDraft((d) => ({ ...d, professionalSummary: e.target.value }))} className="min-h-[64px] border-border bg-elevated" />
+        </div>
+        <label className="flex min-h-[44px] items-center gap-3 text-sm" htmlFor="ci6-shaff">
+          <input id="ci6-shaff" type="checkbox" aria-label="Disclose affiliation publicly" checked={draft.disclosedAffiliation} onChange={(e) => setDraft((d) => ({ ...d, disclosedAffiliation: e.target.checked }))} className="h-4 w-4 accent-[var(--gold)]" />
+          <span>Show my institution affiliation publicly{settings.institutionAffiliation ? '' : ' (none recorded)'}</span>
+        </label>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          Current visibility: <span className="font-medium text-gold">{settings.profileVisibility}</span>
+          {settings.disclosureConsentAt ? ` · consent recorded ${new Date(settings.disclosureConsentAt).toLocaleDateString()}` : ''}
+        </span>
+        <Button size="sm" className="min-h-[44px] bg-gold text-primary-foreground hover:bg-gold-hover" onClick={() => void save()} disabled={busy}>Save</Button>
+        {settings.profileVisibility !== 'LISTED' && (
+          <Button variant="outline" size="sm" className="min-h-[44px] border-gold/40 bg-transparent text-gold" onClick={() => void save('LISTED')} disabled={busy} data-testid="ci6-list-profile">List publicly</Button>
+        )}
+        {settings.profileVisibility === 'LISTED' && (
+          <Button variant="outline" size="sm" className="min-h-[44px] border-border bg-elevated" onClick={() => void save('PRIVATE')} disabled={busy} data-testid="ci6-unlist-profile">Unlist</Button>
+        )}
+        <a href="/#/experts" className="text-xs text-gold underline-offset-2 hover:underline">View public directory</a>
       </div>
     </div>
   )

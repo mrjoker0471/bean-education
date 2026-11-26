@@ -33,6 +33,7 @@ import { ClassroomView } from '@/components/bean/views/classroom-view'
 import { AdminTrustView } from '@/components/bean/views/admin-trust-view'
 import { AdminCi5GovernancePanel, Ci5ReviewerWorkspace } from '@/components/bean/ci5-reviewer-governance'
 import { ExpertApplyView } from '@/components/bean/views/expert-apply-view'
+import { ExpertDirectoryView } from '@/components/bean/views/expert-directory-view'
 import { MyReportsView } from '@/components/bean/views/my-reports-view'
 import { TrustPolicyView } from '@/components/bean/views/trust-policy-view'
 import { TermsView } from '@/components/bean/views/terms-view'
@@ -126,6 +127,7 @@ export default function Page() {
             {route.view === 'admin-ci5-reviewers' && <AdminCi5GovernancePanel />}
             {route.view === 'reviewer-workspace' && <Ci5ReviewerWorkspace />}
             {route.view === 'expert-apply' && <ExpertApplyView />}
+            {route.view === 'expert-directory' && <ExpertDirectoryView />}
             {route.view === 'my-reports' && <MyReportsView />}
             {route.view === 'trust-policy' && <TrustPolicyView />}
             {/* Public experience, authentication & legal foundation */}

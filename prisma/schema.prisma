@@ -2174,6 +2174,15 @@ model ExpertReviewerProfile {
   conflictOfInterest     String
   suspendedReason        String?
   revokedReason          String?
+  // CI-6D (additive): consent-gated public profile. PRIVATE by default; the
+  // public projection exposes ONLY consented fields and never credentials,
+  // verification notes, COI text or internal audit data.
+  profileVisibility      String    @default("PRIVATE") // PRIVATE | LISTED
+  disclosureConsentAt    DateTime?
+  publicDisplayName      String?
+  professionalSummary    String?
+  availabilityNote       String?
+  disclosedAffiliation   Boolean   @default(false)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
