@@ -110,7 +110,7 @@ export function pilotPackSnapshot(): {
       version: record?.version ?? 'unknown',
       restrictions: record?.licence.restrictions ?? [],
       contentUsable: gate.usable,
-      reason: gate.usable ? null : gate.reason,
+      reason: gate.usable ? null : (gate.reason ?? 'content not usable'),
     }
   })
   return {
