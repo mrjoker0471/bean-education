@@ -202,6 +202,7 @@ export function Ci6VerificationWorkbench() {
     <div className="space-y-4" data-testid="ci6-verification-workbench">
       <InvitationsSection />
       <ActivationReporting />
+      <PilotReporting />
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">Independent, human, append-only verification. Verification records never change reviewer status by themselves.</p>
         <Button variant="outline" size="sm" className="min-h-[44px] shrink-0 border-border bg-elevated" onClick={() => void loadQueue()} aria-label="Refresh queue">
@@ -598,6 +599,108 @@ function ActivationReporting() {
         </dl>
       )}
       {report && <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{report.fixturePolicy}</p>}
+    </div>
+  )
+}
+
+// ─── CI-7H: pilot dashboard — ledger-derived honest reporting ────────────────
+// Extends the CI-6G activation reporting with the bounded pilot's own ledger
+// counts. Every value comes from /api/admin/ci7/reporting (authoritative
+// ledgers only); the pilot reads NOT STARTED with genuine zeros until real
+// experts execute the real process. Fixture records are never counted.
+
+interface Ci7PilotReport {
+  pilotStatus: string
+  domainId: string
+  packVersion: string
+  protocolVersion: string
+  expertApplications: number
+  independentlyVerifiedExperts: number
+  qualifiedActiveExperts: number
+  pilotDomainEligibleExperts: number
+  pilotInvitations: number
+  claimedPilotInvitations: number
+  acceptedAssignments: number
+  submittedHumanReviews: number
+  completedHumanReviews: number
+  genuineExpertApprovals: number
+  genuineDisagreements: number
+  adjudicatedDisagreements: number
+  packCorrections: number
+  reReviewRequirements: number
+  packActivationStatus: string
+  benchmarkHumanLabels: number
+  evaluationStatus: string
+  fixturePolicy: string
+  note: string
+}
+
+const CI7_REPORT_ROWS: Array<{ key: keyof Ci7PilotReport & string; label: string; testid: string }> = [
+  { key: 'expertApplications', label: 'Expert applications', testid: 'ci7-report-applications' },
+  { key: 'independentlyVerifiedExperts', label: 'Independently verified experts', testid: 'ci7-report-verified' },
+  { key: 'qualifiedActiveExperts', label: 'Qualified + active experts', testid: 'ci7-report-active' },
+  { key: 'pilotDomainEligibleExperts', label: 'Eligible for the pilot domain', testid: 'ci7-report-eligible' },
+  { key: 'pilotInvitations', label: 'Pilot invitations', testid: 'ci7-report-invitations' },
+  { key: 'claimedPilotInvitations', label: 'Claimed invitations', testid: 'ci7-report-claimed' },
+  { key: 'acceptedAssignments', label: 'Accepted assignments', testid: 'ci7-report-assignments' },
+  { key: 'submittedHumanReviews', label: 'Submitted human reviews', testid: 'ci7-report-submitted' },
+  { key: 'completedHumanReviews', label: 'Completed human reviews', testid: 'ci7-report-completed' },
+  { key: 'genuineExpertApprovals', label: 'Genuine expert approvals', testid: 'ci7-report-approvals' },
+  { key: 'genuineDisagreements', label: 'Genuine disagreements', testid: 'ci7-report-disagreements' },
+  { key: 'adjudicatedDisagreements', label: 'Adjudicated disagreements', testid: 'ci7-report-adjudicated' },
+  { key: 'packCorrections', label: 'Pack corrections', testid: 'ci7-report-corrections' },
+  { key: 'reReviewRequirements', label: 'Re-review requirements', testid: 'ci7-report-rereviews' },
+  { key: 'benchmarkHumanLabels', label: 'Genuine benchmark labels', testid: 'ci7-report-labels' },
+]
+
+function PilotReporting() {
+  const [report, setReport] = useState<Ci7PilotReport | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const data = await api.get<{ report: Ci7PilotReport; error?: string } | null>('/api/admin/ci7/reporting').catch(() => ({ report: null, error: 'Could not load the pilot report — please try again.' }))
+      if (!cancelled) {
+        setReport(data?.report ?? null)
+        setLoadFailed(!data?.report)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [reloadKey])
+
+  const error = loadFailed && report === null ? 'Could not load the pilot report — please try again.' : null
+
+  return (
+    <div className="rounded-xl border border-border bg-elevated/60 p-4" data-testid="ci7-reporting">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium">CI-7 pilot reporting — education-pedagogy (bounded, non-consequential)</p>
+        <Button variant="outline" size="sm" className="min-h-[44px] border-border bg-elevated" onClick={() => setReloadKey((k) => k + 1)} aria-label="Refresh pilot report">
+          <RefreshCw className="h-4 w-4" aria-hidden />
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">Ledger-derived counts for the bounded pilot. The real-world pilot status is reported as NOT STARTED until genuine experts complete the real process — zero counts are honest zeros.</p>
+      {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
+      {report && (
+        <>
+          <div className="mt-3 flex flex-wrap gap-2" data-testid="ci7-report-status">
+            <span className="rounded-full border border-border bg-page/60 px-3 py-1 text-xs font-medium" data-testid="ci7-report-pilot-status">Pilot: {report.pilotStatus}</span>
+            <span className="rounded-full border border-border bg-page/60 px-3 py-1 text-xs font-medium" data-testid="ci7-report-activation">Activation: {report.packActivationStatus}</span>
+            <span className="rounded-full border border-border bg-page/60 px-3 py-1 text-xs font-medium" data-testid="ci7-report-evaluation">Evaluation: {report.evaluationStatus.split(' — ')[0]}</span>
+          </div>
+          <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="ci7-report-grid">
+            {CI7_REPORT_ROWS.map((row) => (
+              <div key={row.key} className="rounded border border-border bg-page/40 px-3 py-2" data-testid={row.testid}>
+                <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
+                <dd className={`font-display text-xl ${(report[row.key] as number) > 0 ? 'text-gold' : 'text-muted-foreground'}`}>{report[row.key] as number}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{report.note}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{report.fixturePolicy}</p>
+        </>
+      )}
     </div>
   )
 }
