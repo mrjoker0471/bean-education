@@ -22,6 +22,7 @@ import {
 } from './domain-packs'
 import { resolveCuratedStatus, type CuratedStatusResult } from './curator'
 import { assertSourceContentUsable, listSources } from './sources'
+import { composeRubricEvidence, type PackReviewRubric } from './domain-rubric'
 import type { ReviewerDb, ReviewerProfileRow, ReviewerActor } from './reviewers'
 
 /** Version of the pilot protocol these constants encode (protocol document §header). */
@@ -133,6 +134,74 @@ export function pilotPackSnapshot(): {
  */
 export function pilotSubjectIsRegistered(): boolean {
   return listDomainPacks().some((p) => p.pack.domainId === CI7_PILOT_DOMAIN_ID)
+}
+
+// ─── CI-7D: source-frozen expert review binding ──────────────────────────────
+// The review authority itself is CI-4C's recordPackReview (append-only,
+// checksum-bound, qualified-approver-gated) exercised through the CI-5D
+// assignment route — CI-7 adds NO alternative path. The genuinely missing
+// pilot piece is the provenance binding in the recorded evidence: a pilot
+// review embeds the source-licence snapshot the reviewer actually saw plus
+// the protocol identity, so the audit trail shows exactly which content,
+// version and licensing facts the decision was made against.
+
+export interface Ci7PilotReviewBinding {
+  protocolVersion: string
+  domainId: string
+  packVersion: string
+  packChecksum: string
+  reviewedAt: string
+  sourceRefs: Array<{ sourceId: string; scope: string }>
+  sourceLicenceSnapshot: Array<{
+    sourceId: string
+    publisher: string
+    version: string
+    restrictions: string[]
+    contentUsable: boolean
+    reason: string | null
+  }>
+}
+
+/**
+ * Compose the evidence payload for a PILOT-domain pack review: the CI-5 rubric
+ * evidence (unchanged shape inside `rubric`) extended with the pilot binding —
+ * protocol version, exact checksum, actual source references and the
+ * source-licence status at review time.
+ *
+ * Fails loudly when the pack being reviewed has drifted from the protocol
+ * subject (wrong version) or the checksum does not match the live content —
+ * a pilot review can never silently bind to different content than the
+ * reviewer inspected.
+ */
+export function composePilotReviewEvidence(
+  rubric: PackReviewRubric,
+  pack: DomainPack,
+  packChecksum: string,
+  reviewedAt: Date = new Date(),
+): string {
+  const snap = pilotPackSnapshot()
+  if (pack.domainId !== snap.domainId) {
+    throw new Error(`pilot review binding refused: pack ${pack.domainId} is not the pilot subject ${snap.domainId}`)
+  }
+  if (pack.packVersion !== snap.pack.packVersion || packChecksum !== snap.checksum) {
+    throw new Error(`pilot review binding refused: content drift (checksum ${packChecksum.slice(0, 12)}… ≠ protocol-bound ${snap.checksum.slice(0, 12)}…) — re-inspect the current version`)
+  }
+  const binding: Ci7PilotReviewBinding = {
+    protocolVersion: snap.protocolVersion,
+    domainId: snap.domainId,
+    packVersion: snap.pack.packVersion,
+    packChecksum,
+    reviewedAt: reviewedAt.toISOString(),
+    sourceRefs: snap.pack.sources.map((s) => ({ sourceId: s.sourceId, scope: s.scope })),
+    sourceLicenceSnapshot: snap.sourceLicenceSnapshot,
+  }
+  const rubricEvidence = JSON.parse(composeRubricEvidence(rubric)) as Record<string, unknown>
+  return JSON.stringify({ ...rubricEvidence, kind: 'CI7-PILOT-SOURCE-FROZEN-REVIEW', pilot: binding })
+}
+
+/** True when the given assignment subject is the pilot domain (used by routes to select the evidence composition). */
+export function isPilotPackSubject(subjectKey: unknown): boolean {
+  return subjectKey === CI7_PILOT_DOMAIN_ID
 }
 
 // ─── CI-7C: expert cohort activation — pilot participation consent ───────────

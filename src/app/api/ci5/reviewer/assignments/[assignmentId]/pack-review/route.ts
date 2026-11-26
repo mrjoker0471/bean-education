@@ -28,6 +28,7 @@ import { resolveReviewerProfile, reviewerDbFromPrisma, qualifyingApproverIdsForD
 import { recordPackReview, curatorDbFromPrisma } from '@/lib/ci/fleet/curator'
 import { packReviewRubricSchema, checkRubricAgainstDecision, composeRubricEvidence } from '@/lib/ci/fleet/domain-rubric'
 import { getDomainPack, computePackChecksum } from '@/lib/ci/fleet/domain-packs'
+import { composePilotReviewEvidence, isPilotPackSubject } from '@/lib/ci/fleet/pilot'
 import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -101,9 +102,22 @@ export async function POST(
       return NextResponse.json({ error: 'rationale required (min 20 chars) — the decision must carry the reviewer\u2019s reasoning' }, { status: 400 })
     }
 
-    // Hand the case to the authoritative append-only ledger.
+    // Hand the case to the authoritative append-only ledger. Pilot-domain
+    // reviews (CI-7D) embed the source-licence snapshot + protocol binding in
+    // the evidence; every other domain keeps the exact CI-5 evidence format.
     const submitted = await markAssignmentSubmitted(adb, profile, assignmentId, student.id)
     if (!submitted.ok) return NextResponse.json({ error: submitted.error }, { status: submitted.status })
+
+    let evidenceJson: string
+    try {
+      evidenceJson = isPilotPackSubject(assignment.subjectKey)
+        ? composePilotReviewEvidence(rubricParsed.data, entry.pack, currentChecksum)
+        : composeRubricEvidence(rubricParsed.data)
+    } catch (bindErr) {
+      // binding drift must refuse the submission, never record weaker evidence
+      await adb.expertReviewAssignment.update({ where: { id: assignmentId }, data: { status: 'IN_PROGRESS' } })
+      return NextResponse.json({ error: bindErr instanceof Error ? bindErr.message : 'pilot binding refused' }, { status: 409 })
+    }
 
     const qualified = await qualifyingApproverIdsForDomain(reviewerDbFromPrisma(db), assignment.subjectKey)
     const result = await recordPackReview(
@@ -115,7 +129,7 @@ export async function POST(
         packChecksum: currentChecksum,
         decision,
         rationale,
-        evidence: composeRubricEvidence(rubricParsed.data),
+        evidence: evidenceJson,
       },
       { qualifiedApproverIds: qualified },
     )
