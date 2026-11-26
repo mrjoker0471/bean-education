@@ -201,6 +201,7 @@ export function Ci6VerificationWorkbench() {
   return (
     <div className="space-y-4" data-testid="ci6-verification-workbench">
       <InvitationsSection />
+      <ActivationReporting />
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">Independent, human, append-only verification. Verification records never change reviewer status by themselves.</p>
         <Button variant="outline" size="sm" className="min-h-[44px] shrink-0 border-border bg-elevated" onClick={() => void loadQueue()} aria-label="Refresh queue">
@@ -521,6 +522,82 @@ function InvitationsSection() {
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+// ─── CI-6G: honest activation reporting (software readiness ≠ real activation) ──
+
+interface ActivationReport {
+  totalApplications: number
+  pendingVerification: number
+  verifiedAndEligible: number
+  suspendedOrExpiredQualifications: number
+  terminalOrWithdrawn: number
+  activeAssignments: number
+  completedHumanReviews: number
+  realExpertLabels: number
+  domainPacksGenuinelyApproved: number
+  languageCapabilitiesGenuinelyMeasured: number
+  fixtureOnlyTestResults: number
+  fixturePolicy: string
+  generatedAt: string
+}
+
+const REPORT_ROWS: Array<{ key: keyof ActivationReport; label: string; testid: string }> = [
+  { key: 'totalApplications', label: 'Total applications', testid: 'ci6-report-total-applications' },
+  { key: 'pendingVerification', label: 'Pending verification', testid: 'ci6-report-pending-verification' },
+  { key: 'verifiedAndEligible', label: 'Verified & eligible reviewers', testid: 'ci6-report-verified-eligible' },
+  { key: 'suspendedOrExpiredQualifications', label: 'Suspended or expired qualifications', testid: 'ci6-report-suspended-expired' },
+  { key: 'terminalOrWithdrawn', label: 'Rejected / revoked / withdrawn', testid: 'ci6-report-terminal' },
+  { key: 'activeAssignments', label: 'Active assignments', testid: 'ci6-report-active-assignments' },
+  { key: 'completedHumanReviews', label: 'Completed human reviews', testid: 'ci6-report-completed-reviews' },
+  { key: 'realExpertLabels', label: 'Real expert benchmark labels', testid: 'ci6-report-real-labels' },
+  { key: 'domainPacksGenuinelyApproved', label: 'Domain packs genuinely approved', testid: 'ci6-report-approved-packs' },
+  { key: 'languageCapabilitiesGenuinelyMeasured', label: 'Language capabilities genuinely measured', testid: 'ci6-report-measured-languages' },
+  { key: 'fixtureOnlyTestResults', label: 'Fixture-only test results', testid: 'ci6-report-fixture-results' },
+]
+
+function ActivationReporting() {
+  const [report, setReport] = useState<ActivationReport | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [loadFailed, setLoadFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const data = await api.get<{ report: ActivationReport; error?: string } | null>('/api/admin/ci6/reporting').catch(() => ({ report: null, error: 'Could not load the report — please try again.' }))
+      if (!cancelled) {
+        setReport(data?.report ?? null)
+        setLoadFailed(!data?.report)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [reloadKey])
+
+  const error = loadFailed && report === null ? 'Could not load the report — please try again.' : null
+
+  return (
+    <div className="rounded-xl border border-border bg-elevated/60 p-4" data-testid="ci6-reporting">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium">Activation reporting</p>
+        <Button variant="outline" size="sm" className="min-h-[44px] border-border bg-elevated" onClick={() => setReloadKey((k) => k + 1)} aria-label="Refresh report">
+          <RefreshCw className="h-4 w-4" aria-hidden />
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">Every count comes from its own authoritative ledger. Zero is displayed where the real count is zero — software readiness is reported separately from real-world activation.</p>
+      {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
+      {report && (
+        <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="ci6-report-grid">
+          {REPORT_ROWS.map((row) => (
+            <div key={row.key} className="rounded border border-border bg-page/40 px-3 py-2" data-testid={row.testid}>
+              <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
+              <dd className={`font-display text-xl ${(report[row.key] as number) > 0 ? 'text-gold' : 'text-muted-foreground'}`}>{report[row.key] as number}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {report && <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{report.fixturePolicy}</p>}
     </div>
   )
 }
