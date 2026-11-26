@@ -22,6 +22,7 @@ import {
 } from './domain-packs'
 import { resolveCuratedStatus, type CuratedStatusResult } from './curator'
 import { assertSourceContentUsable, listSources } from './sources'
+import type { ReviewerDb, ReviewerProfileRow, ReviewerActor } from './reviewers'
 
 /** Version of the pilot protocol these constants encode (protocol document §header). */
 export const CI7_PILOT_PROTOCOL_VERSION = 'ci7-pilot-protocol-1'
@@ -132,4 +133,207 @@ export function pilotPackSnapshot(): {
  */
 export function pilotSubjectIsRegistered(): boolean {
   return listDomainPacks().some((p) => p.pack.domainId === CI7_PILOT_DOMAIN_ID)
+}
+
+// ─── CI-7C: expert cohort activation — pilot participation consent ───────────
+// The cohort is NOT a second onboarding system: it reuses the existing CI-6
+// flow (INVITE → APPLY → EVIDENCE → INDEPENDENT VERIFICATION → QUALIFICATION
+// → ACTIVATION) and adds exactly one missing gate — explicit pilot
+// participation consent, recorded as append-only reviewer events so the
+// participant's acknowledgement of the protocol terms is auditable and the
+// latest event governs.
+
+/** Protocol participant information points every expert must acknowledge (protocol §15). */
+export const CI7_PILOT_CONSENT_POINTS: readonly string[] = [
+  'what-you-review: the education-pedagogy pack content (glossary, competency levels, task boundaries, safety boundary) against the six-section rubric',
+  'how-decisions-are-used: append-only attributable review rows; genuine approvals can contribute to derived VERIFIED status; disagreements preserved and possibly adjudicated',
+  'data-access: pack content, registered source metadata and licence snapshot — never student data, never other applicants evidence',
+  'attribution: reviews are attributed to your reviewer identity in the audit ledger; public directory listing is optional and never a condition of participation',
+  'compensation: the status recorded in the owner-approved participant terms (UNPAID | COMPENSATED | OTHERWISE_AGREED) — recorded verbatim, never invented',
+  'confidentiality: pack content stays confidential outside BEAN; conflicts of interest must be declared and are enforced',
+  'withdrawal-privacy: withdrawal runs through the existing reviewer withdrawal flow; consent events are retained in the audit trail per the retention rules',
+]
+
+export const CI7_PILOT_COMPENSATION_STATUSES = ['UNPAID', 'COMPENSATED', 'OTHERWISE_AGREED'] as const
+export type Ci7PilotCompensationStatus = (typeof CI7_PILOT_COMPENSATION_STATUSES)[number]
+
+const PILOT_CONSENT_STATUSES: readonly string[] = ['ACTIVE', 'APPROVED']
+
+export interface Ci7PilotConsentInput {
+  protocolVersion?: unknown
+  acknowledged?: unknown
+  compensationStatus?: unknown
+}
+
+/**
+ * Record explicit pilot participation consent for an activated (or approved,
+ * pre-activation) reviewer. Consent is the reviewer's own act — recorded with
+ * the REVIEWER actor. This is NOT a privilege grant: eligibility still flows
+ * from the CI-5B lifecycle (ACTIVE + scope + availability) and the CI-5C
+ * assignment gates. Refuses:
+ *  - profiles in states where participation makes no sense (pending review,
+ *    terminal) — a pending applicant is never a pilot participant;
+ *  - unknown protocol versions (consent must name the version it consented to);
+ *  - missing/false acknowledgement of every participant information point;
+ *  - an invented compensation status (only the owner-approved vocabulary).
+ */
+export async function recordPilotParticipationConsent(
+  db: ReviewerDb,
+  profile: ReviewerProfileRow,
+  actor: ReviewerActor,
+  input: Ci7PilotConsentInput,
+  now: Date = new Date(),
+): Promise<{ ok: true; eventId: string } | { ok: false; status: number; error: string }> {
+  if (!PILOT_CONSENT_STATUSES.includes(profile.status)) {
+    return {
+      ok: false,
+      status: 409,
+      error: `pilot participation consent requires an APPROVED or ACTIVE reviewer profile (current status ${profile.status}) — a pending applicant is never a pilot participant, and terminal states cannot consent`,
+    }
+  }
+  const protocolVersion = typeof input.protocolVersion === 'string' ? input.protocolVersion : ''
+  if (!protocolVersion || protocolVersion !== CI7_PILOT_PROTOCOL_VERSION) {
+    return { ok: false, status: 400, error: `consent must name the current pilot protocol version ${CI7_PILOT_PROTOCOL_VERSION}` }
+  }
+  const acknowledged = Array.isArray(input.acknowledged) ? (input.acknowledged as unknown[]) : []
+  const missing = CI7_PILOT_CONSENT_POINTS.filter((point) => !acknowledged.includes(point))
+  if (missing.length > 0) {
+    return { ok: false, status: 400, error: `participation consent requires acknowledging every participant information point (missing ${missing.length})` }
+  }
+  const compensationStatus = input.compensationStatus
+  if (
+    typeof compensationStatus !== 'string' ||
+    !CI7_PILOT_COMPENSATION_STATUSES.includes(compensationStatus as Ci7PilotCompensationStatus)
+  ) {
+    return { ok: false, status: 400, error: 'compensationStatus must record the owner-approved terms: UNPAID | COMPENSATED | OTHERWISE_AGREED — never an invented value' }
+  }
+  const event = await db.expertReviewerEvent.create({
+    data: {
+      profileId: profile.id,
+      eventType: 'PILOT_PARTICIPATION_CONSENT',
+      actorKind: 'REVIEWER',
+      actorId: actor.studentId,
+      rationale: `consent to CI-7 pilot participation under ${protocolVersion} (education-pedagogy v${CI7_PILOT_PACK_VERSION})`,
+      payload: JSON.stringify({
+        kind: 'CI7-PILOT-PARTICIPATION',
+        protocolVersion,
+        packVersion: CI7_PILOT_PACK_VERSION,
+        acknowledged: CI7_PILOT_CONSENT_POINTS,
+        compensationStatus,
+        consentedAt: now.toISOString(),
+      }),
+    },
+  })
+  return { ok: true, eventId: event.id }
+}
+
+/**
+ * Withdraw pilot participation (append-only). The latest pilot event governs:
+ * after withdrawal the reviewer is not a pilot participant. Existing recorded
+ * decisions are retained per the retention rules — withdrawal never erases
+ * history.
+ */
+export async function withdrawPilotParticipation(
+  db: ReviewerDb,
+  profile: ReviewerProfileRow,
+  actor: ReviewerActor,
+  reason: string,
+  now: Date = new Date(),
+): Promise<{ ok: true; eventId: string } | { ok: false; status: number; error: string }> {
+  if (!reason || reason.trim().length < 10) {
+    return { ok: false, status: 400, error: 'a withdrawal reason of at least 10 characters is required (audit trail)' }
+  }
+  const event = await db.expertReviewerEvent.create({
+    data: {
+      profileId: profile.id,
+      eventType: 'PILOT_PARTICIPATION_WITHDRAWN',
+      actorKind: 'REVIEWER',
+      actorId: actor.studentId,
+      rationale: reason.slice(0, 2000),
+      payload: JSON.stringify({
+        kind: 'CI7-PILOT-PARTICIPATION-WITHDRAWAL',
+        protocolVersion: CI7_PILOT_PROTOCOL_VERSION,
+        withdrawnAt: now.toISOString(),
+      }),
+    },
+  })
+  return { ok: true, eventId: event.id }
+}
+
+export interface Ci7PilotParticipationState {
+  participant: boolean
+  latestConsentAt: string | null
+  latestWithdrawalAt: string | null
+  protocolVersion: string | null
+  compensationStatus: Ci7PilotCompensationStatus | null
+}
+
+/**
+ * Derive pilot participation from the event ledger — the LATEST pilot consent
+ * / withdrawal event governs. Derived server-side from append-only history;
+ * never a client-supplied flag.
+ */
+export function resolvePilotParticipation(events: readonly { eventType: string; payload: string | null; createdAt: Date }[]): Ci7PilotParticipationState {
+  const pilotEvents = events
+    .filter((e) => e.eventType === 'PILOT_PARTICIPATION_CONSENT' || e.eventType === 'PILOT_PARTICIPATION_WITHDRAWN')
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  const state: Ci7PilotParticipationState = {
+    participant: false,
+    latestConsentAt: null,
+    latestWithdrawalAt: null,
+    protocolVersion: null,
+    compensationStatus: null,
+  }
+  for (const e of pilotEvents) {
+    if (e.eventType === 'PILOT_PARTICIPATION_CONSENT') {
+      state.participant = true
+      state.latestConsentAt = e.createdAt.toISOString()
+      state.latestWithdrawalAt = null
+      try {
+        const payload = JSON.parse(e.payload ?? '{}') as { protocolVersion?: string; compensationStatus?: Ci7PilotCompensationStatus }
+        state.protocolVersion = payload.protocolVersion ?? null
+        state.compensationStatus = payload.compensationStatus ?? null
+      } catch {
+        // an unparseable payload must not silently keep stale consent values
+        state.protocolVersion = null
+        state.compensationStatus = null
+      }
+    } else {
+      state.participant = false
+      state.latestWithdrawalAt = e.createdAt.toISOString()
+    }
+  }
+  return state
+}
+
+/**
+ * The pilot assignment gate. Reused by the EXISTING admin assignment route:
+ * an assignment that targets the pilot pack may only be created for a reviewer
+ * whose LATEST pilot event is a participation consent for the CURRENT protocol
+ * version. Everything else (ACTIVE status, scope, COI, availability,
+ * independence) remains the existing createAssignment authority — this gate is
+ * purely additive and never relaxes any existing rule.
+ */
+export function pilotAssignmentGate(
+  subjectType: unknown,
+  subjectKey: unknown,
+  participation: Ci7PilotParticipationState,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const isPilotSubject = subjectType === 'DOMAIN_PACK' && subjectKey === CI7_PILOT_DOMAIN_ID
+  if (!isPilotSubject) return { ok: true }
+  if (!participation.participant) {
+    return {
+      ok: false,
+      status: 409,
+      error: `the reviewer has not consented to CI-7 pilot participation under ${CI7_PILOT_PROTOCOL_VERSION} (or has withdrawn) — pilot assignments require explicit recorded consent`,
+    }
+  }
+  if (participation.protocolVersion !== CI7_PILOT_PROTOCOL_VERSION) {
+    return {
+      ok: false,
+      status: 409,
+      error: `the reviewer's pilot consent names protocol ${participation.protocolVersion ?? 'unknown'}, not the current ${CI7_PILOT_PROTOCOL_VERSION} — re-consent to the current protocol first`,
+    }
+  }
+  return { ok: true }
 }

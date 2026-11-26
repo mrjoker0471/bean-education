@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/teach'
 import { createAssignment, listAssignments, assignmentDbFromPrisma } from '@/lib/ci/fleet/assignments'
 import { resolveReviewerProfileById, reviewerDbFromPrisma } from '@/lib/ci/fleet/reviewers'
+import { pilotAssignmentGate, resolvePilotParticipation } from '@/lib/ci/fleet/pilot'
 import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -65,6 +66,16 @@ export async function POST(req: NextRequest) {
     // Lazy expiry applies here too: a lapsed profile can never be assigned work.
     const profile = await resolveReviewerProfileById(reviewerDbFromPrisma(db), reviewerProfileId)
     if (!profile) return NextResponse.json({ error: 'reviewer profile not found' }, { status: 404 })
+
+    // CI-7C pilot gate (additive; never relaxes the CI-5C gates below): an
+    // assignment for the pilot pack requires the reviewer's recorded pilot
+    // participation consent for the CURRENT protocol version.
+    const participationEvents = await db.expertReviewerEvent.findMany({
+      where: { profileId: profile.id },
+      orderBy: { createdAt: 'asc' },
+    })
+    const pilotGate = pilotAssignmentGate(body.subjectType, body.subjectKey, resolvePilotParticipation(participationEvents))
+    if (!pilotGate.ok) return NextResponse.json({ error: pilotGate.error }, { status: pilotGate.status })
 
     const result = await createAssignment(assignmentDbFromPrisma(db), { studentId: guard.student.id, displayName: guard.student.displayName ?? 'BEAN admin' }, profile, {
       subjectType: body.subjectType,

@@ -77,6 +77,11 @@ export const REVIEWER_EVENT_TYPES = [
   'INVITATION_CLAIMED',
   // CI-6F (additive): the reviewer changed their availability/workload state.
   'AVAILABILITY_CHANGED',
+  // CI-7C (additive): the reviewer explicitly consented to (or withdrew from)
+  // the bounded CI-7 pilot participation terms. Consent is append-only
+  // event history; the LATEST pilot consent event governs eligibility.
+  'PILOT_PARTICIPATION_CONSENT',
+  'PILOT_PARTICIPATION_WITHDRAWN',
 ] as const
 export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
 
