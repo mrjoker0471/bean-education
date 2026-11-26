@@ -1200,7 +1200,8 @@
         "8481e31ce2009ba197303fe02f9aee90ca9c562b",
         "0f6ca4d6f8be7f80b393313e382bcfd63eab7ac5",
         "4c421ecfa88171f515c3184bd67d925513cab15b",
-        "5a8fd2582e3ce9d352af3b568d25b1b8101deb75"
+        "5a8fd2582e3ce9d352af3b568d25b1b8101deb75",
+        "96f8ebb02288572dc2d65eac5d8901564e8b2b69"
       ],
       "units": [
         {
@@ -1254,7 +1255,7 @@
         },
         {
           "id": "CI-6H",
-          "commitSha": "CI6H_SHA",
+          "commitSha": "96f8ebb02288572dc2d65eac5d8901564e8b2b69",
           "remoteVerifiedSha": "pending-push",
           "verifiedAt": null,
           "summary": "Production readiness and acceptance (docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md): full suite 1740/0 across 124 files (baseline 1677 + 63 CI-6 tests); tsc exit 0; eslint exit 0; prisma validate clean; ALL 20 migrations applied clean on a fresh database (prisma migrate deploy, output verified); production build exit 0 (standalone server produced; sandbox OOM note recorded honestly — builds succeed after freeing memory or in CI); real-browser walkthrough of the production standalone server on the disposable fixture DB with 13 genuine screenshots (docs/screenshots/ci6-verify/) incl. honest empty expert directory, one-time invitation reveal, activation reporting grid, reviewer workspace with availability + completed review history, and 768/390/320 responsive checks (no horizontal overflow at any width); golden path executed end-to-end through REAL routes (invitation -> claim -> application with consent -> evidence upload magic-byte validated -> VERIFIED examination bound to the examined document -> qualification APPROVED with explicit scope -> ACTIVATED -> checksum-bound assignment -> A-F rubric pack review -> COMPLETED with outcomeRef) with the checksum-freshness guard provably refusing an unbound attempt; honest states preserved: production packs IN_REVIEW, languages unmeasured/LIMITED, TRANSCRIPTION structurally UNSUPPORTED, verified-expert count 0, real completed reviews 0."
