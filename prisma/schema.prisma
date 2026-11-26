@@ -2183,6 +2183,10 @@ model ExpertReviewerProfile {
   professionalSummary    String?
   availabilityNote       String?
   disclosedAffiliation   Boolean   @default(false)
+  // CI-6F (additive): reviewer availability / workload control. AVAILABLE by
+  // default; PAUSED reviewers receive no new assignments (server-side gate)
+  // while in-flight work is unaffected.
+  availability           String    @default("AVAILABLE") // AVAILABLE | PAUSED
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 

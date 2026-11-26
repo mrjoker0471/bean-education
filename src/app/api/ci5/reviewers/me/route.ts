@@ -34,6 +34,7 @@ export async function GET() {
         expiresAt: profile.expiresAt,
         suspendedReason: profile.suspendedReason,
         revokedReason: profile.revokedReason,
+        availability: profile.availability,
         createdAt: profile.createdAt,
       },
       events: events.map((e) => ({

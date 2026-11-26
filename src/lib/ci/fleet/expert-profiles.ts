@@ -110,6 +110,51 @@ export async function updateDisclosureSettings(
   return { ok: true, profile: updated }
 }
 
+// ─── CI-6F: availability / workload control ────────────────────────────────────
+
+export const AVAILABILITY_STATES = ['AVAILABLE', 'PAUSED'] as const
+
+const availabilitySchema = z.object({
+  availability: z.enum(AVAILABILITY_STATES),
+}).strict()
+
+/**
+ * Reviewer-controlled availability. PAUSED reviewers receive no new
+ * assignments (server-side gate in createAssignment); in-flight work is
+ * unaffected. Admins see the state in the registry. Never changes
+ * qualification or eligibility — workload control only.
+ */
+export async function setReviewerAvailability(
+  db: ExpertProfilesDb,
+  actor: { studentId: string; displayName: string },
+  input: unknown,
+): Promise<ProfileOpResult> {
+  const parsed = availabilitySchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return { ok: false, status: 400, error: `invalid availability update: ${first?.path.join('.') ?? '?'} — ${first?.message ?? 'schema mismatch'}` }
+  }
+  const profile = await db.expertReviewerProfile.findUnique({ where: { studentId: actor.studentId } })
+  if (!profile) return { ok: false, status: 404, error: 'no expert application exists for this account' }
+  if (profile.availability === parsed.data.availability) {
+    return { ok: true, profile }
+  }
+  const updated = await db.expertReviewerProfile.update({
+    where: { id: profile.id },
+    data: { availability: parsed.data.availability },
+  })
+  await db.expertReviewerEvent.create({
+    data: {
+      profileId: profile.id,
+      eventType: 'AVAILABILITY_CHANGED',
+      actorKind: 'REVIEWER',
+      actorId: actor.studentId,
+      rationale: `availability set to ${parsed.data.availability} — ${parsed.data.availability === 'PAUSED' ? 'no new assignments will be received until resumed' : 'eligible for new scoped assignments again'}`,
+    },
+  })
+  return { ok: true, profile: updated }
+}
+
 // ─── Public directory (five distinct states; consent-gated projection) ─────────
 
 export interface PublicExpert {

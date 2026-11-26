@@ -75,6 +75,8 @@ export const REVIEWER_EVENT_TYPES = [
   // CI-6E (additive): the account claimed an expert invitation (advisory link
   // only — no privilege is granted by claiming).
   'INVITATION_CLAIMED',
+  // CI-6F (additive): the reviewer changed their availability/workload state.
+  'AVAILABILITY_CHANGED',
 ] as const
 export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
 
@@ -135,6 +137,8 @@ export interface ReviewerProfileRow {
   conflictOfInterest: string
   suspendedReason: string | null
   revokedReason: string | null
+  // CI-6F availability control (additive column; AVAILABLE | PAUSED).
+  availability: string
   // CI-6D disclosure columns (additive; consent-gated public projection).
   profileVisibility: string
   disclosureConsentAt: Date | null
