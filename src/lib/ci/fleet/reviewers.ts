@@ -69,6 +69,9 @@ export const REVIEWER_EVENT_TYPES = [
   'INFO_ANSWERED',
   'APPLICATION_WITHDRAWN',
   'CONSENT_RECORDED',
+  // CI-6C (additive): a credential verification examination was recorded by an
+  // authorised administrator (append-only ExpertVerificationRecord + event).
+  'CREDENTIAL_VERIFICATION_RECORDED',
 ] as const
 export type ReviewerEventType = (typeof REVIEWER_EVENT_TYPES)[number]
 

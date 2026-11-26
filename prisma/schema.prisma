@@ -2503,6 +2503,38 @@ model ExpertApplicationInfoRequest {
   @@index([profileId, status])
 }
 
+// ─── BEAN Classroom Intelligence (CI-6C): independent credential verification ──
+// Append-only record of ONE human verification examination of one credential.
+// A record never by itself changes the reviewer lifecycle (strict CI-5B
+// transition table) or any content-approval authority. Honest method
+// vocabulary — no third-party verification result is fabricated. FK-less on
+// purpose: the audit trail survives account deletion (CI-5 rule).
+model ExpertVerificationRecord {
+  id                   String    @id @default(cuid())
+  profileId            String // ExpertReviewerProfile.id (no FK, by design)
+  // DEGREE | CERTIFICATION | LICENCE | EMPLOYMENT | PUBLICATION | REFERENCE | OTHER
+  credentialType       String
+  issuingInstitution   String
+  // What the credential covers (domain ids and/or language tags), as text.
+  qualificationScope   String
+  // JSON string[] of ExpertCredentialEvidence ids examined for this decision.
+  evidenceIds          String    @default("[]")
+  // DOCUMENT_EXAMINATION | ISSUING_BODY_REFERENCE | PUBLISHED_REGISTRY
+  verificationMethod   String
+  // Registry/reference detail when the method used an external check.
+  referenceDetail      String?
+  // VERIFIED | REJECTED | NEEDS_MORE_EVIDENCE | SUPERSEDED
+  decision             String
+  // Required for every decision — especially adverse or changed ones.
+  reason               String
+  expiresAt            DateTime?
+  verifiedByAdminId    String // server-resolved administrator
+  verifiedAt           DateTime
+  createdAt            DateTime  @default(now())
+
+  @@index([profileId, createdAt])
+}
+
 model ExpertReviewRenewalDemand {
   id          String    @id @default(cuid())
   subjectType String    // DOMAIN_PACK | LANGUAGE_CAPABILITY | CLASSROOM_REPORT

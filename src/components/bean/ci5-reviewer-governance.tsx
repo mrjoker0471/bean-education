@@ -15,7 +15,8 @@
 // server-authorised, append-only event.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, ShieldCheck, ClipboardList, Languages, FlaskConical, FileSearch, Users, RefreshCw } from 'lucide-react'
+import { Loader2, ShieldCheck, ClipboardList, Languages, FlaskConical, FileSearch, Users, RefreshCw, FileCheck } from 'lucide-react'
+import { Ci6VerificationWorkbench } from '@/components/bean/ci6-verification-workbench'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -115,7 +116,7 @@ interface AuditDTO {
   ambiguousCount: number
 }
 
-type AdminTab = 'reviewers' | 'assignments' | 'language' | 'benchmarks' | 'audits'
+type AdminTab = 'reviewers' | 'assignments' | 'language' | 'benchmarks' | 'audits' | 'verification'
 
 export function AdminCi5GovernancePanel() {
   const [tab, setTab] = useState<AdminTab>('reviewers')
@@ -168,6 +169,8 @@ export function AdminCi5GovernancePanel() {
     { id: 'language', label: 'Language', icon: Languages },
     { id: 'benchmarks', label: 'Benchmarks', icon: FlaskConical },
     { id: 'audits', label: 'Report audits', icon: FileSearch },
+    // CI-6C (additive): independent credential verification workbench
+    { id: 'verification', label: 'Verification', icon: FileCheck },
   ]
 
   return (
@@ -306,6 +309,9 @@ export function AdminCi5GovernancePanel() {
               ))
             )
           )}
+
+          {/* CI-6C (additive): independent credential verification workbench */}
+          {tab === 'verification' && <Ci6VerificationWorkbench />}
         </div>
       )}
     </div>
