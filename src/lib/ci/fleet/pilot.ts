@@ -678,6 +678,170 @@ export function resolvePilotActivationState(
   }
 }
 
+// ─── CI-7H: pilot dashboard — honest ledger-derived reporting ────────────────
+// Extends the CI-6G activation-reporting discipline to the pilot: EVERY count
+// comes from its own authoritative ledger (profiles, verification records,
+// consent events, invitations, assignments, pack reviews, disagreement
+// analyses, activation events, benchmark labels). Missing values are never
+// calculated as successful outcomes; synthetic fixture records are never
+// counted as real ones; when the real pilot has not been executed the report
+// says NOT STARTED with genuine zeros.
+
+import { resolveVerificationState, type VerificationRecordRow } from './verification'
+
+export interface Ci7PilotReportingDb {
+  expertReviewerProfile: { findMany(args?: Record<string, unknown>): Promise<Array<{ id: string; studentId: string; status: string; approvedDomains: string; availability: string; profileVisibility: string }>> }
+  expertVerificationRecord: { findMany(args?: Record<string, unknown>): Promise<VerificationRecordRow[]> }
+  expertReviewerEvent: { findMany(args?: Record<string, unknown>): Promise<Array<{ profileId: string; eventType: string; payload: string | null; createdAt: Date }>> }
+  expertInvitation: { findMany(args?: Record<string, unknown>): Promise<Array<{ id: string; status: string; requestedDomainsJson: string }>> }
+  expertReviewAssignment: { findMany(args?: Record<string, unknown>): Promise<Array<{ id: string; subjectType: string; subjectKey: string; subjectChecksum: string | null; status: string }>> }
+  classroomPackReview: { findMany(args?: Record<string, unknown>): Promise<Array<{ id: string; packId: string; packVersion: string; packChecksum: string; decision: string; reviewerStudentId: string }>> }
+  ci7DisagreementAnalysis: { findMany(args?: Record<string, unknown>): Promise<Array<Record<string, unknown> & { id: string }>> }
+  ci7PilotActivation: { findMany(args?: Record<string, unknown>): Promise<Array<Record<string, unknown> & { id: string; eventType: string; packChecksum: string; createdAt: Date }>> }
+  expertBenchmarkDataset: { findMany(args?: Record<string, unknown>): Promise<Array<{ id: string; slug: string; version: string; checksum: string; split: string; domain: string }>> }
+  expertBenchmarkCaseLabel: { findMany(args?: Record<string, unknown>): Promise<Array<{ id: string; datasetId: string; datasetVersion: string; caseKey: string; reviewerProfileId: string | null }>> }
+}
+
+export function ci7ReportingDbFromPrisma(client: unknown): Ci7PilotReportingDb {
+  return client as Ci7PilotReportingDb
+}
+
+export interface Ci7PilotReport {
+  pilotStatus: string
+  domainId: string
+  packVersion: string
+  packChecksum: string
+  protocolVersion: string
+  expertApplications: number
+  independentlyVerifiedExperts: number
+  qualifiedActiveExperts: number
+  pilotDomainEligibleExperts: number
+  pilotInvitations: number
+  claimedPilotInvitations: number
+  acceptedAssignments: number
+  submittedHumanReviews: number
+  completedHumanReviews: number
+  genuineExpertApprovals: number
+  genuineDisagreements: number
+  adjudicatedDisagreements: number
+  packCorrections: number
+  reReviewRequirements: number
+  packActivationStatus: string
+  benchmarkHumanLabels: number
+  evaluationStatus: string
+  fixturePolicy: string
+  note: string
+  generatedAt: string
+}
+
+export async function buildPilotReport(tables: Ci7PilotReportingDb, now: Date = new Date()): Promise<Ci7PilotReport> {
+  const snap = pilotPackSnapshot()
+  const domain = snap.domainId
+  const checksum = snap.checksum
+
+  const [profiles, verifications, events, invitations, assignments, reviews, analyses, activationEvents, datasets] = await Promise.all([
+    tables.expertReviewerProfile.findMany(),
+    tables.expertVerificationRecord.findMany(),
+    tables.expertReviewerEvent.findMany(),
+    tables.expertInvitation.findMany(),
+    tables.expertReviewAssignment.findMany({ where: { subjectType: 'DOMAIN_PACK', subjectKey: domain } }),
+    tables.classroomPackReview.findMany({ where: { packId: domain } }),
+    tables.ci7DisagreementAnalysis.findMany({ where: { packId: domain } }),
+    tables.ci7PilotActivation.findMany({ where: { packId: domain } }),
+    tables.expertBenchmarkDataset.findMany({ where: { domain } }),
+  ])
+
+  // expert cohort — each count from its own ledger
+  const verificationsByProfile = new Map<string, VerificationRecordRow[]>()
+  for (const v of verifications) {
+    const list = verificationsByProfile.get(v.profileId) ?? []
+    list.push(v)
+    verificationsByProfile.set(v.profileId, list)
+  }
+  const independentlyVerified = profiles.filter((p) => {
+    const state = resolveVerificationState(verificationsByProfile.get(p.id) ?? [], now)
+    return state.verified
+  }).length
+  const activeProfiles = profiles.filter((p) => p.status === 'ACTIVE')
+
+  // pilot eligibility: ACTIVE + exact approved domain scope + current-protocol participation consent
+  const pilotConsentByProfile = new Map<string, boolean>()
+  for (const e of events) {
+    if (e.eventType === 'PILOT_PARTICIPATION_CONSENT' || e.eventType === 'PILOT_PARTICIPATION_WITHDRAWN') {
+      pilotConsentByProfile.set(e.profileId, e.eventType === 'PILOT_PARTICIPATION_CONSENT')
+    }
+  }
+  const pilotDomainEligible = activeProfiles.filter((p) => {
+    const domains = JSON.parse(p.approvedDomains || '[]') as string[]
+    return domains.includes(domain) && pilotConsentByProfile.get(p.id) === true
+  }).length
+
+  // pilot invitations (advisory requested scope contains the pilot domain)
+  const pilotInvitations = invitations.filter((inv) => {
+    try {
+      return (JSON.parse(inv.requestedDomainsJson || '[]') as string[]).includes(domain)
+    } catch {
+      return false
+    }
+  })
+  const claimedPilotInvitations = pilotInvitations.filter((inv) => inv.status === 'CLAIMED').length
+
+  // assignments / reviews — bound to the pilot subject
+  const openOrDone = assignments.filter((a) => ['ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'COMPLETED'].includes(a.status))
+  const completedAssignments = assignments.filter((a) => a.status === 'COMPLETED')
+  const boundReviews = reviews.filter((r) => r.packVersion === snap.pack.packVersion && r.packChecksum === checksum)
+  const genuineApprovals = new Set(boundReviews.filter((r) => r.decision === 'APPROVED').map((r) => r.reviewerStudentId)).size
+
+  // disagreement analyses (append-only rows for this pack)
+  const adjudicated = analyses.filter((a) => typeof a.adjudicationOutcome === 'string' && (a.adjudicationOutcome as string).length > 0).length
+  const corrections = analyses.filter((a) => a.correctionApplied === true).length
+  const reReviews = analyses.filter((a) => a.reReviewRequired === true).length
+
+  // activation state (append-only ledger; default DISABLED; stale = re-review)
+  const activation = resolvePilotActivationState(activationEvents, checksum)
+  const reReviewRequirements = reReviews + (activation.reReviewRequired ? 1 : 0)
+
+  // benchmark labels for pilot-domain datasets — human labels only
+  const datasetIds = new Set(datasets.map((d) => d.id))
+  const labels = datasetIds.size > 0
+    ? (await tables.expertBenchmarkCaseLabel.findMany()).filter((l) => datasetIds.has(l.datasetId) && typeof l.reviewerProfileId === 'string' && l.reviewerProfileId.length > 0)
+    : []
+  const evaluation = datasets.length === 0
+    ? 'NO DATASET — no evaluation dataset for the pilot domain exists yet'
+    : 'INSUFFICIENT EVIDENCE — evaluate only where the real label count and evaluation design support a meaningful result (see /api/admin/ci7/evaluation-readiness)'
+
+  const pilotHasExecuted = completedAssignments.length > 0 || boundReviews.length > 0
+  return {
+    pilotStatus: pilotHasExecuted ? 'IN EXECUTION' : 'NOT STARTED',
+    domainId: domain,
+    packVersion: snap.pack.packVersion,
+    packChecksum: checksum,
+    protocolVersion: snap.protocolVersion,
+    expertApplications: profiles.length,
+    independentlyVerifiedExperts: independentlyVerified,
+    qualifiedActiveExperts: activeProfiles.length,
+    pilotDomainEligibleExperts: pilotDomainEligible,
+    pilotInvitations: pilotInvitations.length,
+    claimedPilotInvitations,
+    acceptedAssignments: openOrDone.length,
+    submittedHumanReviews: boundReviews.length,
+    completedHumanReviews: completedAssignments.length,
+    genuineExpertApprovals: genuineApprovals,
+    genuineDisagreements: analyses.length,
+    adjudicatedDisagreements: adjudicated,
+    packCorrections: corrections,
+    reReviewRequirements,
+    packActivationStatus: `${activation.state}${activation.reReviewRequired ? ' (re-review required)' : ''} — bound checksum ${activation.activatedChecksum ? activation.activatedChecksum.slice(0, 12) + '…' : 'none'}`,
+    benchmarkHumanLabels: labels.length,
+    evaluationStatus: evaluation,
+    fixturePolicy: 'Synthetic fixture records are never counted as real expert records, real human decisions or real approvals. Every number above is a ledger count; zero means zero.',
+    note: pilotHasExecuted
+      ? 'pilot execution is recorded through the real ledgers — distinguish software readiness from real-world outcomes when reporting'
+      : 'NOT STARTED — the real-world pilot has not been executed: no genuine expert has completed the real process. Zero counts are honest zeros, not projections.',
+    generatedAt: now.toISOString(),
+  }
+}
+
 // ─── CI-7C: expert cohort activation — pilot participation consent ───────────
 // The cohort is NOT a second onboarding system: it reuses the existing CI-6
 // flow (INVITE → APPLY → EVIDENCE → INDEPENDENT VERIFICATION → QUALIFICATION
