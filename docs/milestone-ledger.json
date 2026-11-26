@@ -1206,75 +1206,81 @@
       "units": [
         {
           "id": "CI-6A",
-          "commitSha": "180c377",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "commitSha": "180c377323cf7536cd8854ed74d936a723182549",
+          "remoteVerifiedSha": "180c377323cf7536cd8854ed74d936a723182549",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Architecture audit + activation design (docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-ARCHITECTURE.md): origin/main verified 643d568 (ls-remote == checkout == PR #48 merge that recorded CI-5 COMPLETE/SYNCHRONIZED). Source-level CI-5 inventory: reviewer lifecycle + strict transitions + append-only events (reviewers.ts), assignment/COI/recusal gates (assignments.ts), recordPackReview qualifiedApproverIds authority (curator.ts + CI-4C), durable language governance with structural TRANSCRIPTION refusal (language-governance.ts), benchmark programme honest non-runs (expert-benchmarks.ts), privacy-masked report audit (report-audit.ts), renewal demands + audit export (re-review.ts); requireStudent/requireAdmin-only authorization with ADMIN role operator-CLI-only; route conventions (force-dynamic/nodejs, Guard passthrough, await params); rate limiting absent on CI-5 routes (CI-6 public routes must rate-limit); no email infrastructure (CI-6E = admin-controlled secure links, no delivery claims); upload precedent /api/materials is guest-scoped/unauthenticated (CI-6 needs session-authenticated restricted evidence store); FK-less audit ledgers survive account deletion (proven by ci5-reliability H6); walkthrough infra = agent-browser + API-registered fixtures + docs/screenshots/. Gap analysis maps each charter requirement to the smallest additive change with hard invariants (no second authority, no self-dealing, verification!=qualification!=content-approval, honest zeros, evidence hygiene, additive-only migrations). Honest limits: no real experts/credentials/verifications exist in the sandbox; every real count reports zero until genuine independently-verified records exist."
         },
         {
           "id": "CI-6B",
           "commitSha": "bd5564e4396af78b6a16e3314a5a994efb3a6dc9",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "bd5564e4396af78b6a16e3314a5a994efb3a6dc9",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Real expert application and onboarding (docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md S3): additive migration 20261125180000 (3 profile columns + ExpertCredentialEvidence + ExpertApplicationInfoRequest); WITHDRAWN added to the strict transition table (open application states only, terminal); 6 new event types; applications.ts with restricted evidence store (magic-byte sniff PDF/PNG/JPEG, client MIME never trusted, 10 MiB cap, sha256, 0600 files under gitignored db/evidence/, path-escape guard), application update frozen after decisions, info-request loop, withdrawal purging ACTIVE evidence bytes (metadata+hash retained); routes all requireStudent with server-resolved identity and rate-limited uploads; /api/ci6/domains public vocabulary; #/expert-apply 3-step UI with review-exact-info + explicit consent; tests 20/105 expect() incl. forged verified/approved/humanApproved/status/scope refusals 400, no-assignment-for-pending-applicants, cross-account evidence 404/403, 413/415/429 negatives, 0600 file mode, withdrawal terminality."
         },
         {
           "id": "CI-6C",
           "commitSha": "e53bc8e6fcd72828d050710fa3d2474604d81320",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "e53bc8e6fcd72828d050710fa3d2474604d81320",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Independent credential verification workbench: additive migration 20261125190000 (append-only ExpertVerificationRecord); verification.ts with honest method vocabulary (DOCUMENT_EXAMINATION requires >=1 ACTIVE evidence row of this profile; ISSUING_BODY_REFERENCE / PUBLISHED_REGISTRY require recorded reference detail — no third-party result fabricated), reason required for every decision, corrections are NEW rows (SUPERSEDED), self-verification refused 403, terminal applications refuse 409, resolveVerificationState derives state from records only (latest per credentialType governs, expiry honoured); profile.status/verificationStatus/scope deliberately untouched (CI-5B remains the only lifecycle authority); requireAdmin routes incl. restricted evidence streaming (purged->410); Verification tab added additively to AdminCi5GovernancePanel; tests 14/67 expect() incl. forged fields 400, purged-evidence refusal, route authorization matrix."
         },
         {
           "id": "CI-6D",
           "commitSha": "8481e31ce2009ba197303fe02f9aee90ca9c562b",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "8481e31ce2009ba197303fe02f9aee90ca9c562b",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Expert profiles and capability activation: additive migration 20261125200000 (6 disclosure columns, PRIVATE default); expert-profiles.ts assembles the FIVE distinct states each from its OWN authoritative ledger (applicant=profile status, credential-verified=CI-6C records, reviewer-eligible=ACTIVE+non-empty server scope with read-only lazy-expiry rule, domain approvals=ClassroomPackReview APPROVED rows by the reviewer account, language verified=LanguageCapabilityReview APPROVED rows) — no state inferred from another; public /api/ci6/experts projection exposes ONLY consented LISTED fields and is asserted to contain no email/studentId/COI/verification reasons/paths; #/experts directory + disclosure editor in #/expert-apply (LISTED consent-gated, disclosureConsentAt + CONSENT_RECORDED once, revocable); tests 8/43 expect() incl. forged fields 400, unlisting, suspension/expiry eligibility loss."
         },
         {
           "id": "CI-6E",
           "commitSha": "0f6ca4d6f8be7f80b393313e382bcfd63eab7ac5",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "0f6ca4d6f8be7f80b393313e382bcfd63eab7ac5",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Invitations and recruitment operations: additive migration 20261125210000 (ExpertInvitation, unique tokenHash, hash-only storage); invitations.ts: 32-byte base64url raw token returned EXACTLY ONCE, single-use guarded PENDING->CLAIMED bound to the server-resolved account, lazy expiry, revocation (reason>=10) only from PENDING, INVITATION_CLAIMED event when a profile exists; claim grants NOTHING (no profile created, createAssignment still refuses); invitation linkage validated server-side on the application path (claimedByStudentId binding; foreign/unclaimed refused); routes: admin create/list/revoke (list never exposes token material) + rate-limited claim (10/5min); UI: InvitationsSection in the workbench (one-time reveal + copy) and claim banner in #/expert-apply; docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md (no-email reality stated plainly, full invite->apply->verify->activate->review flow, retention rules); tests 10/59 expect() incl. replay/expiry/revocation/guessing negatives."
         },
         {
           "id": "CI-6F",
           "commitSha": "4c421ecfa88171f515c3184bd67d925513cab15b",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "4c421ecfa88171f515c3184bd67d925513cab15b",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Reviewer availability and workspace completion: additive migration 20261125220000 (availability column, AVAILABLE default); createAssignment gains the availability gate (PAUSED reviewers receive NO new assignments 409 while scope matching, COI refusal, one-open-assignment-per-subject, completed-version independence and lazy expiry remain unchanged — regression-tested); setReviewerAvailability (no-op toggles write nothing; AVAILABILITY_CHANGED event; eligibility state untouched); POST /api/ci5/reviewer/availability; availability surfaced in reviewers/me + admin registry; workspace Pause/Resume buttons (44px targets); tests 6/35 expect() incl. pause->refusal->resume->assignment-created and the CI-5C gate regression set."
         },
         {
           "id": "CI-6G",
           "commitSha": "5a8fd2582e3ce9d352af3b568d25b1b8101deb75",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "5a8fd2582e3ce9d352af3b568d25b1b8101deb75",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Honest activation reporting: reporting.ts builds the aggregate from EACH ledger independently (total applications, pending verification, verified+eligible, suspended/expired + terminal/withdrawn, active assignments, completed human reviews, provenance-bound expert labels, domain packs genuinely approved via the CI-4C distinct-human-approval derivation bound to the CURRENT pack version+checksum, language capabilities genuinely measured via VERIFIED+HUMAN_APPROVED only) with fixtureOnlyTestResults always explicit and the fixture policy stated verbatim; GET /api/admin/ci6/reporting (requireAdmin); ActivationReporting grid in the workbench; tests 5/45 expect() — honest all-zero report on a fresh DB, per-ledger updates through the REAL service chain, pack derivation incl. adverse-decision non-promotion."
         },
         {
           "id": "CI-6H",
           "commitSha": "96f8ebb02288572dc2d65eac5d8901564e8b2b69",
-          "remoteVerifiedSha": "pending-push",
-          "verifiedAt": null,
+          "remoteVerifiedSha": "96f8ebb02288572dc2d65eac5d8901564e8b2b69",
+          "verifiedAt": "2026-11-26T05:52:00Z",
           "summary": "Production readiness and acceptance (docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md): full suite 1740/0 across 124 files (baseline 1677 + 63 CI-6 tests); tsc exit 0; eslint exit 0; prisma validate clean; ALL 20 migrations applied clean on a fresh database (prisma migrate deploy, output verified); production build exit 0 (standalone server produced; sandbox OOM note recorded honestly — builds succeed after freeing memory or in CI); real-browser walkthrough of the production standalone server on the disposable fixture DB with 13 genuine screenshots (docs/screenshots/ci6-verify/) incl. honest empty expert directory, one-time invitation reveal, activation reporting grid, reviewer workspace with availability + completed review history, and 768/390/320 responsive checks (no horizontal overflow at any width); golden path executed end-to-end through REAL routes (invitation -> claim -> application with consent -> evidence upload magic-byte validated -> VERIFIED examination bound to the examined document -> qualification APPROVED with explicit scope -> ACTIVATED -> checksum-bound assignment -> A-F rubric pack review -> COMPLETED with outcomeRef) with the checksum-freshness guard provably refusing an unbound attempt; honest states preserved: production packs IN_REVIEW, languages unmeasured/LIMITED, TRANSCRIPTION structurally UNSUPPORTED, verified-expert count 0, real completed reviews 0."
         }
       ],
-      "remoteFeatureSha": null,
-      "pushVerifiedAt": null,
+      "remoteFeatureSha": "a41059fe1dd2a1ddbe27f1bf1f235356b95d06fd",
+      "pushVerifiedAt": "2026-11-26T05:52:00Z",
       "pr": {
         "number": null,
         "state": "NONE",
         "url": null
       },
-      "ci": [],
+      "ci": [
+        {
+          "runId": "45762839116",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on feature tip a41059f (feat/bean-classroom-intelligence-ci6) — quality job 139716620127 completed with all steps green (Set up job; Check out repository; Set up Bun 1.3.14; Install dependencies frozen lockfile; Generate Prisma client; Push schema to the isolated CI database; Lint; TypeScript; Tests; Production build; post steps; Complete job). Verified from GitHub's server-rendered commit-checks page and run page (authoritative embedded check-step data: 13/13 steps data-conclusion=\"success\", data-job-status=\"completed\") — the REST API was rate-limited on the shared sandbox egress IP, so conclusions were read from the rendered check-step records, not assumed"
+        }
+      ],
       "finalMainSha": null,
       "syncStatus": "PENDING",
       "status": "IN_PROGRESS",
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md",
-      "ciNote": "CI-6 opened from verified main 643d568 (PR #48 merge; CI-5 COMPLETE record untouched). Sandbox reset between sessions: the previously registered deploy key private half was lost — a fresh ed25519 keypair was generated (public key delivered to the owner for registration) and every unit commit is made locally in order; each will be pushed as a normal non-force fast-forward the moment push auth is available, with remoteVerifiedSha fields recording pending-push until git ls-remote verifies. Unit discipline held: every unit ran its targeted tests + CI-5 regression suites + full-suite check before commit. CI-6H acceptance: suite 1740/0, tsc 0, lint 0, prisma valid, all 20 migrations green on a fresh DB, production build exit 0, browser walkthrough with 13 genuine screenshots and no horizontal overflow at 768/390/320. HONEST FINAL STATE: software readiness delivered; real-world activation ZERO — no real experts, credentials, verifications, approvals or measurements exist; every real count reads zero in production until the operational flow (docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) produces genuinely verified records. CI-6 status becomes COMPLETE only after all units are in main and verified there per the milestone rule.",
-      "updatedAt": "2026-11-26T05:25:00Z"
+      "ciNote": "CI-6 opened from verified main 643d568 (PR #48 merge; CI-5 COMPLETE record untouched). Sandbox reset between sessions: the previously registered deploy key private half was lost — a fresh ed25519 keypair was generated (public key delivered to the owner for registration) and every unit commit is made locally in order; each will be pushed as a normal non-force fast-forward the moment push auth is available, with remoteVerifiedSha fields recording pending-push until git ls-remote verifies. Unit discipline held: every unit ran its targeted tests + CI-5 regression suites + full-suite check before commit. CI-6H acceptance: suite 1740/0, tsc 0, lint 0, prisma valid, all 20 migrations green on a fresh DB, production build exit 0, browser walkthrough with 13 genuine screenshots and no horizontal overflow at 768/390/320. HONEST FINAL STATE: software readiness delivered; real-world activation ZERO — no real experts, credentials, verifications, approvals or measurements exist; every real count reads zero in production until the operational flow (docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) produces genuinely verified records. CI-6 status becomes COMPLETE only after all units are in main and verified there per the milestone rule. PUSH VERIFIED 2026-11-26: normal fast-forward push (new branch creation, no force flag) landed tip a41059fe1dd2a1ddbe27f1bf1f235356b95d06fd on origin; verified via git ls-remote over both SSH (git protocol) and HTTPS transports; all ten commits individually proven reachable from the remote tip with git merge-base --is-ancestor and git rev-list --count main..remote = 10. No PR created by the agent (deploy key authorizes git transport only — PR creation stays with the owner). Owner review link: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci6",
+      "updatedAt": "2026-11-26T05:55:00Z"
     }
   ],
   "branchReconciliation": {
