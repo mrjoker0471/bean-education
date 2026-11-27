@@ -96,6 +96,37 @@ function sortByDesc(rows: Row[], key: string): Row[] {
   return [...rows].sort((a, b) => ((b[key] as Date | undefined)?.getTime() ?? 0) - ((a[key] as Date | undefined)?.getTime() ?? 0))
 }
 
+type OrderBy = Row | Row[]
+
+function compareOrderValues(a: unknown, b: unknown): number {
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime()
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  const sa = String(a ?? '')
+  const sb = String(b ?? '')
+  return sa < sb ? -1 : sa > sb ? 1 : 0
+}
+
+// Evaluates Prisma's orderBy the way the real client does — object form AND
+// array-based multi-column form. Entries apply in order: the first differing
+// column decides, later entries only break ties. Array input is evaluated,
+// never silently ignored.
+function applyOrderBy(rows: Row[], orderBy: OrderBy | undefined): Row[] {
+  if (!orderBy) return rows
+  const entries = (Array.isArray(orderBy) ? orderBy : [orderBy]).filter(
+    entry => entry && typeof entry === 'object',
+  ) as Row[]
+  if (entries.length === 0) return rows
+  return [...rows].sort((a, b) => {
+    for (const entry of entries) {
+      for (const [key, dir] of Object.entries(entry)) {
+        const cmp = compareOrderValues(a[key], b[key])
+        if (cmp !== 0) return dir === 'desc' ? -cmp : cmp
+      }
+    }
+    return 0
+  })
+}
+
 // ─── Fake db ──────────────────────────────────────────────────────────────────
 
 const fakeDb = {
@@ -113,10 +144,9 @@ const fakeDb = {
   },
   careerOpportunity: {
     findUnique: async ({ where }: { where: { id: string } }) => state.opportunities.find(o => o.id === where.id) ?? null,
-    findMany: async ({ where, skip, take, orderBy }: { where: Row; skip?: number; take?: number; orderBy?: Row }) => {
+    findMany: async ({ where, skip, take, orderBy }: { where: Row; skip?: number; take?: number; orderBy?: OrderBy }) => {
       let rows = filterRows(state.opportunities, where)
-      if (orderBy?.['updatedAt'] === 'desc') rows = sortByDesc(rows, 'updatedAt')
-      if (orderBy?.['publishedAt'] === 'desc') rows = sortByDesc(rows, 'publishedAt')
+      rows = applyOrderBy(rows, orderBy)
       return typeof skip === 'number' && typeof take === 'number' ? rows.slice(skip, skip + take) : rows
     },
     count: async ({ where }: { where: Row }) => filterRows(state.opportunities, where).length,
@@ -314,10 +344,22 @@ describe('phase7ui: public opportunity browse filters', () => {
   })
 
   it('total reflects the filtered set while page/pageSize slice it', async () => {
+    // One EXACT shared timestamp for the tied records — millisecond drift
+    // between seed calls can no longer decide the outcome.
+    const TIED_PUBLISHED_AT = new Date('2026-03-02T09:00:00.000Z')
     seedOrg('emp1')
-    seedOpportunity('opA', 'emp1', { location: 'Mumbai' })
-    seedOpportunity('opB', 'emp1', { location: 'Mumbai' })
+    // opB is seeded BEFORE opA on purpose: the expected order must come from
+    // the explicit secondary ordering (publishedAt DESC, id ASC), never from
+    // insertion order or timestamp luck.
+    seedOpportunity('opB', 'emp1', { location: 'Mumbai', publishedAt: TIED_PUBLISHED_AT })
+    seedOpportunity('opA', 'emp1', { location: 'Mumbai', publishedAt: TIED_PUBLISHED_AT })
     seedOpportunity('opC', 'emp1', { location: 'Pune' })
+    // Direct proof that tied publishedAt values are ordered by id ASC: opA
+    // sorts before opB even though opB entered the fake database first.
+    const all = await publicRoute.GET(req('/api/career/opportunities?location=Mumbai', undefined, 'GET'))
+    const allBody = await all.json()
+    expect(allBody.total).toBe(2)
+    expect(allBody.opportunities.map((o: { id: string }) => o.id)).toEqual(['opA', 'opB'])
     const res = await publicRoute.GET(req('/api/career/opportunities?location=Mumbai&page=2&pageSize=1', undefined, 'GET'))
     const body = await res.json()
     expect(body.total).toBe(2)
