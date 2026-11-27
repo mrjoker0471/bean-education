@@ -26,10 +26,10 @@ CREATE TABLE IF NOT EXISTS "Ci7DisagreementAnalysis" (
     -- FK-less audit: the analysis survives account deletion, like the CI-5 ledgers.
     "recordedByAdminId" TEXT NOT NULL,
     "recordedByAdminName" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX "Ci7DisagreementAnalysis_packId_idx" ON "Ci7DisagreementAnalysis"("packId");
+CREATE INDEX "Ci7DisagreementAnalysis_packId_createdAt_idx" ON "Ci7DisagreementAnalysis"("packId", "createdAt");
 CREATE INDEX "Ci7DisagreementAnalysis_packChecksum_idx" ON "Ci7DisagreementAnalysis"("packChecksum");
 -- END MIGRATION CI7-1 --
 
@@ -47,8 +47,8 @@ CREATE TABLE IF NOT EXISTS "Ci7PilotActivation" (
     -- FK-less audit: activation history survives account deletion.
     "actorAdminId" TEXT NOT NULL,
     "actorAdminName" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX "Ci7PilotActivation_packId_idx" ON "Ci7PilotActivation"("packId");
+CREATE INDEX "Ci7PilotActivation_packId_createdAt_idx" ON "Ci7PilotActivation"("packId", "createdAt");
 -- END MIGRATION CI7-2 --
