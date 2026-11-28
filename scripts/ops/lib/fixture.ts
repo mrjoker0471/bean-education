@@ -48,7 +48,19 @@ export interface BackupFixture {
     activeEvidenceId: string
     purgedEvidenceId: string
     sessionId: string
+    /** Present only when built with { extraDocument: true }. */
+    secondStudentId?: string
+    secondDocumentId?: string
+    /** Distinct guestId per document — exercises per-owner route authorization. */
+    guestIds: string[]
   }
+}
+
+export interface FixtureOptions {
+  /** Build a SECOND student/guest/document (the restore path-portability fixture:
+   *  two documents with distinct absolute storedPaths + distinct owners so the
+   *  remap/canonical proofs and the route-level probe cover more than one row). */
+  extraDocument?: boolean
 }
 
 const FIXTURE_PDF_BODY =
@@ -74,7 +86,7 @@ async function applyMigrationChain(dbPath: string, projectRoot: string): Promise
   })
 }
 
-export async function buildBackupFixture(root: string, projectRoot: string): Promise<BackupFixture> {
+export async function buildBackupFixture(root: string, projectRoot: string, options: FixtureOptions = {}): Promise<BackupFixture> {
   const dbPath = path.join(root, 'db', 'custom.db')
   const uploadsDir = path.join(root, 'db', 'uploads')
   const evidenceDir = path.join(root, 'db', 'evidence')
@@ -195,16 +207,58 @@ export async function buildBackupFixture(root: string, projectRoot: string): Pro
     const orphanBytes = Buffer.from(FIXTURE_PDF_BODY.replace('1.4', '1.5'), 'latin1')
     await writeFile(path.join(uploadsDir, orphanName), orphanBytes, { mode: 0o600 })
 
+    const uploads: FixtureFileRecord[] = [
+      { name: `${documentId}.pdf`, sha256: sha(pdfBytes), bytes: pdfBytes.length, referencedBy: document.id },
+      { name: orphanName, sha256: sha(orphanBytes), bytes: orphanBytes.length, referencedBy: null },
+    ]
+    const guestIds = ['ops2-fixture-guest-0001']
+    let secondStudentId: string | undefined
+    let secondDocumentId: string | undefined
+
+    // ── Path-portability fixture: a SECOND owner + document whose storedPath is
+    // an independent absolute path under the same root. The restore drill uses
+    // this to prove multi-row remapping, per-owner route authorization and
+    // Range-capable reads through the application's real file-reading logic.
+    if (options.extraDocument === true) {
+      const secondStudent = await client.student.create({
+        data: {
+          email: 'ops2-fixture-second@example.invalid',
+          displayName: 'OPS-2 Backup Fixture Second Student',
+          role: 'STUDENT',
+          ageBand: 'ADULT_18_PLUS',
+        },
+      })
+      const secondPdf = Buffer.from(FIXTURE_PDF_BODY.replace('1.4', '1.8'), 'latin1')
+      secondDocumentId = 'ops2doc_fixture_document_0002'
+      secondStudentId = secondStudent.id
+      const secondStoredPath = path.join(uploadsDir, `${secondDocumentId}.pdf`) // absolute, exactly as the app writes it
+      await writeFile(secondStoredPath, secondPdf, { mode: 0o600 })
+      await client.studyDocument.create({
+        data: {
+          id: secondDocumentId,
+          guestId: 'ops2-fixture-guest-0002',
+          studentId: secondStudent.id,
+          title: 'Fixture second study document',
+          originalName: 'ops2-fixture-second.pdf',
+          storedPath: secondStoredPath,
+          mimeType: 'application/pdf',
+          fileSize: secondPdf.length,
+          pageCount: 1,
+          status: 'READY',
+          contentHash: sha(secondPdf),
+        },
+      })
+      uploads.push({ name: `${secondDocumentId}.pdf`, sha256: sha(secondPdf), bytes: secondPdf.length, referencedBy: secondDocumentId })
+      guestIds.push('ops2-fixture-guest-0002')
+    }
+
     return {
       root,
       projectRoot,
       dbPath,
       uploadsDir,
       evidenceDir,
-      uploads: [
-        { name: `${documentId}.pdf`, sha256: sha(pdfBytes), bytes: pdfBytes.length, referencedBy: document.id },
-        { name: orphanName, sha256: sha(orphanBytes), bytes: orphanBytes.length, referencedBy: null },
-      ],
+      uploads,
       evidence: [{ name: `${evActiveId}.pdf`, sha256: sha(evidencePdf), bytes: evidencePdf.length, referencedBy: evidenceActive.id }],
       db: {
         studentId: student.id,
@@ -214,6 +268,9 @@ export async function buildBackupFixture(root: string, projectRoot: string): Pro
         activeEvidenceId: evidenceActive.id,
         purgedEvidenceId: evidencePurged.id,
         sessionId: session.id,
+        secondStudentId,
+        secondDocumentId,
+        guestIds,
       },
     }
   } finally {
@@ -241,8 +298,10 @@ export async function mutateFixtureAfterBackup(f: BackupFixture): Promise<Fixtur
   await appendFile(target, appendage)
 
   const newPdf = Buffer.from(FIXTURE_PDF_BODY.replace('1.4', '1.6'), 'latin1')
-  const newDocumentId = 'ops2doc_fixture_document_0002'
-  const newStudentId = 'ops2stu_fixture_student_0002'
+  // IDs deliberately outside the extraDocument fixture's own namespace
+  // (the portability fixture already owns ops2doc_fixture_document_0002).
+  const newDocumentId = 'ops2doc_fixture_document_0009'
+  const newStudentId = 'ops2stu_fixture_student_0009'
   const client = new PrismaClient({ datasources: { db: { url: `file:${f.dbPath}` } } })
   try {
     await client.student.create({

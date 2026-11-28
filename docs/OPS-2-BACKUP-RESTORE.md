@@ -69,8 +69,13 @@ The documented primary workflow is an **explicitly offline snapshot**:
    - **no `-journal` / `-wal` / `-shm` sidecar may exist** (a sidecar proves a live
      or crashed writer → refuse, fail closed);
    - the operator must pass `--confirm-offline` (the tool never claims zero-downtime safety).
-4. Database snapshot (`VACUUM INTO`) + uploads/evidence copies (double-hashed:
-   source read → staged copy re-read; any mismatch aborts).
+4. Database snapshot (`VACUUM INTO`) + uploads/evidence copies (**triple-hashed**:
+   source read → staged copy re-read → SOURCE re-read after staging; all three
+   hashes must agree — a corrupted staged copy or the source file mutating
+   during the staging window aborts the backup).
+   The offline boundary remains the primary coherence guarantee; the triple
+   hash substantiates the in-window concurrent-writer detection claim
+   (proven by the P7 tests).
 5. Manifest built and verified (sha256 sidecar).
 6. Snapshot→database coherence audit (see below).
 7. Encrypted Restic snapshot of the staging tree.
@@ -192,7 +197,12 @@ with a nonzero exit code** — an incomplete or incoherent backup is never produ
 7. Reports every check individually; **any failed check fails the drill** (exit 1)
    — a corrupted, truncated, incomplete or interrupted backup is never reported as
    successful.
-8. Cleans up all temporary data on success unless `--keep` is given.
+8. Proves **restore path portability** on clean runs (§4.5): the canonical
+   materialization proof at the exact recorded absolute paths and the validated
+   remap proof onto a different recovery root, each opening the recovered
+   documents and evidence through the application's real file-reading logic in
+   a read-only child probe (details in §4.5).
+9. Cleans up all temporary data on success unless `--keep` is given.
 
 ### Proving failure detection (`--fault`)
 
@@ -207,20 +217,28 @@ with a nonzero exit code** — an incomplete or incoherent backup is never produ
 With `--fault`, the drill expects detection: exit 0 only when the fault is detected;
 if a fault were NOT detected the drill exits 1.
 
-### Recorded evidence (restic 0.18.0, real runs)
+### Recorded evidence (restic 0.18.0, real runs — amendment re-runs)
 
-- Happy-path drill: all steps PASS — fixture (real migration chain, 30/30), staging
-  (VACUUM INTO, 1888256-byte DB snapshot + 2 uploads + 1 evidence), encrypted
-  snapshot, `check --read-data`, post-backup mutation, restore, **integrity_check=ok,
-  0 FK violations, 30/30 migrations, 3 files byte-exact, DB references verified,
-  `prisma migrate status` up to date**, post-mutation isolation, cleanup.
+- Happy-path drill (snapshots `5d34ac62`, then `ea44f230` with the migrate-status
+  gate): all steps PASS — fixture (real migration chain 30/30, two
+  owners/documents), staging (VACUUM INTO, 1888256-byte DB snapshot + 3 uploads
+  [incl. orphan] + 1 evidence), encrypted snapshot, `check --read-data`,
+  post-backup mutation, restore, **integrity_check=ok, 0 FK violations, 30/30
+  migrations, `prisma migrate status` up to date, 4 files byte-exact, DB
+  references verified**, post-mutation isolation, **path-portability:canonical
+  (2 documents + 1 evidence opened through the real route handler at the
+  recorded root)**, **path-portability:remap (2 rows remapped onto a different
+  recovery root, probed through the real route + evidenceFilePath)**, cleanup.
 - All five fault scenarios: **detected**, drill exits 0 with
-  "never reported as success" evidence.
+  "never reported as success" evidence (re-run after the amendment:
+  corrupt-file / corrupt-manifest / missing-file / repo-corruption /
+  incomplete-manifest — all detected, including `restic check` catching a
+  damaged pack).
 - Operator CLI flow: init-repo → reinit refusal → offline-gate refusal (no
   `--confirm-offline`) → journal-sidecar refusal → full backup with
   `--verify-data` → retention refusal without approval → retention run with the
   approval flag on a throwaway repo (1 snapshot kept, prune completed, post-check passed).
-- Unit tests (`tests/unit/ops2-*.test.ts`, fake adapter, hermetic): B1–B16, R1–R13.
+- Unit tests (`tests/unit/ops2-*.test.ts`, fake adapter, hermetic): B1–B16, R1–R13, P1–P8 (path portability).
 
 ### Restic restore layout note
 
@@ -229,6 +247,87 @@ Restic stores the original absolute source path inside the snapshot, so
 the restored staging root uniquely (exactly one `manifest.json` + sidecar pair,
 bounded-depth search) and falls back to the raw target so a manifest-less snapshot
 is reported honestly rather than mis-verified.
+
+---
+
+## 4.5 Restore path portability (OPS-2 amendment)
+
+An independent review found the gap this section closes: verification proved
+basename + byte count + content-hash agreement, but not that the **restored
+application can actually open the file through its stored path**.
+
+### How the application consumes storage paths (verified by reading every route)
+
+| Store | What is stored | How the app opens it |
+|---|---|---|
+| `StudyDocument.storedPath` | **absolute path**, baked in at upload time (`<cwd-at-write>/db/uploads/<uuid>.pdf`) | The download route (`/api/materials/[id]/file`) does `stat(doc.storedPath)` + a Range-capable byte read **through the stored string**; the analysis pipeline `readFile`s it and enforces `contentHash`; deletes unlink it; the materials-list orphan sweep compares DB storedPaths against `<runtime cwd>/db/uploads/*` — **a restored app at a different root would eventually sweep restored bytes as orphan debris** if the paths were left unmapped |
+| `ExpertCredentialEvidence.storagePath` | **relative filename** (`ev_<hex>.<ext>`) | The app's own `evidenceFilePath()` resolves it against `<runtime cwd>/db/evidence` at every read/purge, with a restricted-store escape guard — inherently portable |
+
+So the evidence store needs no mapping (place bytes at `<app-root>/db/evidence/`
+and the app's real access logic works unchanged), while uploads require an
+explicit, validated decision. The toolkit supports BOTH documented strategies —
+never a silent rewrite of the original backup, the original data, or any live
+database:
+
+### Mode canonical — restore into the exact recorded absolute paths
+
+`planCanonicalMaterialization` + `materializeCanonicalFiles` place the restored
+upload bytes at precisely the absolute paths the restored database already
+expects (the realistic case when a host is re-provisioned at the same layout).
+Fail-closed validation: exactly one unambiguous original root across all rows,
+absolute paths only, basename↔manifest agreement, **no destination may already
+exist** (canonical mode never overwrites an existing byte — the operator must
+first make the recorded root genuinely free), and the destination root must
+never overlap the restored staging tree, repository, or other protected roots.
+
+### Mode remap — explicit, validated path remapping on the isolated DB copy
+
+`planUploadsRemap` + `applyUploadsRemap` rewrite `StudyDocument.storedPath`
+inside the **isolated restored database copy** from the original root to a new
+recovery root, row by row (`UPDATE … WHERE id = ? AND storedPath = ?` — exact
+old-value guard, one transaction, any row not updating exactly once aborts and
+rolls back). Fail-closed validation: single unambiguous root, containment
+(prefix escapes and traversal refused), basename↔manifest agreement,
+duplicate-destination refusal, recovery-root disjointness from every protected
+root (live data, fixture, staging tree, repository, restore target), and a
+guard refusing a remap aimed at a database inside the ORIGINAL uploads root.
+After remapping, the copy is re-verified: `integrity_check`,
+`foreign_key_check`, migration history and DB→file references must all still
+pass.
+
+### The portability probe — real application logic, in a child process
+
+Both proofs are verified through a strict read-only child probe
+(`scripts/ops/lib/portability-probe.ts`) that imports the application's REAL
+code paths — never a re-implementation:
+
+- **Documents**: the actual `/api/materials/[id]/file` route handler is invoked
+  with real `NextRequest`s per restored row — ownership check, `stat(storedPath)`,
+  full-body 200 + `Content-Length` + sha256 = `contentHash`, plus a
+  `bytes=0-9` Range request returning 206 with the correct `Content-Range` and
+  byte slice.
+- **Evidence**: the app's actual `evidenceFilePath()` resolution (relative
+  storagePath against the probe cwd's `db/evidence`, escape guard active) with
+  sha256 and byteSize checked against the DB row.
+
+The probe proves the negative cases too: a stored path that cannot be opened
+must surface as the route's real 410, and a path that opens but holds different
+bytes must be caught by the contentHash contract — a basename-only check cannot
+distinguish those on a shared filesystem.
+
+The drill runs both proofs on every clean run (steps `path-portability:canonical`
+and `path-portability:remap`): the fixture is built with two owners/documents
+(original paths), the canonical proof temporarily preserves the fixture uploads
+directory byte-for-byte, materialises the recorded root, probes, then restores
+the live bytes and **proves them byte-identical** before continuing; the remap
+proof builds a fresh recovery app-data layout (`db/{custom.db,uploads,evidence}`)
+at a deliberately different root and probes there. Fault runs exit at their
+injected fault and never reach the proofs.
+
+**Remaining boundary (unchanged):** the application itself is untouched — the
+toolkit provides the recovery decision, and a production restore still requires
+the operator to choose the mode (same-layout host → canonical; new layout →
+validated remap against the isolated copy).
 
 ---
 
@@ -333,10 +432,11 @@ selected (OPS-3), these are the prepared operational recipes:
   stopped. Online backups are not offered, because concurrent uploads/deletions
   cannot be made coherent with the file snapshot. RPO = backup interval + offline window.
 - **Absolute `storedPath`:** `StudyDocument.storedPath` stores absolute paths from
-  the app host. A restored copy verifies through basenames + hashes (the manifest
-  and DB both carry them). Re-serving uploads from a restore at a different path
-  requires either the same absolute layout or a future path-normalization change —
-  out of OPS-2 scope, documented here deliberately.
+  the app host. Restore verification covers basename + bytes + hash **and** (OPS-2
+  amendment, §4.5) actual openability through the application's real file-reading
+  logic via the two validated recovery modes (canonical same-layout materialization
+  or explicit remap on the isolated copy). The application's storage architecture
+  itself is unchanged; a production restore requires the operator to pick the mode.
 - **Single-host SQLite:** the toolkit supports the SQLite deployment only and refuses
   non-`file:` DATABASE_URLs. A future PostgreSQL migration (out of scope) would need
   a different backup mechanism.
@@ -347,8 +447,9 @@ selected (OPS-3), these are the prepared operational recipes:
 
 | Gate | Result |
 |---|---|
-| New unit tests (`bun test tests/unit/ops2-backup.test.ts tests/unit/ops2-restore.test.ts`) | 35 pass (B1–B16, R1–R13) |
+| New unit tests (`bun test tests/unit/ops2-backup.test.ts tests/unit/ops2-restore.test.ts tests/unit/ops2-path-portability.test.ts`) | 35 pass (B1–B16, R1–R13) + 15 pass (P1–P8 path-portability matrix) |
 | Real restore drill (restic 0.18.0, `--read-data`, migrate-status gate) | PASS end-to-end |
 | Real fault scenarios ×5 | all detected |
+| Path-portability proofs (canonical + validated remap, real route-handler probes) | PASS on every clean drill; probe negatives (route 410 + contentHash mismatch) detected |
 | Operator CLI flow (init/gate refusals/backup/retention) | PASS |
 | Full existing regression suite | see PR description (unchanged gates; no test weakened) |

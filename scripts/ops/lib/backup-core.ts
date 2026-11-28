@@ -13,8 +13,11 @@
 //     --confirm-offline. The toolkit additionally refuses to run while SQLite
 //     rollback-journal/WAL sidecar files exist (proof of a live or crashed
 //     writer).
-//   • Uploads/evidence files are double-hashed (source read → staged copy
-//     re-read). Any mutation detected between the two hashes fails the backup.
+//   • Uploads/evidence files are triple-hashed: source read → staged copy
+//     re-read → SOURCE RE-READ after staging. Any disagreement — a corrupted
+//     staged copy, or the source file mutating during the staging window —
+//     fails the backup. (The offline boundary remains the primary coherence
+//     guarantee; the triple hash substantiates the in-window detection claim.)
 //   • After staging, the SNAPSHOT database is audited against the staged
 //     files: every StudyDocument row must resolve to a staged upload with
 //     matching bytes and content hash; every ACTIVE ExpertCredentialEvidence
@@ -179,6 +182,12 @@ export interface StageInput {
   stageDir: string
   resticVersion: string
   createdAt?: Date
+  /**
+   * TEST SEAM — never set by production callers. Invoked after each staged
+   * write and before the post-staging SOURCE re-read, so tests can inject a
+   * source mutation exactly inside the detection window.
+   */
+  hooks?: { afterStagedWrite?: (file: { name: string; sourcePath: string; targetPath: string }) => Promise<void> }
 }
 
 interface StagedFileGroup {
@@ -216,11 +225,21 @@ async function collectFlatFiles(root: string, label: string): Promise<string[]> 
 }
 
 /**
- * Copy one storage root into the stage with double-hash mutation detection.
- * Returns manifest entries (hashes refer to the staged copy; a source/staged
- * mismatch throws).
+ * Copy one storage root into the stage with TRIPLE-hash mutation detection:
+ *   1. read the source bytes → source hash (T0)
+ *   2. write the staged copy, re-read it → staged hash (T1)
+ *   3. RE-READ THE SOURCE → re-read hash (T2)
+ * All three must agree. (1)≠(2) catches staged-copy corruption; (1)≠(3)
+ * catches the SOURCE mutating during the staging window — a concurrent writer.
+ * Any mismatch throws: this substantiates the documented concurrent-mutation
+ * detection claim beyond the offline boundary itself.
  */
-async function stageFileGroup(root: string, targetDir: string, label: string): Promise<StagedFileGroup> {
+async function stageFileGroup(
+  root: string,
+  targetDir: string,
+  label: string,
+  hooks?: StageInput['hooks'],
+): Promise<StagedFileGroup> {
   const names = await collectFlatFiles(root, label)
   const entries: ManifestFileEntry[] = []
   for (const name of names) {
@@ -229,12 +248,23 @@ async function stageFileGroup(root: string, targetDir: string, label: string): P
     const sourceHash = sha256Bytes(sourceBytes)
     const targetPath = path.join(targetDir, name)
     await writeFile(targetPath, sourceBytes, { mode: 0o600 })
+    // Test seam: inject a mutation exactly inside the detection window (after
+    // the staged write, before both re-reads — production callers never set it).
+    if (hooks?.afterStagedWrite) await hooks.afterStagedWrite({ name, sourcePath, targetPath })
     const stagedBytes = await readFile(targetPath)
     const stagedHash = sha256Bytes(stagedBytes)
     if (sourceHash !== stagedHash) {
       throw new Error(
-        `${label}/${name} changed while it was being staged (source hash ${sourceHash.slice(0, 12)}… ≠ staged ` +
-          `${stagedHash.slice(0, 12)}…) — a writer is active; refusing to continue. Use the documented ` +
+        `${label}/${name} staged copy does not match the source read (source hash ${sourceHash.slice(0, 12)}… ≠ staged ` +
+          `${stagedHash.slice(0, 12)}…) — the staged copy was corrupted during staging; refusing to continue.`,
+      )
+    }
+    const reReadBytes = await readFile(sourcePath)
+    const reReadHash = sha256Bytes(reReadBytes)
+    if (reReadHash !== sourceHash) {
+      throw new Error(
+        `${label}/${name} changed on the SOURCE during staging (initial read ${sourceHash.slice(0, 12)}… ≠ re-read ` +
+          `${reReadHash.slice(0, 12)}…) — a writer is active; refusing to continue. Use the documented ` +
           'offline workflow and retry.',
       )
     }
@@ -368,8 +398,8 @@ export async function createBackupStage(input: StageInput): Promise<StagedBackup
   const dbSnapshotPath = path.join(dbTarget, 'custom.db')
   const dbStaged = await stageDatabase(paths.dbPath, dbSnapshotPath)
 
-  const uploads = await stageFileGroup(paths.uploadsDir, uploadsTarget, 'uploads')
-  const evidence = await stageFileGroup(paths.evidenceDir, evidenceTarget, 'evidence')
+  const uploads = await stageFileGroup(paths.uploadsDir, uploadsTarget, 'uploads', input.hooks)
+  const evidence = await stageFileGroup(paths.evidenceDir, evidenceTarget, 'evidence', input.hooks)
 
   const manifest: BackupManifest = {
     schema: MANIFEST_SCHEMA,

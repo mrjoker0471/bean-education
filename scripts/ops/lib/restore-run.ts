@@ -15,20 +15,36 @@
 //   7. fault scenarios (--fault): prove corruption / truncation / missing
 //      files / repository corruption / interrupted staging are DETECTED and
 //      never reported as success
-//   8. clean up every temporary artifact unless retention is explicitly requested
+//   8. PATH PORTABILITY proofs (clean runs only — fault runs exit at their
+//      injected fault): the restored data set is opened through the
+//      application's REAL file-reading logic in child-process probes:
+//        canonical — bytes materialised at the exact recorded absolute paths;
+//        remap     — validated storedPath remapping onto a fresh recovery
+//                    app-data layout (never touching the original backup,
+//                    the fixture or any live database)
+//   9. clean up every temporary artifact unless retention is explicitly requested
 //
 // The drill never touches a live database, upload directory or evidence
 // directory: targets are validated, and every path it creates lives in its own
 // temp roots.
 
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { buildBackupFixture, mutateFixtureAfterBackup, type BackupFixture, type FixtureMutation } from './fixture'
 import { runBackupFlow, BACKUP_TAG_ROOT } from './backup-run'
 import { createBackupStage, removeStageDir } from './backup-core'
-import { assertSafeRestoreTarget, verifyRestoredBackup, loadVerifiedManifest } from './restore-verify'
+import { assertSafeRestoreTarget, verifyRestoredBackup, verifyRestoredDatabase, verifyDatabaseReferences, verifyMigrationHistory, loadVerifiedManifest } from './restore-verify'
+import {
+  planCanonicalMaterialization,
+  materializeCanonicalFiles,
+  planUploadsRemap,
+  applyUploadsRemap,
+  populateRecoveryLayout,
+  runPortabilityProbe,
+  sha256File,
+} from './restore-path-mapping'
 import type { ResticAdapter } from './restic'
 
 export type RestoreDrillFault =
@@ -70,6 +86,11 @@ export interface DrillVerificationReport {
   checks: Array<{ id: string; label: string; ok: boolean; detail: string }>
 }
 
+export interface PathPortabilityProof {
+  canonical: { documentsChecked: number; evidenceChecked: number; rangeChecks: number; canonicalRoot: string }
+  remap: { rowsRemapped: number; originalRoot: string; newRoot: string; documentsChecked: number; evidenceChecked: number }
+}
+
 export type RestoreDrillResult =
   | {
       ok: true
@@ -78,6 +99,7 @@ export type RestoreDrillResult =
       fixture?: BackupFixture
       mutation?: FixtureMutation
       report?: DrillVerificationReport
+      portability?: PathPortabilityProof
       targetDir?: string
       dirsToKeep?: string[]
     }
@@ -111,6 +133,16 @@ async function flipOneByte(p: string): Promise<void> {
   const idx = Math.max(0, buf.length - 2)
   buf[idx] = buf[idx] ^ 0xff
   await writeFile(p, buf, { mode: 0o600 })
+}
+
+/** Byte-for-byte state of a flat uploads directory: sorted `name:sha256` pairs. */
+async function snapshotUploadsDir(dir: string): Promise<string[]> {
+  const names = (await readdir(dir)).sort()
+  const out: string[] = []
+  for (const name of names) {
+    out.push(`${name}:${await sha256File(path.join(dir, name))}`)
+  }
+  return out
 }
 
 /**
@@ -201,8 +233,9 @@ export async function runRestoreDrill(input: RestoreDrillInput, adapter: ResticA
       steps.push({ step: 'repo-init', ok: true, detail: 'throwaway local restic repository initialized (temp password, temp location, AES256-encrypted)' })
     }
 
-    // ── 1: fixture ──
-    const fixture = await buildBackupFixture(dirs.fixtureRoot, input.projectRoot)
+    // ── 1: fixture (extraDocument: the path-portability fixture — two owners,
+    // two absolute storedPaths — drives the canonical/remap proofs below) ──
+    const fixture = await buildBackupFixture(dirs.fixtureRoot, input.projectRoot, { extraDocument: true })
     steps.push({
       step: 'fixture',
       ok: true,
@@ -392,6 +425,141 @@ export async function runRestoreDrill(input: RestoreDrillInput, adapter: ResticA
     })
     if (!isolationOk) return fail('post-mutation-isolation', 'restored data does not match the backup-time state', true)
 
+    // ── 9b: PATH PORTABILITY proofs — the restored data set must be openable
+    // through the application's REAL file-reading logic, not just hash-verified
+    // in place. `StudyDocument.storedPath` is an absolute path baked in at
+    // upload time; `ExpertCredentialEvidence.storagePath` is relative and is
+    // resolved at runtime by the app's own evidenceFilePath() guard. Both modes
+    // below operate ONLY on isolated copies / drill-owned temp roots — never on
+    // the original backup snapshot, the original fixture data, or a live DB.
+
+    const restoredDbCopy = path.join(located.root, manifest.manifest.database.file)
+    const restoredUploadsDir = path.join(located.root, 'data', 'files', 'uploads')
+    const restoredEvidenceDir = path.join(located.root, 'data', 'files', 'evidence')
+    const manifestUploadNames = manifest.manifest.uploads.entries.map((e) => e.name)
+
+    // ---- MODE canonical: materialise bytes at the exact recorded absolute ----
+    // paths (the drill simulates a same-layout recovery host: the fixture's
+    // live uploads dir is preserved aside byte-for-byte, the recorded root is
+    // materialised from the restored snapshot, probed through the real route
+    // handler, then the live bytes are restored and proven untouched).
+    const preState = await snapshotUploadsDir(fixture.uploadsDir)
+    const preserveDir = `${fixture.uploadsDir}.canonical-preserve`
+    let canonicalDetail = ''
+    let canonicalProof: PathPortabilityProof['canonical'] | null = null
+    try {
+      if (existsSync(preserveDir)) throw new Error(`preserve path already exists: ${preserveDir} — refusing to run the canonical proof`)
+      await rename(fixture.uploadsDir, preserveDir)
+      try {
+        const plan = planCanonicalMaterialization({
+          dbPath: restoredDbCopy,
+          manifestUploadNames,
+          forbiddenRoots: [located.root, dirs.repoDir, dirs.targetDir, dirs.stageParent, preserveDir, fixture.evidenceDir, fixture.dbPath],
+        })
+        if (!plan.ok) throw new Error(plan.error)
+        const mat = await materializeCanonicalFiles(plan.plan, restoredUploadsDir)
+        if (!mat.ok) throw new Error(mat.error)
+        const probe = await runPortabilityProbe({
+          projectRoot: input.projectRoot,
+          appRoot: fixture.root,
+          dbPath: restoredDbCopy,
+          mode: 'canonical',
+        })
+        if (!probe.ok) throw new Error(probe.error)
+        canonicalProof = {
+          documentsChecked: probe.outcome.result.documentsChecked,
+          evidenceChecked: probe.outcome.result.evidenceChecked,
+          rangeChecks: probe.outcome.result.rangeChecks,
+          canonicalRoot: plan.plan.root,
+        }
+        canonicalDetail =
+          `recorded root ${plan.plan.root} materialised from the restored snapshot (${mat.written} file(s)); ` +
+          `child probe opened ${probe.outcome.result.documentsChecked} document(s) through the REAL ` +
+          `/api/materials/[id]/file route (200 + sha256=contentHash + Range 206) and ${probe.outcome.result.evidenceChecked} ` +
+          `ACTIVE evidence file(s) through the app's evidenceFilePath() resolution`
+      } finally {
+        // Restore the live fixture uploads dir EXACTLY as it was — byte-for-byte.
+        await rm(fixture.uploadsDir, { recursive: true, force: true }).catch(() => undefined)
+        await rename(preserveDir, fixture.uploadsDir)
+        const postState = await snapshotUploadsDir(fixture.uploadsDir)
+        if (JSON.stringify(postState) !== JSON.stringify(preState)) {
+          throw new Error('fixture uploads directory did not restore byte-identically after the canonical proof — failing the drill closed')
+        }
+      }
+    } catch (err) {
+      return fail('path-portability:canonical', err instanceof Error ? err.message : String(err), true)
+    }
+    steps.push({ step: 'path-portability:canonical', ok: true, detail: canonicalDetail })
+
+    // ---- MODE remap: validated storedPath remapping on the isolated DB ----
+    const recoveryAppRoot = path.join(dirs.workRoot, 'recovery-app')
+    const remapForbidden = [
+      fixture.root,
+      fixture.dbPath,
+      fixture.uploadsDir,
+      fixture.evidenceDir,
+      located.root,
+      dirs.repoDir,
+      dirs.targetDir,
+      dirs.stageParent,
+    ]
+    const populated = await populateRecoveryLayout({
+      recoveryAppRoot,
+      dbBasename: manifest.manifest.database.sourceBasename,
+      dbSourcePath: restoredDbCopy,
+      restoredUploadsDir,
+      restoredEvidenceDir,
+    })
+    if (!populated.ok) return fail('path-portability:remap', populated.error, true)
+    const remapPlan = planUploadsRemap({
+      dbPath: populated.dbPath,
+      manifestUploadNames,
+      newRoot: populated.uploadsDir,
+      forbiddenRoots: remapForbidden,
+    })
+    if (!remapPlan.ok) return fail('path-portability:remap', remapPlan.error, true)
+    const applied = applyUploadsRemap(populated.dbPath, remapPlan.plan)
+    if (!applied.ok) return fail('path-portability:remap', applied.error, true)
+    // The remapped copy must still be a healthy, fully-referenced database.
+    const remapIntegrity = verifyRestoredDatabase(populated.dbPath)
+    const remapMigrations = verifyMigrationHistory(populated.dbPath, input.projectRoot)
+    const remapRefs = verifyDatabaseReferences(populated.dbPath, manifest.manifest)
+    const remapHealthy =
+      remapIntegrity.integrity === 'ok' &&
+      remapIntegrity.fkViolations === 0 &&
+      remapMigrations.ok &&
+      remapRefs.ok
+    if (!remapHealthy) {
+      return fail(
+        'path-portability:remap',
+        `remapped copy failed re-verification (integrity=${remapIntegrity.integrity}, fk=${remapIntegrity.fkViolations}, migrations ok=${remapMigrations.ok}, references ok=${remapRefs.ok})`,
+        true,
+      )
+    }
+    const remapProbe = await runPortabilityProbe({
+      projectRoot: input.projectRoot,
+      appRoot: recoveryAppRoot,
+      dbPath: populated.dbPath,
+      mode: 'remap',
+    })
+    if (!remapProbe.ok) return fail('path-portability:remap', remapProbe.error, true)
+    const remapProof: PathPortabilityProof['remap'] = {
+      rowsRemapped: applied.applied,
+      originalRoot: remapPlan.plan.originalRoot,
+      newRoot: remapPlan.plan.newRoot,
+      documentsChecked: remapProbe.outcome.result.documentsChecked,
+      evidenceChecked: remapProbe.outcome.result.evidenceChecked,
+    }
+    steps.push({
+      step: 'path-portability:remap',
+      ok: true,
+      detail:
+        `remapped ${applied.applied} StudyDocument row(s) ${remapPlan.plan.originalRoot} → ${remapPlan.plan.newRoot} on the ISOLATED recovery copy ` +
+        `(integrity ok, 0 FK violations, migration history unchanged, DB→file references still verified); ` +
+        `child probe (cwd=recovery root) opened ${remapProbe.outcome.result.documentsChecked} document(s) through the REAL route ` +
+        `and ${remapProbe.outcome.result.evidenceChecked} evidence file(s) through the app's own resolution logic`,
+    })
+
     // ── 10: cleanup ──
     if (!keep) {
       await rm(dirs.targetDir, { recursive: true, force: true }).catch(() => undefined)
@@ -408,10 +576,12 @@ export async function runRestoreDrill(input: RestoreDrillInput, adapter: ResticA
       fixture,
       mutation,
       report: { ok: report.ok, checks: report.checks },
+      portability: { canonical: canonicalProof as PathPortabilityProof['canonical'], remap: remapProof },
       targetDir: dirs.targetDir,
       dirsToKeep: keep ? dirsToKeep : undefined,
     }
   } catch (err) {
-    return fail('unexpected', err instanceof Error ? err.message : String(err), true)
+    const detail = err instanceof Error ? `${err.message}${err.stack ? ` :: ${err.stack.split('\n').slice(1, 4).join(' | ')}` : ''}` : String(err)
+    return fail('unexpected', detail, true)
   }
 }
