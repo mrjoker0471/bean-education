@@ -1296,6 +1296,245 @@
       "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI6-RESULTS.md",
       "ciNote": "CI-6 opened from verified main 643d568 (PR #48 merge; CI-5 COMPLETE record untouched). Sandbox reset between sessions: the previously registered deploy key private half was lost — a fresh ed25519 keypair was generated (public key delivered to the owner for registration) and every unit commit is made locally in order; each will be pushed as a normal non-force fast-forward the moment push auth is available, with remoteVerifiedSha fields recording pending-push until git ls-remote verifies. Unit discipline held: every unit ran its targeted tests + CI-5 regression suites + full-suite check before commit. CI-6H acceptance: suite 1740/0, tsc 0, lint 0, prisma valid, all 20 migrations green on a fresh DB, production build exit 0, browser walkthrough with 13 genuine screenshots and no horizontal overflow at 768/390/320. HONEST FINAL STATE: software readiness delivered; real-world activation ZERO — no real experts, credentials, verifications, approvals or measurements exist; every real count reads zero in production until the operational flow (docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) produces genuinely verified records. CI-6 status becomes COMPLETE only after all units are in main and verified there per the milestone rule. PUSH VERIFIED 2026-11-26: normal fast-forward push (new branch creation, no force flag) landed tip a41059fe1dd2a1ddbe27f1bf1f235356b95d06fd on origin; verified via git ls-remote over both SSH (git protocol) and HTTPS transports; all ten commits individually proven reachable from the remote tip with git merge-base --is-ancestor and git rev-list --count main..remote = 10. No PR created by the agent (deploy key authorizes git transport only — PR creation stays with the owner). Owner review link: https://github.com/mrjoker0471/bean-education/compare/main...feat/bean-classroom-intelligence-ci6 MERGE VERIFIED 2026-11-26: PR #49 merged by the owner as merge commit 54a2d94bd7d107b8fc860b4cfe58d03c2b9872ec. Verification method: (1) git fetch origin + git ls-remote over SSH — origin/main returned exactly the owner-stated SHA; (2) topology proven from the fetched object — 54a2d94 is a merge commit with parents 643d568 (previous main) and 0970ff2 (final published feature tip), subject 'Merge pull request #49 from mrjoker0471/feat/bean-classroom-intelligence-ci6'; (3) all 11 CI-6 commits individually proven reachable from origin/main via git merge-base --is-ancestor (11/11, zero missing); (4) CI verified without assumption — REST API rate-limited, so conclusions were read from GitHub's server-rendered run/job/checks pages: pull_request run 45765342232 (job 139724785047, 13/13 steps green) and main push run 45765355796 on the merge commit (job 139724830162, 13/13 steps green). Status promoted to COMPLETE/SYNCHRONIZED only after all four gates passed. HONEST ACTIVATION STATUS UNCHANGED BY THE MERGE: verified real experts 0, real completed expert reviews 0, production domain packs remain IN_REVIEW, language capabilities remain unmeasured/LIMITED, TRANSCRIPTION remains structurally UNSUPPORTED — the merge integrates software readiness only; real-world activation (recruiting, verifying and onboarding genuine experts per docs/BEAN-EXPERT-ONBOARDING-OPERATIONS.md) remains an owner-side operational step that has not occurred.",
       "updatedAt": "2026-11-26T06:35:00Z"
+    },
+    {
+      "id": "bean-classroom-intelligence-ci7",
+      "title": "BEAN Classroom Intelligence CI-7 — controlled real-expert pilot readiness: bounded pilot protocol + governance module deriving everything from existing authorities, expert cohort activation via the existing CI-6 flows (append-only participation consent), source-frozen review binding (protocol version + exact checksum + source-licence snapshot inside the append-only evidence), structured disagreement analysis + additive pilot-record migration (Ci7DisagreementAnalysis, Ci7PilotActivation), human-grounded evaluation readiness gate with INSUFFICIENT EVIDENCE as the honest default, restricted pilot activation with kill switch and rollback bound to the pack's real curated VERIFIED status at the exact checksum, pilot dashboard deriving every count from its own authoritative ledger, security & privacy acceptance battery with the migration DDL corrected to Prisma-exact DDL, and the deterministic public-opportunity pagination fix (publishedAt DESC, id ASC) that closed the last CI failure — standing FINDINGS instrument with honest NOT STARTED zeros throughout",
+      "branch": "feat/bean-classroom-intelligence-ci7",
+      "baseMainSha": "cdc036c5e966f5fa53014d75d0ba979c5654380c",
+      "commits": [
+        "597453c6d1ae1783dc88547ec3b52e80c7be006c",
+        "879b82d05de1071537587f9bea22c52d433ee02a",
+        "719fa6f2962fcd909b69d3ce8216ebdc9943d25f",
+        "98261f7d9d8285649621849703a8b57743c8158b",
+        "9d07283dbefeb6690995de0b4ee259cfaf0792e3",
+        "7fd4cb814ee8cd1063c1f38eac16ed71d8e5a6a9",
+        "23f29b1993d84e26c77c740f44919ec3f7221679",
+        "6d2c5404c35cd24757a8648d1c6ddf8948f73aa2",
+        "156851990622e48631945c18a32523ef457ed570",
+        "2b34e80c759d24553ef154f583fccea65655da56",
+        "15f0bc26dddf508c63faaba6627a33437297036d"
+      ],
+      "units": [
+        {
+          "id": "CI-7A",
+          "commitSha": "597453c6d1ae1783dc88547ec3b52e80c7be006c",
+          "remoteVerifiedSha": "597453c6d1ae1783dc88547ec3b52e80c7be006c",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Pilot readiness audit and domain selection (docs/BEAN-CLASSROOM-INTELLIGENCE-CI7-PILOT-READINESS.md): 12 candidates inventoried from the live registry, the licensing gate eliminated 6 quarantined/reference-only packs, and education-pedagogy v1.0.0 was recommended (BEAN-authored seed, STANDARD risk, 1-approver policy, zero student-data exposure); machine test binds every document claim to the registry. Verified as ancestor of origin/main 9790733 at the CI-7 close-out."
+        },
+        {
+          "id": "CI-7B",
+          "commitSha": "879b82d05de1071537587f9bea22c52d433ee02a",
+          "remoteVerifiedSha": "879b82d05de1071537587f9bea22c52d433ee02a",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Bounded pilot protocol and governance (docs/BEAN-CLASSROOM-INTELLIGENCE-CI7-PILOT-PROTOCOL.md): education-pedagogy v1.0.0 pinned in ci7-pilot-protocol-1; pilot requires 2 independent reviews (stricter than, never weaker than, the existing 1-approver STANDARD policy); excluded uses, stop conditions, owner gates G1-G7, participant information with compensation left to owner decision; pilot module (src/lib/ci/fleet/pilot.ts) derives everything from existing authorities and fails loudly on registry drift."
+        },
+        {
+          "id": "CI-7B-fix",
+          "commitSha": "719fa6f2962fcd909b69d3ce8216ebdc9943d25f",
+          "remoteVerifiedSha": "719fa6f2962fcd909b69d3ce8216ebdc9943d25f",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "contentUsability reason made optional — normalised to null/'content not usable' so the pilot licence snapshot type-checks (tsc had been masked by a pipe in the CI-7B commit; caught and corrected immediately)."
+        },
+        {
+          "id": "CI-7C",
+          "commitSha": "98261f7d9d8285649621849703a8b57743c8158b",
+          "remoteVerifiedSha": "98261f7d9d8285649621849703a8b57743c8158b",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Expert cohort activation via the existing CI-6 flows: pilot participation consent recorded as append-only PILOT_PARTICIPATION_CONSENT/WITHDRAWN events (latest governs), reviewer consent route GET/POST/DELETE, additive pilot gate on the existing admin assignment route (pilot-domain assignments require current-protocol consent, 409 otherwise), ops guide section 8 checklist; no second onboarding system, listing never required, invitation-claim still grants nothing."
+        },
+        {
+          "id": "CI-7D",
+          "commitSha": "9d07283dbefeb6690995de0b4ee259cfaf0792e3",
+          "remoteVerifiedSha": "9d07283dbefeb6690995de0b4ee259cfaf0792e3",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Source-frozen expert review binding: pilot-domain reviews embed protocol version, exact checksum, source references and the source-licence snapshot in the append-only evidence via the EXISTING CI-5D route (no alternative path); binding drift refuses 409 and returns the assignment to IN_PROGRESS; non-pilot evidence format unchanged; stale-checksum refusal, inspection requirement, rubric/decision consistency, scope-gated approval and disagreement preservation regression-tested."
+        },
+        {
+          "id": "CI-7E",
+          "commitSha": "7fd4cb814ee8cd1063c1f38eac16ed71d8e5a6a9",
+          "remoteVerifiedSha": "7fd4cb814ee8cd1063c1f38eac16ed71d8e5a6a9",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Structured disagreement analysis + findings report: additive migration 20261126090000_ci7_pilot_records (append-only Ci7DisagreementAnalysis + Ci7PilotActivation, FK-less audit, no destructive change); analyses anchor to REAL review rows (verbatim decisions, phantom ids refused, consensus refused, one version+checksum per analysis); admin route serves summary + rows; FINDINGS.md standing instrument with honest NOT STARTED zeros."
+        },
+        {
+          "id": "CI-7F",
+          "commitSha": "23f29b1993d84e26c77c740f44919ec3f7221679",
+          "remoteVerifiedSha": "23f29b1993d84e26c77c740f44919ec3f7221679",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Human-grounded evaluation readiness gate: INSUFFICIENT EVIDENCE as the honest default (thresholds: 10 human labels / 10 labelled cases / 2 independent reviewers / versioned model binding from the approved design); deterministic-only and fixture rows never count as human evidence; protocol section 17 pins the full evaluation design before any run; CI-5F benchmark authority unchanged; TRANSCRIPTION stays structurally UNSUPPORTED."
+        },
+        {
+          "id": "CI-7G",
+          "commitSha": "6d2c5404c35cd24757a8648d1c6ddf8948f73aa2",
+          "remoteVerifiedSha": "6d2c5404c35cd24757a8648d1c6ddf8948f73aa2",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Restricted pilot activation, kill switch and rollback: append-only Ci7PilotActivation ledger, default DISABLED; ACTIVATED gated on the pack's real curated VERIFIED status at the exact checksum (thresholds never bypassed), kill switch and rollback always available; stale checksum makes activation STALE with re-review required; no global enablement (bounded scope recorded per event); protocol version injected server-side."
+        },
+        {
+          "id": "CI-7H",
+          "commitSha": "156851990622e48631945c18a32523ef457ed570",
+          "remoteVerifiedSha": "156851990622e48631945c18a32523ef457ed570",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Pilot dashboard: buildPilotReport derives every count from its own authoritative ledger (applications, verifications, eligibility incl. consent, invitations, assignments, reviews, approvals bound to the current checksum, disagreements, adjudications, corrections, re-reviews, activation status, human benchmark labels); admin route + PilotReporting grid in the CI-6 workbench; NOT STARTED honest state until real execution; stale historical rows never count as genuine approvals."
+        },
+        {
+          "id": "CI-7I",
+          "commitSha": "2b34e80c759d24553ef154f583fccea65655da56",
+          "remoteVerifiedSha": "2b34e80c759d24553ef154f583fccea65655da56",
+          "verifiedAt": "2026-11-28T01:05:00Z",
+          "summary": "Security & privacy acceptance battery + migration DDL exactness: 8 consolidated negative-authorization tests (COI refusal on pilot path, recusal blocks submission, lazy expiry, evidence hygiene with zero student data, full CI-7 route role matrix, admin-substitution refusal, immediate consent-withdrawal de-eligibilisation, fixture-policy verbatim); migration SQL for 20261126090000_ci7_pilot_records corrected to Prisma-exact DDL (DATETIME + composite (packId, createdAt) indexes) — prisma migrate diff against schema.prisma reports NO difference on a fresh database after a full migrate deploy."
+        },
+        {
+          "id": "CI-7FIX",
+          "commitSha": "15f0bc26dddf508c63faaba6627a33437297036d",
+          "remoteVerifiedSha": "15f0bc26dddf508c63faaba6627a33437297036d",
+          "verifiedAt": "2026-11-27T18:12:00Z",
+          "summary": "Deterministic public-opportunity pagination fix — published close-out of the last CI failure (push run 45777471285: tests/unit/phase7ui-career-filters.test.ts:327 expected opB, received opA). Root cause: public browse ordered only by publishedAt DESC while the fixture seeded every opportunity with new Date(Date.now() - DAY), so seeds straddling a millisecond boundary flipped page membership. Production change is exactly the Prisma multi-column orderBy [{ publishedAt: 'desc' }, { id: 'asc' }] (filters, organization authorization, status visibility, DTOs, pagination metadata and all other routes untouched). Test changes: the fake careerOpportunity.findMany now evaluates Prisma's object AND array-based multi-column orderBy (first differing column decides, later entries break ties — array input was previously silently ignored); the fixture uses ONE exact fixed publishedAt for the tied records, seeds opB BEFORE opA so the outcome is decided by the explicit secondary ordering and never insertion order, preserves the expected page-two result opB and the total/page/pageSize/length assertions, and adds a direct proof that tied publishedAt values order by id ASC. No assertion weakened, no skip, no retry. Evidence: pagination test 8/8 consecutive green (by name and full file), full suite bun test --isolate 1808 pass / 0 fail across 133 files, ESLint exit 0, tsc --noEmit exit 0, prisma validate clean, fresh disposable SQLite full migrate deploy + migrate diff 'No difference detected.', production build exit 0."
+        }
+      ],
+      "remoteFeatureSha": "15f0bc26dddf508c63faaba6627a33437297036d",
+      "pushVerifiedAt": "2026-11-27T18:12:00Z",
+      "pr": {
+        "number": 53,
+        "state": "MERGED",
+        "url": "https://github.com/mrjoker0471/bean-education/pull/53"
+      },
+      "ci": [
+        {
+          "runId": "45769617502",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on CI-7A head 597453c (feat/bean-classroom-intelligence-ci7) — conclusion SUCCESS verified via authenticated REST API (gh) at the CI-7 close-out"
+        },
+        {
+          "runId": "45769900572",
+          "conclusion": "SUCCESS",
+          "subject": "pull_request run for PR #50 on head 597453c — conclusion SUCCESS verified via authenticated REST API (gh) at the CI-7 close-out"
+        },
+        {
+          "runId": "46032493337",
+          "conclusion": "SUCCESS",
+          "subject": "pull_request run for PR #52 on CI-7I head 2b34e80 — conclusion SUCCESS verified via authenticated REST API (gh); proves the corrected migration DDL passes the migration-exactness tests"
+        },
+        {
+          "runId": "46032514202",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on main at PR #52 merge commit 6d22974 — conclusion SUCCESS verified via authenticated REST API (gh); main green with the corrected DDL"
+        },
+        {
+          "runId": "46047518821",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on final feature tip 15f0bc2 (pagination fix) — quality job completed SUCCESS; verified at individual step level (Lint, TypeScript, Tests, Production build all green) and Tests step reports 1808 pass across 133 files, 0 fail"
+        },
+        {
+          "runId": "46088959010",
+          "conclusion": "SUCCESS",
+          "subject": "pull_request run for PR #53 on head 15f0bc2 — quality job 140805105100 completed SUCCESS in 3m18s; all 13 steps individually verified success via the jobs API (Set up job; Check out repository; Set up Bun 1.3.14; Install dependencies frozen lockfile; Generate Prisma client; Push schema to the isolated CI database; Lint; TypeScript; Tests; Production build; post steps; Complete job); Tests step 1808 pass / 133 files / 0 fail"
+        },
+        {
+          "runId": "46088970021",
+          "conclusion": "SUCCESS",
+          "subject": "push-event run on main at PR #53 merge commit 9790733 — quality job 140805143266 completed SUCCESS in 3m8s; all 13 steps individually verified success via the jobs API; Tests step 1808 pass / 133 files / 0 fail — the post-merge main gate"
+        }
+      ],
+      "deliveryHistory": [
+        {
+          "pr": 50,
+          "state": "MERGED",
+          "scope": "CI-7A pilot readiness audit and domain selection; the branch also carried cdc036c, the CI-6 ledger close-out bookkeeping commit (accounted under the CI-6 record)",
+          "head": "597453c6d1ae1783dc88547ec3b52e80c7be006c",
+          "mergeCommitSha": "1de1111dd99b8476dc7e688418785f75e495cf9b",
+          "runs": [
+            {
+              "runId": "45769617502",
+              "conclusion": "SUCCESS"
+            },
+            {
+              "runId": "45769900572",
+              "conclusion": "SUCCESS"
+            },
+            {
+              "runId": "45769747256",
+              "conclusion": "CANCELLED",
+              "note": "main push on the PR #50 merge commit — cancelled as superseded by subsequent runs"
+            }
+          ]
+        },
+        {
+          "pr": 51,
+          "state": "MERGED",
+          "scope": "CI-7B through CI-7H (pilot protocol/governance, cohort activation, source-frozen binding, disagreement analysis + additive migration, evaluation gate, activation/kill switch/rollback, pilot dashboard)",
+          "head": "156851990622e48631945c18a32523ef457ed570",
+          "mergeCommitSha": "578e39d865488ac3dd1b5c770b5aff953329f507",
+          "runs": [
+            {
+              "runId": "45776014123",
+              "conclusion": "FAILURE"
+            },
+            {
+              "runId": "45777165269",
+              "conclusion": "FAILURE"
+            },
+            {
+              "runId": "45777182361",
+              "conclusion": "FAILURE",
+              "subject": "main push at the PR #51 merge commit 578e39d"
+            }
+          ],
+          "note": "All three failures shared ONE root cause, honestly recorded: the CI-7E migration SQL shipped TIMESTAMP(3) columns and single-column packId indexes while prisma/schema.prisma requires DATETIME and composite (packId, createdAt) indexes for Ci7DisagreementAnalysis and Ci7PilotActivation — the migration-exactness tests (riishe-phase3d/phase3f, which migrate-diff a fully deployed fresh database against the schema) correctly refused. Never weakened, never skipped. Fixed in CI-7I (2b34e80) by correcting the migration SQL to Prisma-exact DDL and proven green afterwards by runs 46032493337 and 46032514202."
+        },
+        {
+          "pr": 52,
+          "state": "MERGED",
+          "scope": "CI-7I security & privacy acceptance battery + migration DDL exactness correction",
+          "head": "2b34e80c759d24553ef154f583fccea65655da56",
+          "mergeCommitSha": "6d22974fc6a43e4ca325a3244456528174c90ad4",
+          "runs": [
+            {
+              "runId": "45777471285",
+              "conclusion": "FAILURE"
+            },
+            {
+              "runId": "46032493337",
+              "conclusion": "SUCCESS"
+            },
+            {
+              "runId": "46032514202",
+              "conclusion": "SUCCESS"
+            }
+          ],
+          "note": "The 2026-11-26 push run 45777471285 failed one test: tests/unit/phase7ui-career-filters.test.ts:327 (expected opB, received opA) — a pre-existing nondeterministic pagination flake, NOT a CI-7I regression: public browse ordered only by publishedAt DESC while the fixture used per-call Date.now() timestamps, so seeds straddling a millisecond boundary flipped page membership. Root cause fixed by 15f0bc2 (PR #53) exactly as described in unit CI-7FIX; the re-run pull_request run and the post-merge main run were green."
+        },
+        {
+          "pr": 53,
+          "state": "MERGED",
+          "scope": "Deterministic public-opportunity pagination fix — the published close-out of the CI failure; owner-controlled merge completed the CI-7 delivery chain",
+          "head": "15f0bc26dddf508c63faaba6627a33437297036d",
+          "mergeCommitSha": "97907330a5d9ee2268b3b95242a37d53ca30ca40",
+          "runs": [
+            {
+              "runId": "46047518821",
+              "conclusion": "SUCCESS"
+            },
+            {
+              "runId": "46088959010",
+              "conclusion": "SUCCESS"
+            },
+            {
+              "runId": "46088970021",
+              "conclusion": "SUCCESS"
+            }
+          ],
+          "note": "Closing verification: quality job SUCCESS in all three runs; Tests step 1808 pass / 133 files / 0 fail in each; the two closing runs (46088959010 pull_request, 46088970021 main push) verified at individual step level via the jobs API with zero failing steps."
+        }
+      ],
+      "ciNote": "CI-7 opened from verified main cdc036c (the CI-6 ledger close-out commit; CI-6 COMPLETE/SYNCHRONIZED record untouched). Delivery ran through four owner-controlled PRs: #50 (CI-7A), #51 (CI-7B-H), #52 (CI-7I), #53 (pagination fix) — all state MERGED with the exact head/merge SHAs recorded in deliveryHistory. Session disclosure: the sandbox was reset between sessions and /home/z/ci7pub was lost AFTER everything was already published (no unpublished work existed); the working copy was re-cloned fresh from origin and the GitHub CLI credential re-established by the owner completing a fresh device-flow login (gh stores its own credential; no token was requested or exposed by the agent). POST-MERGE GATES (2026-11-28, all verified in this session, none inferred from earlier runs): (1) git ls-remote origin refs/heads/main == 97907330a5d9ee2268b3b95242a37d53ca30ca40 exactly; (2) PR #53 state MERGED via the authenticated API with merge_commit_sha 9790733 == live main, and merge-base ancestry proven for the merge commit, the fix commit 15f0bc2, the previous main 6d22974, CI-7A head 597453c, CI-7B-H head 1568519 and CI-7I 2b34e80 — every CI-7 commit individually proven reachable from origin/main (12/12 including the cdc036c bookkeeping commit); (3) the two outstanding closing Actions runs 46088959010 (pull_request, head 15f0bc2) and 46088970021 (push, head 9790733) both completed with conclusion SUCCESS, quality job step-level verified via the jobs API: all 13 steps success in each (Install dependencies frozen lockfile; Generate Prisma client; Push schema to the isolated CI database; Lint; TypeScript; Tests; Production build; post steps), Tests step 1808 pass / 133 files / 0 fail in both, read from the run logs; (4) complete CI-7 ancestry and all merged CI-7 work verified on main: CI-7A-I units, the security acceptance battery (ci7-security-acceptance.test.ts), the corrected migration SQL and the pagination fix are all present in the integration history. MIGRATION SAFETY DISCLOSURE (honest uncertainty): the CI-7E migration was corrected IN PLACE at CI-7I (sanctioned fix, preserved). Whether any persistent/shared database ever applied the old checksum CANNOT be determined from this sandbox — the repository ships no database, its tests use disposable temp databases and CI pushes the schema to an ephemeral isolated database (prisma db push, not migrate deploy). Any environment that applied the old checksum would hit an explicit checksum mismatch on migrate deploy (no silent data loss; SQLite exposes no column-type rewrite; audit rows and indexes untouched; no --accept-data-loss was used anywhere and no database was reset). A forward corrective migration was deliberately NOT added because application history is undetermined and the CI-7I correction is the sanctioned fix. Verified on a fresh disposable SQLite database: full migrate deploy of the entire chain succeeds and prisma migrate diff against schema.prisma reports 'No difference detected.' (exit 0), plus both migration-exactness tests pass (7/7 and 4/4). HONEST REAL-WORLD PILOT STATUS — UNCHANGED BY THIS CLOSURE: the controlled real-expert pilot is NOT STARTED. Verified real experts: 0. Genuine completed expert reviews: 0. Production domain packs: IN_REVIEW. Language capabilities: LIMITED/unmeasured. TRANSCRIPTION: structurally UNSUPPORTED. Evaluation: INSUFFICIENT EVIDENCE. Every CI-7 ledger-deriving surface (FINDINGS instrument, pilot dashboard, activation reporting) reports these honest zeros until genuine execution produces real records. CLOSE-OUT PUBLICATION: this ledger record is the only change in the close-out commit (no product or test changes, no CI-8 work); committed directly on main per the established CI-6 close-out precedent and pushed as a normal fast-forward (no force, no rebase, no amend, no reset); after the push the feature branch feat/bean-classroom-intelligence-ci7 was fast-forwarded to the post-close-out main tip per GIT-BRANCH-HYGIENE rule 8 (merged branches must not drift; ahead=0 legal fast-forward), leaving the branch IN SYNC with main. branch-health note: the CI-7-specific gate assertions (all commits ancestors of main, merge commit ancestor, PR #53 MERGED, all recorded CI runs SUCCESS) pass; the reporter's residual blocks are the repo's pre-existing historical branch drift (33 zero-unique branches behind main and 2 divergent, all predating this milestone — the same standing state under which CI-2 through CI-6 were closed), documented here as the manual reconciliation action outside this milestone's scope (rule 8 of GIT-BRANCH-HYGIENE.md).",
+      "finalMainSha": "97907330a5d9ee2268b3b95242a37d53ca30ca40",
+      "syncStatus": "SYNCHRONIZED",
+      "status": "COMPLETE",
+      "evidence": "docs/BEAN-CLASSROOM-INTELLIGENCE-CI7-FINDINGS.md; docs/BEAN-CLASSROOM-INTELLIGENCE-CI7-PILOT-PROTOCOL.md; docs/BEAN-CLASSROOM-INTELLIGENCE-CI7-PILOT-READINESS.md",
+      "updatedAt": "2026-11-28T01:05:00Z"
     }
   ],
   "branchReconciliation": {
