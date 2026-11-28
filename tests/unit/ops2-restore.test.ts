@@ -3,19 +3,23 @@
 // Coverage (all on isolated temp infrastructure; never a developer/production DB;
 // no real user data — the fixture is fully synthetic):
 //   R1  full drill happy path: fixture → backup → repo check (--read-data) →
-//       post-backup mutation → restore → full verification battery → cleanup
+//       post-backup mutation → restore → full verification battery →
+//       path-portability proofs (canonical + validated remap) → cleanup
 //   R2  verification battery details: integrity_check ok, zero FK violations,
 //       migration history matches the real prisma/migrations chain (30/30)
+//   R2b the drill fixture used the REAL migration chain (30 migration dirs)
 //   R3  migration-history verification detects missing and extra applied migrations
 //   R4  restored-file verification detects corrupted, missing and unexpected files
 //   R5  manifest verification detects truncation and sidecar mismatches
 //   R6  DB→file reference verification detects missing and mutated files
 //   R7  restore-target safety rules (no live-root overlap, no non-empty targets)
+//   R14 path-portability proofs run on every clean drill (see the dedicated
+//       ops2-path-portability suite for the full portability matrix)
 //   R8–R12 fault scenarios: corrupt-file / corrupt-manifest / missing-file /
 //       repo-corruption / incomplete-manifest are all DETECTED and never
 //       reported as success
 //   R13 an interrupted restore is reported as a failure, not a success
-
+//
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { mkdir, rm, copyFile, readFile, writeFile } from 'node:fs/promises'
@@ -97,6 +101,8 @@ describe('OPS-2 restore drill happy path', () => {
       'verify:restored-files',
       'verify:db-file-references',
       'post-mutation-isolation',
+      'path-portability:canonical',
+      'path-portability:remap',
       'cleanup',
     ]) {
       expect(step(happyDrill, expected).present).toBe(true)
@@ -115,7 +121,7 @@ describe('OPS-2 restore drill happy path', () => {
     expect(byId.get('migration-history')?.ok).toBe(true)
     expect(byId.get('migration-history')?.detail).toContain('migrations applied in order')
     expect(byId.get('db-file-references')?.ok).toBe(true)
-    expect(byId.get('db-file-references')?.detail).toContain('1 upload(s) + 1 ACTIVE evidence file(s)')
+    expect(byId.get('db-file-references')?.detail).toContain('2 upload(s) + 1 ACTIVE evidence file(s)')
   })
 
   it('R2b: the drill fixture used the REAL migration chain (30 migration directories)', () => {

@@ -6,8 +6,10 @@
 // Runs the FULL isolated acceptance drill: real migration-chain fixture →
 // verified backup → restic check (--read-data) → restore into a fresh empty
 // directory → integrity/foreign-key/migration/hash/reference verification →
-// cleanup. With --fault, the drill injects one failure and asserts it is
-// DETECTED (exit 0) — if the fault is NOT detected, the drill exits 1.
+// path-portability proofs (canonical + validated remap, both opened through
+// the application's REAL file-reading logic — see docs §4.5) → cleanup. With
+// --fault, the drill injects one failure and asserts it is DETECTED (exit 0) —
+// if the fault is NOT detected, the drill exits 1.
 //
 // No real user data, no live database, no cloud credentials. The only restic
 // repository touched is the drill's own throwaway (or the --repo one you name).
