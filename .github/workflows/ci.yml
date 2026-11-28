@@ -49,8 +49,19 @@ jobs:
       - name: Generate Prisma client
         run: bunx prisma generate
 
-      - name: Push schema to the isolated CI database
-        run: bunx prisma db push --skip-generate
+      - name: Apply the complete migration chain to the isolated CI database
+        # OPS-1E: the schema is built with `prisma migrate deploy` (the exact
+        # command production deployments must use), never `prisma db push`.
+        # This proves on every CI run that a FRESH disposable SQLite database
+        # can apply the complete existing migration chain in order. The step
+        # fails closed on any migration error (GitHub Actions fail-on-error).
+        run: bunx prisma migrate deploy
+
+      - name: Verify deployed schema matches prisma/schema.prisma (migration diff gate)
+        # OPS-1E: the migration-built database must equal the Prisma schema.
+        # --exit-code returns 2 when there is a difference, so any drift
+        # between the migration chain and schema.prisma fails CI closed.
+        run: bunx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
 
       - name: Lint
         run: bun run lint

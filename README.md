@@ -58,12 +58,13 @@ An AI-powered learning ecosystem for every student. BEAN Education brings person
 ```bash
 bun install
 cp .env.example .env
-bun run db:deploy && bun run db:seed
+bun run db:generate && bun run db:deploy   # prisma client + full migration chain (migrate deploy)
+bun prisma/seed.ts                          # idempotent catalogue seed (safe to re-run; no users are created)
 bun run dev
-bun test          # unit tests
+bun test --isolate    # unit tests (same isolation the CI uses)
 ```
 
-Before any schema change: `bun run db:backup` first (see docs/PHASE2A_DATABASE_MIGRATIONS.md).
+Before any schema change: `bun run db:backup` first (see docs/PHASE2A_DATABASE_MIGRATIONS.md). Schema deployment uses `prisma migrate deploy` (`bun run db:deploy`) — never `prisma db push` (see ADR-004/ADR-011 and the CI migration-diff gate).
 
 ## Protected paths (never commit)
 
