@@ -26,10 +26,11 @@
 //     incomplete backup is never produced.
 
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, readFile, writeFile, stat, rm } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { existsSync, lstatSync } from 'node:fs'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
+import { listFlatStorageEntries, scanPath } from './fs-boundary'
 
 export const MANIFEST_SCHEMA = 'bean-backup-manifest/1'
 export const BACKUP_TOOL_NAME = 'bean-ops-backup'
@@ -199,26 +200,35 @@ function sha256Bytes(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex')
 }
 
-/** Enumerate one flat storage root (refuse unexpected subdirectory structure). */
+/**
+ * Enumerate one flat storage root (refuse unexpected subdirectory structure).
+ * OPS-2.1: enumeration uses readdir(withFileTypes) and NEVER follows symlinks:
+ * a symbolic-link entry in upload/evidence storage — file, directory, or
+ * dangling — is an explicit failure, because staging would otherwise snapshot
+ * whatever the link points at while the manifest records only the basename.
+ * The storage root itself must also be a real directory (a symlinked root is
+ * refused with a named reason; a missing root stays a legitimate empty state).
+ */
 async function collectFlatFiles(root: string, label: string): Promise<string[]> {
-  let entries: string[]
-  try {
-    entries = await readdir(root)
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') return [] // an empty root is a legitimate, consistent state
-    throw new Error(`could not read ${label} directory (${root}): ${err instanceof Error ? err.message : String(err)}`)
+  const listed = listFlatStorageEntries(root)
+  if (!listed.ok) throw new Error(`${label}: ${listed.error}`)
+  if (listed.symlinks.length > 0) {
+    throw new Error(
+      `unexpected symbolic link in ${label} storage: ${listed.symlinks.join(', ')} — backup enumeration ` +
+        'never follows symlinks (the manifest must describe real bytes, not link targets); refusing (fail-closed)',
+    )
   }
-  for (const name of entries) {
-    const st = await stat(path.join(root, name)).catch(() => null)
-    if (st && st.isDirectory()) {
-      throw new Error(
-        `unexpected subdirectory in ${label}: ${name} — the backup manifest models flat storage roots; ` +
-          'refusing to silently skip structure it does not understand',
-      )
+  if (listed.others.length > 0) {
+    for (const name of listed.others) {
+      if (!name.endsWith('.tmp') && name !== '.DS_Store') {
+        throw new Error(
+          `unexpected subdirectory or special file in ${label}: ${name} — the backup manifest models flat storage roots; ` +
+            'refusing to silently skip structure it does not understand',
+        )
+      }
     }
   }
-  return entries.filter((name) => {
+  return listed.files.filter((name) => {
     // Editor/OS droppings are never application data.
     return !name.endsWith('.tmp') && name !== '.DS_Store'
   })
@@ -387,6 +397,17 @@ export function auditSnapshotAgainstManifest(stageDir: string, manifest: BackupM
  */
 export async function createBackupStage(input: StageInput): Promise<StagedBackup> {
   const { paths, stageDir } = input
+  // OPS-2.1: the staging tree must live at a REAL filesystem location — a
+  // symbolic-link component anywhere on the stage path would place the
+  // snapshot bytes (and the VACUUM INTO database file) wherever the link
+  // points, invisible to lexical placement checks. Fail closed.
+  const stageScan = scanPath(path.resolve(stageDir))
+  if (stageScan.symlinks.length > 0) {
+    throw new Error(
+      `staging directory (${path.resolve(stageDir)}) traverses symbolic link component(s) ` +
+        `(${stageScan.symlinks.join(' → ')}) — staging must live at a real filesystem location; refusing (fail-closed)`,
+    )
+  }
   const dataDir = path.join(stageDir, 'data')
   const dbTarget = path.join(dataDir, 'database')
   const uploadsTarget = path.join(dataDir, 'files', 'uploads')
@@ -460,6 +481,12 @@ export async function removeStageDir(stageDir: string): Promise<void> {
  *   • never inside the project source tree unless the operator explicitly
  *     allows it (--allow-in-tree) — protects against accidental commits of
  *     encrypted archives alongside the source.
+ *
+ * OPS-2.1: the comparison is FILESYSTEM-REAL — the candidate's existing
+ * components are lstat-checked (a symbolic-link candidate is refused outright:
+ * a staged tree or repository reached through a symlink would physically live
+ * wherever the link points, invisible to lexical placement checks) and the
+ * ACTUAL location is compared against each protected root's actual location.
  */
 export function assertSafeBackupPlacement(
   candidateDir: string,
@@ -468,21 +495,33 @@ export function assertSafeBackupPlacement(
   opts: { allowInTree?: boolean; what: string },
 ): { ok: true } | { ok: false; error: string } {
   const resolved = path.resolve(candidateDir)
+  const scan = scanPath(resolved)
+  if (scan.symlinks.length > 0) {
+    return {
+      ok: false,
+      error:
+        `${opts.what} (${resolved}) traverses ${scan.symlinks.length} symbolic link component(s) ` +
+        `(${scan.symlinks.join(' → ')}) — backup payloads must live at real filesystem locations, ` +
+        'never reached through symlinks; refusing (fail-closed)',
+    }
+  }
   for (const root of sourceRoots) {
-    const r = path.resolve(root)
-    if (resolved === r || resolved.startsWith(r + path.sep)) {
+    const rActual = scanPath(path.resolve(root)).actual
+    const inside = scan.actual === rActual || scan.actual.startsWith(rActual + path.sep)
+    const contains = rActual === scan.actual || rActual.startsWith(scan.actual + path.sep)
+    if (inside || contains) {
       return {
         ok: false,
-        error: `${opts.what} must not live inside the data being backed up (${r}) — a repository ` +
+        error: `${opts.what} must not live inside the data being backed up (${rActual}) — a repository ` +
           'inside its own source risks recursive re-ingestion and corruption. Choose a directory outside db/.',
       }
     }
   }
-  const project = path.resolve(projectRoot)
-  if (!opts.allowInTree && (resolved === project || resolved.startsWith(project + path.sep))) {
+  const projectActual = scanPath(path.resolve(projectRoot)).actual
+  if (!opts.allowInTree && (scan.actual === projectActual || scan.actual.startsWith(projectActual + path.sep))) {
     return {
       ok: false,
-      error: `${opts.what} is inside the project source tree (${project}) — pass --allow-in-tree only if ` +
+      error: `${opts.what} is inside the project source tree (${projectActual}) — pass --allow-in-tree only if ` +
         'you accept the risk of committing backup archives alongside the source. Keeping the repository ' +
         'outside the source tree is strongly recommended.',
     }

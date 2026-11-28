@@ -329,6 +329,82 @@ toolkit provides the recovery decision, and a production restore still requires
 the operator to choose the mode (same-layout host → canonical; new layout →
 validated remap against the isolated copy).
 
+### 4.6 Filesystem-boundary hardening — symlinks (OPS-2.1)
+
+A follow-up independent review found that the boundary checks above relied on
+**lexical** `path.resolve()` comparisons, which never consult the filesystem.
+When an existing path component is a **symbolic link**, the lexically
+"resolved" destination is not the location the bytes would physically land in:
+a destination root (or any ancestor of it) symlinked into a protected root —
+or anywhere outside the intended recovery layout — passed every lexical check
+while recovery writes would have followed the link onto foreign ground.
+
+All boundary checks now go through one shared mechanism
+(`scripts/ops/lib/fs-boundary.ts`). Rules:
+
+- **Actual location resolution.** For a path whose components may not all
+  exist, the longest EXISTING prefix is resolved with `realpath(3)` and the
+  nonexistent tail is appended lexically (a component that does not exist
+  cannot be a symlink yet, so the tail is exact). `realpath()` alone cannot
+  resolve such paths; `path.resolve()` alone resolves nothing at all.
+- **Symlink refusal for destinations (documented fail-closed policy).** Every
+  EXISTING component of a destination path — leaf or ancestor — is
+  `lstat(2)`-checked; any symbolic link refuses the operation with a named
+  reason. Recovery writes must land on real filesystem locations, never
+  THROUGH symlinks. No opt-out exists: no verified safe design for symlinked
+  recovery destinations has been demonstrated. This applies to the restore
+  target (`assertSafeRestoreTarget`), the canonical root
+  (`planCanonicalMaterialization` + write-time re-scan in
+  `materializeCanonicalFiles`), the recovery app root
+  (`populateRecoveryLayout`), the remap recovery root, and backup placement
+  (`assertSafeBackupPlacement`, stage directories).
+- **Real-file refusal for opened databases/files.** A database the toolkit
+  opens — read-only or writable — must `lstat` as a regular file reached
+  through real components (`assertRealFileLocation`). A symlinked restored
+  database could alias the ISOLATED copy to the LIVE database; the writable
+  remap refuses it, and `verifyRestoredBackup` gains an explicit `db-location`
+  check (manifest `database.file` must stay inside the restored tree —
+  traversal refused — and must not be a symlink alias).
+- **Enumeration never follows symlinks.** Backup staging enumerates
+  upload/evidence storage with `readdir(withFileTypes)`: a symbolic-link entry
+  (file, directory, or dangling) is an explicit failure, because staging would
+  otherwise snapshot whatever the link points at while the manifest records
+  only a basename. The same rule holds for recovery-layout population from
+  restored storage and for restored-file verification (a manifest entry
+  replaced by a symlink in the restored tree is reported, never followed).
+  A symlinked storage ROOT is likewise refused with a named reason.
+- **Unsafe writes are structurally prevented.** Canonical materialization
+  writes each leaf with `O_CREAT | O_EXCL` (`writeFile` flag `'wx'`) — the
+  kernel guarantees an existing file is never overwritten and a symlink at the
+  leaf (even dangling) is never followed, race-free. Intermediate directories
+  between the canonical root and each leaf are lstat-checked at write time
+  (existing symlinks refuse; missing ones are created and recorded). After
+  every write the leaf is re-verified as a regular file with no symlinked
+  components. Remap writes go through the exact-old-value SQL guard and
+  transaction on a database that has passed the real-file location guard.
+- **Partial-failure cleanup is conservative.** A failed materialization or
+  layout population removes ONLY the files that call wrote (a written leaf
+  that has itself become a symlink is left untouched and reported); created
+  directories are removed deepest-first and only while still empty;
+  pre-existing files, directories and their contents are never deleted.
+
+**Residual race limitation (documented honestly).** POSIX offers no portable
+way to atomically validate every ancestor of a path AND perform the subsequent
+write as one operation. A local attacker with write access to a destination's
+parent directories can swap a validated component into a symlink between
+validation and use (TOCTOU). The toolkit narrows the window to the practical
+minimum — validation is repeated at the point of write, the leaf is created
+with `O_CREAT|O_EXCL` (race-free), and each write is re-verified afterwards —
+but **complete TOCTOU elimination on ancestor components is not claimed**.
+Where an attacker can write into the recovery layout's parent directories, the
+recovery layout must be created under directories only trusted processes can
+write to. The adversarial suite (`tests/unit/ops2-restore-symlink-safety.test.ts`)
+exercises the deterministic parts of this discipline (13 symlink shapes: roots
+symlinked inside/outside protected roots, symlinked ancestors, symlinked
+databases, symlinked upload/evidence entries, traversal + symlink, swap between
+planning and materialization, never-overwrite, conservative cleanup, and the
+two normal-success paths).
+
 ---
 
 ## 5. Encryption and credential safety
@@ -437,6 +513,13 @@ selected (OPS-3), these are the prepared operational recipes:
   logic via the two validated recovery modes (canonical same-layout materialization
   or explicit remap on the isolated copy). The application's storage architecture
   itself is unchanged; a production restore requires the operator to pick the mode.
+- **Symlinked recovery destinations (OPS-2.1, §4.6):** recovery destinations must
+  be real filesystem locations — any symbolic-link component (leaf or ancestor)
+  refuses the operation fail-closed, and symlink entries in upload/evidence
+  storage are explicit failures at backup staging, layout population and
+  verification. The residual ancestor-component TOCTOU window described in §4.6
+  cannot be fully eliminated with portable filesystem APIs; the recovery layout
+  must live under directories only trusted processes can write to.
 - **Single-host SQLite:** the toolkit supports the SQLite deployment only and refuses
   non-`file:` DATABASE_URLs. A future PostgreSQL migration (out of scope) would need
   a different backup mechanism.

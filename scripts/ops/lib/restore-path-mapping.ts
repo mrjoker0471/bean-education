@@ -38,10 +38,11 @@
 // overlap refuses the whole operation with a named reason.
 
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { chmod, copyFile, mkdir, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
+import { existsSync, lstatSync } from 'node:fs'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
+import { assertRealDisjointRoots, assertRealFileLocation, scanPath } from './fs-boundary'
 
 function sha256Bytes(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex')
@@ -49,34 +50,21 @@ function sha256Bytes(buf: Buffer): string {
 
 // ─── Shared root-safety primitives ─────────────────────────────────────────────
 
-/** True when `candidate` is `root` itself or anywhere inside it. */
-function isInside(candidate: string, root: string): boolean {
-  const c = path.resolve(candidate)
-  const r = path.resolve(root)
-  return c === r || c.startsWith(r + path.sep)
-}
-
+/**
+ * OPS-2.1: this guard is FILESYSTEM-REAL, not merely lexical. It delegates to
+ * the shared fs-boundary mechanism (scripts/ops/lib/fs-boundary.ts): every
+ * existing component of the candidate destination is lstat-checked (any
+ * symbolic link — leaf or ancestor — refuses the operation) and containment is
+ * compared on ACTUAL filesystem locations (longest existing prefix
+ * realpath-resolved, nonexistent tail appended lexically). A destination root
+ * that is a symlink pointing into a protected root — or anywhere outside the
+ * intended recovery layout — can no longer pass a lexical comparison.
+ */
 export type RootSafety = { ok: true } | { ok: false; error: string }
 
-/**
- * A recovery destination root must be disjoint from every forbidden root:
- * neither may contain the other. This is what makes a recovery layout unable
- * to clobber live data roots, the restored staging tree, or the repository.
- */
 export function assertDisjointRoots(candidate: string, forbiddenRoots: string[], what: string): RootSafety {
-  const resolved = path.resolve(candidate)
-  if (!path.isAbsolute(resolved)) {
-    return { ok: false, error: `${what} must be an absolute path (got ${candidate})` }
-  }
-  for (const f of forbiddenRoots) {
-    if (isInside(resolved, f)) {
-      return { ok: false, error: `${what} (${resolved}) must never overlap the protected root ${path.resolve(f)}` }
-    }
-    if (isInside(f, resolved)) {
-      return { ok: false, error: `${what} (${resolved}) must not contain the protected root ${path.resolve(f)}` }
-    }
-  }
-  return { ok: true }
+  const r = assertRealDisjointRoots(candidate, forbiddenRoots, what)
+  return r.ok ? { ok: true } : { ok: false, error: r.error }
 }
 
 // ─── storedPath analysis ───────────────────────────────────────────────────────
@@ -186,6 +174,14 @@ export function planUploadsRemap(input: RemapPlanInput): RemapPlan {
   const root = singleUploadRoot(analysis)
   if (!root.ok) return { ok: false, error: root.error }
 
+  // OPS-2.1: the database being remapped must be a REAL regular file reached
+  // through real directories — a symlink alias could point the writable remap
+  // at another database (e.g. the live one) while every lexical check passes.
+  // Its ACTUAL location must be disjoint from every protected root AND from
+  // the original uploads root, on the real filesystem.
+  const dbFileGuard = assertRealFileLocation(input.dbPath, [...input.forbiddenRoots, root.root], 'remap target database file')
+  if (!dbFileGuard.ok) return { ok: false, error: dbFileGuard.error }
+
   // Defence in depth: the database being remapped must never live inside the
   // original uploads root it is being remapped FROM (that would be the live
   // or original data location, not an isolated restored copy).
@@ -254,6 +250,14 @@ export function applyUploadsRemap(dbPath: string, plan: UploadsRemapPlan): Remap
   // miswired caller pointing the remap at the original database.
   const liveGuard = assertDisjointRoots(path.dirname(dbPath), [plan.originalRoot], 'remap target database')
   if (!liveGuard.ok) return { ok: false, error: liveGuard.error }
+
+  // OPS-2.1: the writable open below must never be able to land on an alias.
+  // The database must lstat as a real regular file, reached through real
+  // directories, whose ACTUAL location is disjoint from the original root on
+  // the real filesystem — a symlink alias to the live/original database is
+  // refused even though every lexical comparison would have passed.
+  const fileGuard = assertRealFileLocation(dbPath, [plan.originalRoot], 'remap target database file')
+  if (!fileGuard.ok) return { ok: false, error: fileGuard.error }
 
   // bun 1.3.x quirk: a WRITABLE open must not pass an options object
   // (`{ readonly: false, … }` is rejected with "bad parameter or other API
@@ -356,10 +360,29 @@ export function planCanonicalMaterialization(input: CanonicalPlanInput): Canonic
     if (seen.has(base)) {
       return { ok: false, error: `duplicate destination basename "${base}" — refusing ambiguous canonical materialization` }
     }
-    if (existsSync(resolved)) {
+    // OPS-2.1: existence is checked with lstat (existsSync FOLLOWS symlinks —
+    // a dangling symlink would have passed as "nonexistent" and a symlink to
+    // an existing file only sometimes). Any existing entry — file, symlink,
+    // even dangling — refuses: canonical restore never overwrites and never
+    // replaces an existing directory entry of any kind.
+    const destStat = lstatSync(resolved, { throwIfNoEntry: false })
+    if (destStat) {
       return {
         ok: false,
-        error: `canonical destination already exists: ${resolved} — canonical restore never overwrites existing bytes`,
+        error:
+          `canonical destination already exists: ${resolved}` +
+          (destStat.isSymbolicLink() ? ' (and is a symbolic link — never followed, fail-closed)' : '') +
+          ' — canonical restore never overwrites existing bytes',
+      }
+    }
+    // OPS-2.1: an existing symbolic-link component anywhere on the destination
+    // path (e.g. a subdirectory of the canonical root symlinked elsewhere)
+    // refuses the plan — materialization would otherwise follow it.
+    const destScan = scanPath(resolved)
+    if (destScan.symlinks.length > 0) {
+      return {
+        ok: false,
+        error: `canonical destination ${resolved} traverses symbolic link component(s) (${destScan.symlinks.join(' → ')}) — refusing (fail-closed)`,
       }
     }
     seen.add(base)
@@ -370,26 +393,139 @@ export function planCanonicalMaterialization(input: CanonicalPlanInput): Canonic
 
 /**
  * Materialise the restored upload bytes at their exact recorded absolute
- * paths (mode 0600, byte-identical to the restored staging tree). Refuses if
- * a destination appeared between planning and writing.
+ * paths (mode 0600, byte-identical to the restored staging tree).
+ *
+ * OPS-2.1 filesystem-boundary discipline:
+ *   • the canonical root is RE-SCANNED at write time — a root (or any of its
+ *     existing ancestors) swapped into a symbolic link between planning and
+ *     materialization refuses the whole operation;
+ *   • every intermediate directory between the root and each leaf is lstat
+ *     real-directory checked (existing symlinks refuse; missing ones are
+ *     created and recorded);
+ *   • leaves are written with O_CREAT|O_EXCL (writeFile flag 'wx'): the
+ *     kernel guarantees an existing file is never overwritten and a symlink
+ *     at the leaf — even a dangling one — is never followed (race-free);
+ *   • after each write the leaf is re-verified as a regular file with no
+ *     symlinked components (narrowing the documented TOCTOU window);
+ *   • on any failure, ONLY the files this call wrote are removed (a written
+ *     leaf that has become a symlink is left untouched and reported);
+ *     pre-existing files and directories are never deleted.
  */
 export async function materializeCanonicalFiles(
   plan: CanonicalMaterializationPlan,
   restoredUploadsDir: string,
 ): Promise<{ ok: true; written: number } | { ok: false; error: string }> {
-  const { chmod } = await import('node:fs/promises')
+  // Write-time re-validation (planning may be arbitrarily older than writing).
+  const rootScan = scanPath(plan.root)
+  if (rootScan.symlinks.length > 0) {
+    return {
+      ok: false,
+      error:
+        `canonical root ${plan.root} traverses symbolic link component(s) (${rootScan.symlinks.join(' → ')}) ` +
+        'between planning and materialization — refusing (fail-closed)',
+    }
+  }
+  const rootStat = lstatSync(plan.root, { throwIfNoEntry: false })
+  if (rootStat && !rootStat.isDirectory()) {
+    return { ok: false, error: `canonical root ${plan.root} exists and is not a directory — refusing` }
+  }
   await mkdir(plan.root, { recursive: true })
+
+  const writtenFiles: string[] = []
+  const createdDirs: string[] = []
+  const cleanupPartialFailure = async (reason: string): Promise<{ ok: false; error: string }> => {
+    // Remove ONLY bytes this call wrote. A written leaf that has itself become
+    // a symbolic link is no longer ours to delete — it is left untouched and
+    // reported. Pre-existing files/directories are never deleted; created
+    // directories are removed only if still empty (rmdir never recurses).
+    const removed: string[] = []
+    const leftAlone: string[] = []
+    for (const f of [...writtenFiles].reverse()) {
+      const st = lstatSync(f, { throwIfNoEntry: false })
+      if (!st) continue
+      if (st.isSymbolicLink() || !st.isFile()) {
+        leftAlone.push(f)
+        continue
+      }
+      try {
+        await rm(f, { force: false })
+        removed.push(f)
+      } catch {
+        leftAlone.push(f)
+      }
+    }
+    // Deepest-first: a parent rmdir only succeeds once its children are gone.
+    for (const d of [...createdDirs].sort(
+      (a, b) => b.split(path.sep).length - a.split(path.sep).length || b.length - a.length,
+    )) {
+      await rmdir(d).catch(() => undefined) // succeeds only when empty
+    }
+    const note =
+      leftAlone.length > 0
+        ? `; ${leftAlone.length} written path(s) were no longer regular files and were left untouched`
+        : ''
+    return {
+      ok: false,
+      error: `${reason} (partial failure: ${removed.length} file(s) written by this call were removed; pre-existing files and directories were never deleted${note})`,
+    }
+  }
+
   let written = 0
   for (const dest of plan.destinations) {
-    if (existsSync(dest.absolutePath)) {
-      return { ok: false, error: `canonical destination appeared during materialization: ${dest.absolutePath} — refusing` }
+    const st = lstatSync(dest.absolutePath, { throwIfNoEntry: false })
+    if (st) {
+      return cleanupPartialFailure(
+        `canonical destination appeared during materialization: ${dest.absolutePath}` +
+          (st.isSymbolicLink() ? ' (and is now a symbolic link)' : '') +
+          ' — refusing (never overwrites)',
+      )
+    }
+    // Intermediate components between the canonical root and the leaf.
+    const rel = path.relative(plan.root, dest.absolutePath)
+    const parts = rel.split(path.sep).filter((s) => s.length > 0)
+    let acc = plan.root
+    for (const part of parts.slice(0, -1)) {
+      acc = path.join(acc, part)
+      const ist = lstatSync(acc, { throwIfNoEntry: false })
+      if (!ist) {
+        await mkdir(acc) // parents are processed in order, so non-recursive is exact
+        createdDirs.push(acc)
+      } else if (ist.isSymbolicLink()) {
+        return cleanupPartialFailure(
+          `canonical destination ${dest.absolutePath} traverses symbolic link component ${acc} between planning and materialization — refusing (fail-closed)`,
+        )
+      } else if (!ist.isDirectory()) {
+        return cleanupPartialFailure(`canonical destination ${dest.absolutePath} traverses non-directory component ${acc} — refusing`)
+      }
     }
     const source = path.join(restoredUploadsDir, dest.basename)
-    const sourceStat = await stat(source).catch(() => null)
-    if (!sourceStat || !sourceStat.isFile()) {
-      return { ok: false, error: `restored staging tree has no upload "${dest.basename}" for canonical materialization` }
+    const sourceStat = lstatSync(source, { throwIfNoEntry: false })
+    if (!sourceStat || sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
+      return cleanupPartialFailure(
+        `restored staging tree has no usable regular-file upload "${dest.basename}" for canonical materialization (missing, symbolic link, or non-file)`,
+      )
     }
-    await copyFile(source, dest.absolutePath)
+    const bytes = await readFile(source)
+    try {
+      // flag 'wx' → O_CREAT|O_EXCL: race-free refusal of an existing leaf and
+      // of any symlink at the leaf (even dangling). Never overwrites.
+      await writeFile(dest.absolutePath, bytes, { mode: 0o600, flag: 'wx' })
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'EEXIST') {
+        return cleanupPartialFailure(`canonical destination appeared during materialization: ${dest.absolutePath} — refusing (never overwrites)`)
+      }
+      return cleanupPartialFailure(`canonical write failed for ${dest.absolutePath}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    writtenFiles.push(dest.absolutePath)
+    // Post-write re-verification (narrows the documented TOCTOU window).
+    const post = lstatSync(dest.absolutePath, { throwIfNoEntry: false })
+    const postScan = scanPath(dest.absolutePath)
+    if (!post || post.isSymbolicLink() || !post.isFile() || postScan.symlinks.length > 0) {
+      return cleanupPartialFailure(
+        `canonical destination ${dest.absolutePath} is no longer the regular file this call wrote (suspected symlink swap between write and verification) — refusing`,
+      )
+    }
     await chmod(dest.absolutePath, 0o600) // restricted-store discipline regardless of source mode
     written += 1
   }
@@ -404,6 +540,24 @@ export async function materializeCanonicalFiles(
  * tree. Evidence bytes are copied under their RELATIVE storagePath names —
  * exactly the layout the app's runtime `evidenceFilePath()` resolution expects
  * when the restored application runs from the recovery root.
+ *
+ * OPS-2.1 filesystem-boundary discipline:
+ *   • the recovery app root must be a REAL (nonexistent) location — any
+ *     symbolic-link component on its path refuses the layout; when the caller
+ *     supplies forbiddenRoots the ACTUAL location must also be disjoint from
+ *     every protected root on the real filesystem;
+ *   • the restored database basename must be a plain filename (a hostile
+ *     manifest value can never place the copy outside the layout);
+ *   • restored source roots must be real directories reached through real
+ *     components, and every entry inside them must be a REAL regular file —
+ *     a symbolic-link entry in restored upload/evidence storage is an
+ *     explicit failure and is never followed (enumeration uses
+ *     readdir(withFileTypes), which reports the link itself);
+ *   • every leaf is lstat-checked immediately before its copy and re-verified
+ *     as a regular file after it (the documented residual TOCTOU window);
+ *   • on failure, only files this call wrote are removed (a written leaf that
+ *     has become a symlink is left untouched and reported); directories are
+ *     removed only if still empty; nothing pre-existing is ever deleted.
  */
 export async function populateRecoveryLayout(input: {
   recoveryAppRoot: string
@@ -411,28 +565,157 @@ export async function populateRecoveryLayout(input: {
   dbSourcePath: string
   restoredUploadsDir: string
   restoredEvidenceDir: string
+  /** OPS-2.1: roots the recovery layout must never overlap on the REAL filesystem. */
+  forbiddenRoots?: string[]
 }): Promise<{ ok: true; uploadsDir: string; evidenceDir: string; dbPath: string } | { ok: false; error: string }> {
   const uploadsDir = path.join(input.recoveryAppRoot, 'db', 'uploads')
   const evidenceDir = path.join(input.recoveryAppRoot, 'db', 'evidence')
   const dbPath = path.join(input.recoveryAppRoot, 'db', input.dbBasename)
+
+  // Fresh-layout + real-location validation of the recovery app root. The
+  // symlink scan runs FIRST so a symlinked recovery root is named as exactly
+  // that (an existing regular directory is the separate "always fresh" case).
+  const appRootScan = scanPath(input.recoveryAppRoot)
+  if (appRootScan.symlinks.length > 0) {
+    return {
+      ok: false,
+      error: `recovery app root (${input.recoveryAppRoot}) traverses symbolic link component(s) (${appRootScan.symlinks.join(' → ')}) — refusing (fail-closed)`,
+    }
+  }
+  if (input.forbiddenRoots !== undefined) {
+    const guard = assertRealDisjointRoots(input.recoveryAppRoot, input.forbiddenRoots, 'recovery app root')
+    if (!guard.ok) return { ok: false, error: guard.error }
+  }
+  if (lstatSync(input.recoveryAppRoot, { throwIfNoEntry: false })) {
+    return { ok: false, error: `recovery app root already exists: ${input.recoveryAppRoot} — recovery layouts are always fresh` }
+  }
+
+  // The database basename comes from manifest data — it must be a plain
+  // filename or the copy could be placed outside the layout (lexical escape).
+  if (
+    input.dbBasename.length === 0 ||
+    input.dbBasename !== path.basename(input.dbBasename) ||
+    input.dbBasename === '.' ||
+    input.dbBasename === '..' ||
+    input.dbBasename.includes('/') ||
+    input.dbBasename.includes('\\')
+  ) {
+    return { ok: false, error: `database basename is not a plain filename: "${input.dbBasename}" — refusing` }
+  }
+
+  // Restored source roots: real directories, real components.
+  for (const [label, dir] of [
+    ['uploads', input.restoredUploadsDir],
+    ['evidence', input.restoredEvidenceDir],
+  ] as const) {
+    const st = lstatSync(dir, { throwIfNoEntry: false })
+    if (!st || st.isSymbolicLink() || !st.isDirectory()) {
+      return { ok: false, error: `restored ${label} storage root is not a real directory: ${dir}` }
+    }
+    const scan = scanPath(dir)
+    if (scan.symlinks.length > 0) {
+      return {
+        ok: false,
+        error: `restored ${label} storage root (${dir}) is reached through symbolic link component(s) (${scan.symlinks.join(' → ')}) — refusing (fail-closed)`,
+      }
+    }
+  }
+  const dbSourceStat = lstatSync(input.dbSourcePath, { throwIfNoEntry: false })
+  if (!dbSourceStat || dbSourceStat.isSymbolicLink() || !dbSourceStat.isFile()) {
+    return { ok: false, error: `restored database source is not a real regular file: ${input.dbSourcePath}` }
+  }
+  const dbSourceScan = scanPath(input.dbSourcePath)
+  if (dbSourceScan.symlinks.length > 0) {
+    return {
+      ok: false,
+      error: `restored database source (${input.dbSourcePath}) is reached through symbolic link component(s) (${dbSourceScan.symlinks.join(' → ')}) — refusing (fail-closed)`,
+    }
+  }
+
   for (const dir of [uploadsDir, evidenceDir, path.dirname(dbPath)]) {
     if (existsSync(dir)) {
       return { ok: false, error: `recovery layout destination already exists: ${dir} — recovery layouts are always fresh` }
     }
   }
-  const { readdir } = await import('node:fs/promises')
+
+  const writtenFiles: string[] = []
+  const createdDirs: string[] = []
+  const cleanup = async (reason: string): Promise<{ ok: false; error: string }> => {
+    const removed: string[] = []
+    const leftAlone: string[] = []
+    for (const f of [...writtenFiles].reverse()) {
+      const st = lstatSync(f, { throwIfNoEntry: false })
+      if (!st) continue
+      if (st.isSymbolicLink() || !st.isFile()) {
+        leftAlone.push(f)
+        continue
+      }
+      try {
+        await rm(f, { force: false })
+        removed.push(f)
+      } catch {
+        leftAlone.push(f)
+      }
+    }
+    // Deepest-first: a parent rmdir only succeeds once its children are gone.
+    for (const d of [...createdDirs].sort(
+      (a, b) => b.split(path.sep).length - a.split(path.sep).length || b.length - a.length,
+    )) {
+      await rmdir(d).catch(() => undefined) // succeeds only when empty
+    }
+    const note =
+      leftAlone.length > 0
+        ? `; ${leftAlone.length} written path(s) were no longer regular files and were left untouched`
+        : ''
+    return {
+      ok: false,
+      error: `${reason} (partial failure: ${removed.length} file(s) written by this call were removed; pre-existing files and directories were never deleted${note})`,
+    }
+  }
+
   await mkdir(uploadsDir, { recursive: true })
   await mkdir(evidenceDir, { recursive: true })
+  createdDirs.push(uploadsDir, evidenceDir, path.dirname(dbPath), input.recoveryAppRoot)
   try {
-    for (const name of await readdir(input.restoredUploadsDir)) {
-      await copyFile(path.join(input.restoredUploadsDir, name), path.join(uploadsDir, name))
+    for (const [label, srcDir, targetDir] of [
+      ['uploads', input.restoredUploadsDir, uploadsDir],
+      ['evidence', input.restoredEvidenceDir, evidenceDir],
+    ] as const) {
+      const entries = await readdir(srcDir, { withFileTypes: true })
+      for (const e of entries) {
+        if (e.isSymbolicLink()) {
+          return cleanup(
+            `unexpected symbolic link in restored ${label} storage: ${e.name} — restored upload/evidence storage must contain real files only; symlinks are never followed (fail-closed)`,
+          )
+        }
+        if (!e.isFile()) {
+          return cleanup(
+            `unexpected non-regular-file entry in restored ${label} storage: ${e.name} (${e.isDirectory() ? 'subdirectory' : 'special file'}) — the backup manifest models flat storage roots; refusing`,
+          )
+        }
+        const target = path.join(targetDir, e.name)
+        const pre = lstatSync(target, { throwIfNoEntry: false })
+        if (pre) {
+          return cleanup(`recovery destination appeared during layout population: ${target} — refusing (never overwrites)`)
+        }
+        await copyFile(path.join(srcDir, e.name), target)
+        const post = lstatSync(target, { throwIfNoEntry: false })
+        if (!post || post.isSymbolicLink() || !post.isFile()) {
+          return cleanup(`recovery destination ${target} is no longer the regular file this call wrote (suspected symlink swap) — refusing`)
+        }
+        writtenFiles.push(target)
+      }
     }
-    for (const name of await readdir(input.restoredEvidenceDir)) {
-      await copyFile(path.join(input.restoredEvidenceDir, name), path.join(evidenceDir, name))
-    }
+    const dbPre = lstatSync(dbPath, { throwIfNoEntry: false })
+    if (dbPre) return cleanup(`recovery destination appeared during layout population: ${dbPath} — refusing (never overwrites)`)
     await copyFile(input.dbSourcePath, dbPath)
+    const dbPost = lstatSync(dbPath, { throwIfNoEntry: false })
+    if (!dbPost || dbPost.isSymbolicLink() || !dbPost.isFile()) {
+      return cleanup(`recovery database destination ${dbPath} is no longer the regular file this call wrote (suspected symlink swap) — refusing`)
+    }
+    writtenFiles.push(dbPath)
   } catch (err) {
-    return { ok: false, error: `recovery layout population failed: ${err instanceof Error ? err.message : String(err)}` }
+    return cleanup(`recovery layout population failed: ${err instanceof Error ? err.message : String(err)}`)
   }
   return { ok: true, uploadsDir, evidenceDir, dbPath }
 }

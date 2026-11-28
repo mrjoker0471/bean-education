@@ -26,10 +26,11 @@
 
 import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { MANIFEST_SCHEMA, type BackupManifest } from './backup-core'
+import { scanPath } from './fs-boundary'
 
 export interface VerificationCheck {
   id: string
@@ -57,6 +58,20 @@ export function loadVerifiedManifest(restoredDir: string): ManifestLoad {
   const manifestPath = path.join(restoredDir, 'manifest.json')
   const sidecarPath = path.join(restoredDir, 'manifest.json.sha256')
   const base = { id: 'manifest', label: 'backup manifest present, schema-valid, sha sidecar matches' }
+  // OPS-2.1: the manifest and its sidecar must be REAL regular files — a
+  // symbolic link in a restored tree is never followed (verification must
+  // describe the bytes that were actually restored, not whatever a link
+  // points at).
+  for (const [name, p] of [['manifest.json', manifestPath], ['manifest.json.sha256', sidecarPath]] as const) {
+    const st = lstatSync(p, { throwIfNoEntry: false })
+    if (st?.isSymbolicLink()) {
+      return {
+        ok: false,
+        error: `restored ${name} is a symbolic link (${p}) — restored backup trees must contain real files; verification never follows symlinks`,
+        check: { ...base, ok: false, detail: `${name} is a symbolic link` },
+      }
+    }
+  }
   if (!existsSync(manifestPath)) {
     return {
       ok: false,
@@ -223,9 +238,30 @@ export async function verifyRestoredFiles(restoredDir: string, manifest: BackupM
   ]
   for (const group of groups) {
     for (const entry of group.entries) {
+      // OPS-2.1: manifest names are untrusted JSON — a name that is not a
+      // plain basename (traversal, nested path, '.') must never be joined
+      // onto the restored directory: it would read OUTSIDE the restored tree.
+      if (
+        entry.name.length === 0 ||
+        entry.name !== path.basename(entry.name) ||
+        entry.name === '.' ||
+        entry.name === '..' ||
+        entry.name.includes('/') ||
+        entry.name.includes('\\')
+      ) {
+        corrupted.push(`${group.label}/${entry.name} (manifest entry is not a plain basename — traversal refused)`)
+        continue
+      }
       const p = path.join(group.dir, entry.name)
-      if (!existsSync(p)) {
+      // OPS-2.1: lstat — a symbolic link in the restored tree is never
+      // followed; its bytes would not be the bytes that were restored.
+      const st = lstatSync(p, { throwIfNoEntry: false })
+      if (!st) {
         missing.push(`${group.label}/${entry.name}`)
+        continue
+      }
+      if (st.isSymbolicLink()) {
+        corrupted.push(`${group.label}/${entry.name} (symbolic link in restored storage — never followed, fail-closed)`)
         continue
       }
       const bytes = await readFile(p)
@@ -310,26 +346,44 @@ export function verifyDatabaseReferences(dbPath: string, manifest: BackupManifes
 /**
  * A restore target must be new/empty, and must never overlap the live data
  * roots. This is what makes the drill incapable of clobbering a live system.
+ *
+ * OPS-2.1: the overlap comparison is FILESYSTEM-REAL, not lexical — every
+ * existing component of the target path is lstat-checked and the longest
+ * existing prefix is realpath-resolved, so a target (or an ancestor of it)
+ * that is a symbolic link pointing into a protected root is refused even
+ * though the lexical path looks disjoint. A symlinked target leaf is refused
+ * outright (restore destinations must be real directories, never links), and
+ * the restored database file location is additionally checked for real-file
+ * semantics by the caller via the db-location guard in verifyRestoredBackup.
  */
 export function assertSafeRestoreTarget(
   targetDir: string,
   sourceRoots: string[],
 ): { ok: true } | { ok: false; error: string } {
   const resolved = path.resolve(targetDir)
-  for (const root of sourceRoots) {
-    const r = path.resolve(root)
-    if (resolved === r || resolved.startsWith(r + path.sep)) {
-      return { ok: false, error: `restore target must never overlap live data roots (${r})` }
+  // OPS-2.1: any existing symbolic-link component (leaf or ancestor) refuses.
+  const scan = scanPath(resolved)
+  if (scan.symlinks.length > 0) {
+    return {
+      ok: false,
+      error:
+        `restore target (${resolved}) traverses ${scan.symlinks.length} symbolic link component(s) ` +
+        `(${scan.symlinks.join(' → ')}) — restore destinations must be real filesystem locations, ` +
+        'never reached through symlinks; refusing (fail-closed)',
     }
   }
-  if (existsSync(resolved)) {
-    let isDir = false
-    try {
-      isDir = statSync(resolved).isDirectory()
-    } catch {
-      isDir = false
+  for (const root of sourceRoots) {
+    // Compare ACTUAL locations on both sides (the protected root may itself be
+    // reached through its own path components).
+    const rActual = scanPath(path.resolve(root)).actual
+    const overlaps = scan.actual === rActual || scan.actual.startsWith(rActual + path.sep) || rActual.startsWith(scan.actual + path.sep)
+    if (overlaps) {
+      return { ok: false, error: `restore target must never overlap live data roots (${rActual})` }
     }
-    if (!isDir) return { ok: false, error: `restore target exists and is not a directory: ${resolved}` }
+  }
+  const st = lstatSync(resolved, { throwIfNoEntry: false })
+  if (st) {
+    if (!st.isDirectory()) return { ok: false, error: `restore target exists and is not a directory: ${resolved}` }
     const entries = readdirSync(resolved)
     if (entries.length > 0) {
       return {
@@ -359,6 +413,48 @@ export async function verifyRestoredBackup(restoredDir: string, opts: VerifyRest
   }
   const manifest = manifestLoad.manifest
   const dbPath = path.join(restoredDir, manifest.database.file)
+
+  // OPS-2.1 db-location guard: the manifest's database.file is untrusted JSON.
+  // It must name a plain filename INSIDE the restored tree (lexical traversal
+  // refused), must lstat as a REAL regular file (a symlinked restored database
+  // — e.g. an alias to a LIVE database — is refused; verification would
+  // otherwise describe the wrong bytes), and must not be reached through
+  // symlinked components. Everything downstream (integrity, foreign keys,
+  // migration history, DB→file references, the portability proofs) opens this
+  // path only after this guard passes.
+  {
+    const base = { id: 'db-location', label: 'restored database path is inside the restored tree and is a real file' }
+    const name = manifest.database.file
+    // The value may be a nested RELATIVE path (the documented layout is
+    // `data/database/custom.db`) but must never escape the restored tree:
+    // absolute paths, '..' segments and drive-absolute forms are refused, and
+    // the lexical join must stay inside restoredDir.
+    const relativeSafe =
+      typeof name === 'string' &&
+      name.length > 0 &&
+      !path.isAbsolute(name) &&
+      !name.split(/[\\/]/).includes('..') &&
+      path.resolve(restoredDir, name).startsWith(path.resolve(restoredDir) + path.sep)
+    if (!relativeSafe) {
+      checks.push({ ...base, ok: false, detail: `manifest database.file does not stay inside the restored tree: ${JSON.stringify(String(name))} — traversal refused` })
+      return { ok: false, checks }
+    }
+    const st = lstatSync(dbPath, { throwIfNoEntry: false })
+    if (!st) {
+      checks.push({ ...base, ok: false, detail: 'restored database file is missing' })
+      return { ok: false, checks }
+    }
+    if (st.isSymbolicLink()) {
+      checks.push({ ...base, ok: false, detail: `restored database (${dbPath}) is a symbolic link — possible alias to another database; never followed, fail-closed` })
+      return { ok: false, checks }
+    }
+    const scan = scanPath(dbPath)
+    if (scan.symlinks.length > 0) {
+      checks.push({ ...base, ok: false, detail: `restored database path traverses symbolic link component(s) (${scan.symlinks.join(' → ')}) — refusing` })
+      return { ok: false, checks }
+    }
+    checks.push({ ...base, ok: true, detail: `${name} is a real file inside the restored tree` })
+  }
 
   // V2/V3
   try {
