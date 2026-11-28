@@ -10,18 +10,28 @@
 ```bash
 bun install
 cp .env.example .env        # then fill values (DATABASE_URL points at ./db/custom.db)
-bun run db:push             # apply prisma schema (uses db push; see caveats)
-bun run db:seed             # idempotent catalogue seed (safe to re-run)
+bun run db:generate         # generate the Prisma client
+bun run db:deploy           # apply the FULL migration chain (prisma migrate deploy)
+bun prisma/seed.ts          # idempotent catalogue seed (safe to re-run; no users are created)
 bun run dev                 # start dev server (background: logs go to dev.log)
 ```
+
+The server starts the durable-queue workers eagerly at boot (src/instrumentation.ts) and
+exposes real readiness at `GET /api/healthz` (database probe + worker-loop registration).
+Schema deployment uses `prisma migrate deploy` — never `prisma db push`.
 
 ## Verification
 
 ```bash
 bun run lint                # ESLint
+bun x tsc --noEmit          # TypeScript
+bun test --isolate          # unit tests (file isolation, same as CI)
+bun run build               # production standalone build
 ```
 
-There is no unit-test runner yet (see roadmap). Feature verification today uses the live dev server plus the E2E scripts in `scripts/e2e-*.ts` (they require the dev server on :3000). E2E fixture PDFs live in `upload/` (local-only, never committed).
+Feature verification additionally uses the live dev server plus the E2E scripts in
+`scripts/e2e-*.ts` (they require the dev server on :3000). E2E fixture PDFs live in
+`upload/` (local-only, never committed).
 
 ## Environment variables
 

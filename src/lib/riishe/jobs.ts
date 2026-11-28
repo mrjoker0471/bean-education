@@ -20,6 +20,7 @@
 
 import { db } from '@/lib/db'
 import { safeParse } from '@/lib/serialize'
+import type { WorkerLoopLiveness } from '@/lib/worker-liveness'
 import { processDocument } from './pipeline'
 import { generateTestJob } from './generate'
 import { explainAttemptJob } from './explain'
@@ -115,13 +116,13 @@ export async function cancelJob(kind: JobKind, refId: string): Promise<boolean> 
 // ─── Worker loop ───────────────────────────────────────────────────────────────
 
 const workerG = globalThis as unknown as {
-  __riisheWorker?: { busy: boolean; timer: NodeJS.Timeout; lastPurge: number }
+  __riisheWorker?: { busy: boolean; timer: NodeJS.Timeout; lastPurge: number; lastTickAt: number | null }
 }
 
 /** Start the singleton worker loop (idempotent, survives module reloads). */
 export function ensureWorker(): void {
   if (workerG.__riisheWorker) return
-  const state = { busy: false, timer: undefined as unknown as NodeJS.Timeout, lastPurge: 0 }
+  const state = { busy: false, timer: undefined as unknown as NodeJS.Timeout, lastPurge: 0, lastTickAt: null as number | null }
   state.timer = setInterval(() => {
     void tick().catch(err => console.error('[riishe worker tick]', err))
   }, POLL_MS)
@@ -129,10 +130,27 @@ export function ensureWorker(): void {
   workerG.__riisheWorker = state
 }
 
+/** Test hook: stop the loop (mirrors stopCiWorkerForTests/stopFleetWorkerForTests). */
+export function stopRiisheWorkerForTests(): void {
+  const state = workerG.__riisheWorker
+  if (state) {
+    clearInterval(state.timer)
+    workerG.__riisheWorker = undefined
+  }
+}
+
+/** Read-only liveness of this module's own worker loop (the registration
+ *  authority — health reporting reads this, never a second registry). */
+export function riisheWorkerLiveness(): WorkerLoopLiveness {
+  const state = workerG.__riisheWorker
+  return { registered: !!state, lastTickAt: state?.lastTickAt ?? null }
+}
+
 async function tick(): Promise<void> {
   const state = workerG.__riisheWorker
   if (!state || state.busy) return
   state.busy = true
+  state.lastTickAt = Date.now()
   try {
     await recoverExpiredLeases()
     // Claim up to 2 jobs per tick; runJob runs in the background so one slow

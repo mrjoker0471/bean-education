@@ -23,6 +23,7 @@
 // attendance or live-session state. Classroom routes never wait on this pool.
 
 import { db } from '@/lib/db'
+import type { WorkerLoopLiveness } from '@/lib/worker-liveness'
 import { FLEET_TASK_STATUS, FLEET_TASK_ROLE, FLEET_LEASE_MS, FLEET_POLL_MS, FLEET_HEARTBEAT_MS, FLEET_MAX_ATTEMPTS, FLEET_BACKLOG_BACKPRESSURE, FLEET_WORKER_CONCURRENCY_DEFAULT, FLEET_WORKER_CONCURRENCY_MIN, FLEET_WORKER_CONCURRENCY_MAX } from './constants'
 import { validateFleetTaskOutput } from './contracts'
 import { resolveAgentId, type FleetAgentSpec } from './registry'
@@ -393,6 +394,7 @@ interface FleetWorkerState {
   timer: NodeJS.Timeout
   active: number
   concurrency: number
+  lastTickAt: number | null
 }
 
 const workerG = globalThis as unknown as { __fleetWorker?: FleetWorkerState }
@@ -410,6 +412,7 @@ function resolveConcurrency(): number {
 export async function fleetTick(): Promise<number> {
   const state = workerG.__fleetWorker
   const concurrency = state ? state.concurrency : resolveConcurrency()
+  if (state) state.lastTickAt = Date.now()
   await recoverExpiredFleetLeases()
   let started = 0
   const maxStarts = state ? Math.max(0, state.concurrency - state.active) : 1
@@ -452,12 +455,20 @@ export function ensureFleetWorker(): void {
     timer: undefined as unknown as NodeJS.Timeout,
     active: 0,
     concurrency: resolveConcurrency(),
+    lastTickAt: null,
   }
   state.timer = setInterval(() => {
     void fleetTick().catch((err) => console.error('[fleet worker tick]', err))
   }, FLEET_POLL_MS)
   state.timer.unref?.() // never hold the process open just for the pool
   workerG.__fleetWorker = state
+}
+
+/** Read-only liveness of this module's own worker pool (the registration
+ *  authority — health reporting reads this, never a second registry). */
+export function fleetWorkerLiveness(): WorkerLoopLiveness {
+  const state = workerG.__fleetWorker
+  return { registered: !!state, lastTickAt: state?.lastTickAt ?? null }
 }
 
 /** Test hook: stop the loop (tests drive claims directly). */

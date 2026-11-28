@@ -14,6 +14,7 @@
 //     granted. Withdrawal stops future evaluations immediately.
 
 import { db } from '@/lib/db'
+import type { WorkerLoopLiveness } from '@/lib/worker-liveness'
 import {
   CI_AGENT,
   CI_JOB_STATUS,
@@ -178,7 +179,7 @@ export async function enqueueEvaluation(opts: {
 
 // ─── Worker loop (singleton, idempotent across module reloads) ────────────────
 
-const workerG = globalThis as unknown as { __ciWorker?: { busy: boolean; timer: NodeJS.Timeout } }
+const workerG = globalThis as unknown as { __ciWorker?: { busy: boolean; timer: NodeJS.Timeout; lastTickAt: number | null } }
 
 /** Start the singleton worker loop. Safe to call repeatedly. */
 export function ensureCiWorker(): void {
@@ -187,12 +188,25 @@ export function ensureCiWorker(): void {
   // The Next.js server never sets NODE_ENV=test — the loop starts there as usual.
   if (process.env.NODE_ENV === 'test' && process.env.CI_ENABLE_WORKER !== '1') return
   if (workerG.__ciWorker) return
-  const state = { busy: false, timer: undefined as unknown as NodeJS.Timeout }
+  const state = { busy: false, timer: undefined as unknown as NodeJS.Timeout, lastTickAt: null as number | null }
   state.timer = setInterval(() => {
     void ciTick().catch((err) => console.error('[ci worker tick]', err))
   }, CI_POLL_MS)
   state.timer.unref?.() // never hold the process open just for the queue
   workerG.__ciWorker = state
+}
+
+/** Read-only liveness of this module's own worker loop (the registration
+ *  authority — health reporting reads this, never a second registry). */
+export function ciWorkerLiveness(): WorkerLoopLiveness {
+  const state = workerG.__ciWorker
+  return { registered: !!state, lastTickAt: state?.lastTickAt ?? null }
+}
+
+/** Test/observability hook: is the evaluation pipeline registered in this
+ *  process? (Mirrors the fleet module's fleetExecutorRegistered().) */
+export function ciEvaluationPipelineRegistered(): boolean {
+  return pipelineImpl !== null
 }
 
 /** Test hook: stop the loop (tests drive claims directly). */
@@ -208,6 +222,7 @@ async function ciTick(): Promise<void> {
   const state = workerG.__ciWorker
   if (!state || state.busy) return
   state.busy = true
+  state.lastTickAt = Date.now()
   try {
     await recoverExpiredCiLeases()
     const job = await claimNextCiJob()
