@@ -99,7 +99,10 @@ export async function GET(req: NextRequest) {
       db.careerOpportunity.findMany({
         where,
         include: { organization: true },
-        orderBy: { publishedAt: 'desc' },
+        // Stable pagination: publishedAt DESC remains the primary order, id ASC
+        // is the deterministic unique tiebreaker so records sharing an exact
+        // publishedAt can never reorder across pages. Nothing else changes.
+        orderBy: [{ publishedAt: 'desc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
