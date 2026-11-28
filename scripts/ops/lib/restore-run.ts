@@ -135,12 +135,23 @@ async function flipOneByte(p: string): Promise<void> {
   await writeFile(p, buf, { mode: 0o600 })
 }
 
-/** Byte-for-byte state of a flat uploads directory: sorted `name:sha256` pairs. */
+/**
+ * Byte-for-byte state of a flat uploads directory: sorted `name:sha256` pairs.
+ * OPS-2.1: enumerated with readdir(withFileTypes) — symbolic links and other
+ * non-regular entries are an explicit failure (never followed), so a swapped
+ * entry can never silently pass the preserve/restore byte comparison.
+ */
 async function snapshotUploadsDir(dir: string): Promise<string[]> {
-  const names = (await readdir(dir)).sort()
+  const entries = await readdir(dir, { withFileTypes: true })
   const out: string[] = []
-  for (const name of names) {
-    out.push(`${name}:${await sha256File(path.join(dir, name))}`)
+  for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    if (e.isSymbolicLink()) {
+      throw new Error(`unexpected symbolic link in the uploads directory state snapshot: ${path.join(dir, e.name)} — never followed (fail-closed)`)
+    }
+    if (!e.isFile()) {
+      throw new Error(`unexpected non-regular-file entry in the uploads directory state snapshot: ${path.join(dir, e.name)} — refusing`)
+    }
+    out.push(`${e.name}:${await sha256File(path.join(dir, e.name))}`)
   }
   return out
 }
@@ -509,6 +520,7 @@ export async function runRestoreDrill(input: RestoreDrillInput, adapter: ResticA
       dbSourcePath: restoredDbCopy,
       restoredUploadsDir,
       restoredEvidenceDir,
+      forbiddenRoots: remapForbidden, // OPS-2.1: real-filesystem disjointness for the recovery layout
     })
     if (!populated.ok) return fail('path-portability:remap', populated.error, true)
     const remapPlan = planUploadsRemap({
